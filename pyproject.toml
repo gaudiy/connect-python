@@ -1,0 +1,7 @@
+[project]
+name = "connect-python"
+version = "0.0.1"
+description = "The Python implementation of Connect: Protobuf RPC that works."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []

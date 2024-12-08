@@ -3,5 +3,11 @@
 
 * text=auto eol=lf
 
+# Go
+*.go -text diff=golang
 go.sum       linguist-vendored
 go.work.sum  linguist-vendored
+
+# Python
+*.py -text diff=python
+uv.lock      linguist-language=yaml linguist-vendored

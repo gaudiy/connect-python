@@ -1,5 +1,5 @@
 [build-system]
-requires = [ "hatchling" ]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,36 +7,31 @@ name = "connect-python"
 description = "The Python implementation of Connect: Protobuf RPC that works."
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [
- { name = "zchee" },
-]
+authors = [{ name = "zchee" }]
 requires-python = ">=3.13"
-dynamic = [ "version" ]
+dynamic = ["version"]
 dependencies = [
- "httpx[brotli,cli,http2,socks,zstd]>=0.28.1",
- "protobuf>=5.29.1",
+  "httpx[brotli,cli,http2,socks,zstd]>=0.28.1",
+  "protobuf>=5.29.1",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = [ "src/connect" ]
+packages = ["src/connect"]
 
 [tool.hatch.version]
 path = "src/connect/version.py"
 
 [tool.uv]
-dev-dependencies = [
- "mypy>=1.13.0",
- "ruff>=0.8.2",
-]
+dev-dependencies = ["mypy>=1.13.0", "pyright>=1.1.390", "ruff>=0.8.2"]
 
 [tool.ruff]
 line-length = 120
 
- [tool.ruff.lint]
- preview = true
+[tool.ruff.lint]
+preview = true
 
- # See https://docs.astral.sh/ruff/rules for more information.
- select = [
+# See https://docs.astral.sh/ruff/rules for more information.
+select = [
   "ARG",    # flake8-unused-arguments
   "B",      # flake8-bugbear
   "C4",     # flake8-comprehensions
@@ -54,9 +49,9 @@ line-length = 120
   "TID",    # flake8-tidy-imports
   "UP",     # pyupgrade
   "W",      # pycodestyle (Warning)
- ]
+]
 
- ignore = [
+ignore = [
   "N802", # Function name {name} should be lowercase
   "N805", # First argument of a method should be named self
 
@@ -77,10 +72,10 @@ line-length = 120
   "Q002",   # Single quote docstring found but double quotes preferred
   "Q003",   # Change outer quotes to avoid escaping inner quotes
   "W191",   # Indentation contains tabs
- ]
+]
 
- [tool.ruff.format]
- preview = true
+[tool.ruff.format]
+preview = true
 
 [tool.mypy]
 python_version = "3.13"
@@ -88,10 +83,10 @@ ignore_missing_imports = true
 check_untyped_defs = true
 strict = true
 disable_error_code = [
- "no-untyped-call", # Call to untyped function "xxx" in typed context
- "no-any-return",   # Returning Any from function declared to return "xxx"
- "misc",            # Class cannot subclass "xxx" (has type "Any")
- "unused-ignore",   # Unused "type: ignore" comment
+  "no-untyped-call", # Call to untyped function "xxx" in typed context
+  "no-any-return",   # Returning Any from function declared to return "xxx"
+  "misc",            # Class cannot subclass "xxx" (has type "Any")
+  "unused-ignore",   # Unused "type: ignore" comment
 ]
 
 [tool.pyright]

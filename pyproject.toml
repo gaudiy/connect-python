@@ -13,6 +13,7 @@ dynamic = [ "version" ]
 dependencies = [
   "httpx[brotli,cli,http2,socks,zstd]>=0.28.1",
   "protobuf>=5.29.1",
+  "types-protobuf>=5.29.1.20241207",
 ]
 
 [tool.hatch.build.targets.wheel]

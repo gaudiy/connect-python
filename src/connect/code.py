@@ -6,7 +6,9 @@ import enum
 
 @enum.unique
 class Code(enum.IntEnum):
-    """Connect represents categories of errors as codes, and each code maps to a
+    """Connect represents categories of errors as codes.
+
+    Connect represents categories of errors as codes, and each code maps to a
     specific HTTP status code.
     The codes and their semantics were chosen to match gRPC. Only the codes below are valid -
     there are no user-defined codes.
@@ -31,6 +33,7 @@ class Code(enum.IntEnum):
       INTERNAL: An invariant expected by the underlying system has been broken. Reserved for serious errors.
       UNAVAILABLE: The service is currently unavailable, usually transiently. Clients should back off and retry idempotent operations.
       DATA_LOSS: Unrecoverable data loss or corruption.
+
     """
 
     CANCELED = 1

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = [ "hatchling" ]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,16 +7,16 @@ name = "connect-python"
 description = "The Python implementation of Connect: Protobuf RPC that works."
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [{ name = "zchee" }]
+authors = [ { name = "zchee" } ]
 requires-python = ">=3.13"
-dynamic = ["version"]
+dynamic = [ "version" ]
 dependencies = [
   "httpx[brotli,cli,http2,socks,zstd]>=0.28.1",
   "protobuf>=5.29.1",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/connect"]
+packages = [ "src/connect" ]
 
 [tool.hatch.version]
 path = "src/connect/version.py"

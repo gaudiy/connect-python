@@ -13,6 +13,7 @@ dynamic = [ "version" ]
 dependencies = [
   "httpx[brotli,cli,http2,socks,zstd]>=0.28.1",
   "protobuf>=5.29.1",
+  "starlette>=0.42.0",
   "types-protobuf>=5.29.1.20241207",
 ]
 
@@ -26,6 +27,7 @@ path = "src/connect/version.py"
 dev-dependencies = [
   "mypy>=1.13.0",
   "pyright>=1.1.390",
+  "pytest>=8.3.4",
   "ruff>=0.8.2",
 ]
 

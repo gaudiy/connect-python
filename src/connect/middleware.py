@@ -1,6 +1,7 @@
 """Middleware for handling HTTP requests."""
 
 import json
+from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -17,7 +18,7 @@ async def hello_asgi(_request: Request) -> Response:
 class ConnectMiddleware:
     """Middleware for handling HTTP requests."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, _handle: Any) -> None:
         """Initialize the middleware with an ASGI application."""
         self.app = app
 

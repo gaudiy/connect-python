@@ -1,4 +1,4 @@
-"""Handerl module."""
+"""Handler module."""
 
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -10,8 +10,8 @@ from connect.response import ConnectResponse
 UnaryFunc = Callable[[ConnectRequest[Any]], Awaitable[ConnectResponse[Any]]]
 
 
-class UnaryHander:
-    """UnaryHander class."""
+class UnaryHandler:
+    """UnaryHandler class."""
 
     def __init__(self, procedure: str, unary: UnaryFunc, options: ConnectOptions | None):
         """Initialize the unary handler."""

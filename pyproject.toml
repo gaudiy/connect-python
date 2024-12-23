@@ -30,6 +30,9 @@ dev-dependencies = [
   "pyright>=1.1.390",
   "pytest>=8.3.4",
   "ruff>=0.8.2",
+  "grpcio==1.68.1",
+  "grpcio-tools==1.68.1",
+  "mypy-protobuf>=3.6.0",
 ]
 
 [tool.ruff]

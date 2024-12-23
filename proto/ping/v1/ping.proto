@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package ping.v1;
+
+option go_package = "ping/v1";
+option java_multiple_files = true;
+option java_outer_classname = "GingProto";
+option java_package = "ping.v1";
+
+/**
+ * PingService defines example RPCs.
+ */
+service PingService {
+  rpc Ping(PingRequest) returns (PingResponse) {}
+}
+
+// PingRequest request of Ping.
+message PingRequest {
+  string name = 1;
+}
+
+// PingResponse response of Ping.
+message PingResponse {
+  string name = 1;
+}

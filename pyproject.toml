@@ -30,7 +30,6 @@ dev-dependencies = [
   "pyright>=1.1.390",
   "pytest>=8.3.4",
   "ruff>=0.8.2",
-  "gaudiy-api-python@git+https://github.com/gaudiy/gaudiy-api-python@v0.1.1455",
 ]
 
 [tool.ruff]

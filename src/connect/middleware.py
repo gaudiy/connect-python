@@ -18,7 +18,7 @@ async def hello_asgi(_request: Request) -> Response:
 class ConnectMiddleware:
     """Middleware for handling HTTP requests."""
 
-    def __init__(self, app: ASGIApp, handle: Any) -> None:
+    def __init__(self, app: ASGIApp, _handle: Any) -> None:
         """Initialize the middleware with an ASGI application."""
         self.app = app
 

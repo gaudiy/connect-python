@@ -115,7 +115,7 @@ wheels = [
 [[package]]
 name = "connect-python"
 version = "0.0.1"
-source = { git = "https://github.com/gaudiy/connect-python?rev=init-middleware#5cf2ffbf96283cd648486a0a1fbf8983125eb11a" }
+source = { git = "https://github.com/gaudiy/connect-python?rev=main#87e7bf4e2139f7a607441929d0f14bce053ff807" }
 dependencies = [
     { name = "httpx", extra = ["brotli", "cli", "http2", "socks", "zstd"] },
     { name = "protobuf" },
@@ -142,7 +142,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "connect-python", git = "https://github.com/gaudiy/connect-python?rev=init-middleware" },
+    { name = "connect-python", git = "https://github.com/gaudiy/connect-python?rev=main" },
     { name = "gaudiy-api-python", git = "https://github.com/gaudiy/gaudiy-api-python?rev=v0.1.1455" },
 ]
 

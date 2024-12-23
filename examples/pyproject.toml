@@ -7,7 +7,7 @@ authors = [{ name = "zchee" }]
 requires-python = ">=3.13"
 version = "0.1.0"
 dependencies = [
-  "connect-python@git+https://github.com/gaudiy/connect-python@init-middleware",
+  "connect-python@git+https://github.com/gaudiy/connect-python@main",
   "gaudiy-api-python@git+https://github.com/gaudiy/gaudiy-api-python@v0.1.1455",
 ]
 

@@ -11,7 +11,6 @@ authors = [{ name = "zchee" }]
 requires-python = ">=3.13"
 dynamic = ["version"]
 dependencies = [
-  "httpx[brotli,cli,http2,socks,zstd]>=0.28.1",
   "protobuf>=5.29.1",
   "pydantic>=2.10.4",
   "starlette>=0.42.0",
@@ -30,7 +29,6 @@ dev-dependencies = [
   "pyright>=1.1.390",
   "pytest>=8.3.4",
   "ruff>=0.8.2",
-  "grpcio==1.68.1",
   "grpcio-tools==1.68.1",
   "mypy-protobuf>=3.6.0",
 ]

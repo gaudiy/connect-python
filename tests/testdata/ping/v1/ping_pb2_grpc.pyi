@@ -7,7 +7,7 @@ import abc
 import collections.abc
 import grpc
 import grpc.aio
-import ping.v1.ping_pb2
+import tests.testdata.ping.v1.ping_pb2
 import typing
 
 _T = typing.TypeVar("_T")
@@ -24,8 +24,8 @@ class PingServiceStub:
 
     def __init__(self, channel: typing.Union[grpc.Channel, grpc.aio.Channel]) -> None: ...
     Ping: grpc.UnaryUnaryMultiCallable[
-        ping.v1.ping_pb2.PingRequest,
-        ping.v1.ping_pb2.PingResponse,
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
     ]
 
 class PingServiceAsyncStub:
@@ -34,8 +34,8 @@ class PingServiceAsyncStub:
     """
 
     Ping: grpc.aio.UnaryUnaryMultiCallable[
-        ping.v1.ping_pb2.PingRequest,
-        ping.v1.ping_pb2.PingResponse,
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
     ]
 
 class PingServiceServicer(metaclass=abc.ABCMeta):
@@ -46,8 +46,8 @@ class PingServiceServicer(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def Ping(
         self,
-        request: ping.v1.ping_pb2.PingRequest,
+        request: tests.testdata.ping.v1.ping_pb2.PingRequest,
         context: _ServicerContext,
-    ) -> typing.Union[ping.v1.ping_pb2.PingResponse, collections.abc.Awaitable[ping.v1.ping_pb2.PingResponse]]: ...
+    ) -> typing.Union[tests.testdata.ping.v1.ping_pb2.PingResponse, collections.abc.Awaitable[tests.testdata.ping.v1.ping_pb2.PingResponse]]: ...
 
 def add_PingServiceServicer_to_server(servicer: PingServiceServicer, server: typing.Union[grpc.Server, grpc.aio.Server]) -> None: ...

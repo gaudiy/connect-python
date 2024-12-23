@@ -130,7 +130,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "connect-python" },
-    { name = "gaudiy-api-python" },
+    { name = "grpcio" },
 ]
 
 [package.dev-dependencies]
@@ -143,7 +143,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "connect-python", git = "https://github.com/gaudiy/connect-python?rev=main" },
-    { name = "gaudiy-api-python", git = "https://github.com/gaudiy/gaudiy-api-python?rev=v0.1.1455" },
+    { name = "grpcio", specifier = "==1.68.1" },
 ]
 
 [package.metadata.requires-dev]
@@ -151,15 +151,6 @@ dev = [
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "ruff", specifier = ">=0.8.2" },
-]
-
-[[package]]
-name = "gaudiy-api-python"
-version = "0.1.1455"
-source = { git = "https://github.com/gaudiy/gaudiy-api-python?rev=v0.1.1455#d30fe28dc7d976691621e51c98213a998f7e8f4b" }
-dependencies = [
-    { name = "grpcio" },
-    { name = "protobuf" },
 ]
 
 [[package]]

@@ -97,6 +97,7 @@ class StreamRequest:
         header: dict[Any, Any],
         context_values: ContextValues,
     ):
+        """Initialize the stream request."""
         self.stream = True
         self.message = message
         self.method = method

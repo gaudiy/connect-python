@@ -9,3 +9,9 @@ class UniversalHandlerOptions(BaseModel):
     """Options for the UniversalHandler class."""
 
     interceptors: list[Interceptor]
+
+
+class ConnectOptions(UniversalHandlerOptions):
+    """Options for the connect command."""
+
+    ...

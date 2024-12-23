@@ -5,14 +5,14 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
-from gaudiy.ping.v1 import ping_pb2
-from gen.connectrpc.ping.v1.ping_pb2 import PingRequest, PingResponse
-from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
-
 from connect.hander import UnaryHander
 from connect.options import ConnectOptions
 from connect.request import ConnectRequest
 from connect.response import ConnectResponse
+from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
+
+from gaudiy.ping.v1 import ping_pb2
+from gaudiy.ping.v1.ping_pb2 import PingRequest, PingResponse
 
 
 class PingServiceProcedures(Enum):

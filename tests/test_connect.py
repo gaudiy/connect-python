@@ -7,8 +7,8 @@ from .main import app
 client = TestClient(app)
 
 
-def test_get_root() -> None:
-    """Test the get_root function."""
-    response = client.get("/")
+def test_ping() -> None:
+    """Test the ping function."""
+    response = client.post("/gaudiy.ping.v1.PingService/Ping", json={"name": "test"})
     assert response.status_code == 200
-    assert response.text == '{"message": "Hello, ASGI!"}'
+    assert response.json() == {"name": "test"}

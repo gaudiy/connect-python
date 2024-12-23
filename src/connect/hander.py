@@ -1,13 +1,13 @@
 """Handerl module."""
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from connect.options import ConnectOptions
 from connect.request import ConnectRequest
 from connect.response import ConnectResponse
 
-UnaryFunc = Callable[[ConnectRequest[Any]], ConnectResponse[Any]]
+UnaryFunc = Callable[[ConnectRequest[Any]], Awaitable[ConnectResponse[Any]]]
 
 
 class UnaryHander:
@@ -15,8 +15,11 @@ class UnaryHander:
 
     def __init__(self, procedure: str, unary: UnaryFunc, options: ConnectOptions | None):
         """Initialize the unary handler."""
-        pass
+        self.procedure = procedure
+        self.unary = unary
+        self.options = options
 
-    def serve(self, **kwargs: Any) -> Any:
+    async def serve(self, request: dict[Any, Any], **kwargs: Any) -> ConnectResponse[Any]:
         """Serve the unary handler."""
-        pass
+        response = await self.unary(ConnectRequest(request, **kwargs))
+        return response

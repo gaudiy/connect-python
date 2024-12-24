@@ -12,7 +12,7 @@ def test_ping() -> None:
     """Test the ping function."""
     content = PingRequest(name="test").SerializeToString()
     response = client.post(
-        "/gaudiy.ping.v1.PingService/Ping", content=content, headers={"Content-Type": "application/proto"}
+        "/tests.testdata.ping.v1.PingService/Ping", content=content, headers={"Content-Type": "application/proto"}
     )
     assert response.status_code == 200
     ping_response = PingResponse()

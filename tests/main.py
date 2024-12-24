@@ -15,8 +15,7 @@ class PingService(PingServiceHandler):
 
     async def Ping(self, request: ConnectRequest[PingRequest]) -> ConnectResponse[PingResponse]:
         """Return a ping response."""
-        data = request.parse(PingRequest())
-        # bodyはbytes型
+        data = request.message
         return ConnectResponse(PingResponse(name=data.name))
 
 

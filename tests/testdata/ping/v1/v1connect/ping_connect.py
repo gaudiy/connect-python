@@ -5,7 +5,6 @@ from collections.abc import Callable, Coroutine
 from enum import Enum
 from typing import Any
 
-import google.protobuf.message
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from connect.handler import UnaryHandler
@@ -36,15 +35,17 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
 
 def add_PingService_to_handler(
     handler: PingServiceHandler, options: ConnectOptions | None = None
-) -> Callable[..., Coroutine[Any, Any, ConnectResponse[google.protobuf.message.Message]]]:
+) -> Callable[..., Coroutine[Any, Any, bytes]]:
     """Add the ping service to the handler."""
-    pingServicePing_handler = UnaryHandler(PingServiceProcedures.Ping.value, handler.Ping, options)
+    pingServicePing_handler = UnaryHandler(
+        PingServiceProcedures.Ping.value, handler.Ping, PingRequest, PingResponse, options
+    )
 
-    async def handle(path: str, request: dict[Any, Any], **kwargs: Any) -> ConnectResponse[Any]:
+    async def handle(path: str, request: dict[Any, Any], **kwargs: Any) -> bytes:
         match path:
             case PingServiceProcedures.Ping.value:
                 return await pingServicePing_handler.serve(request, **kwargs)
             case _:
-                return ConnectResponse(None)
+                raise NotImplementedError(f"Path {path} not implemented")
 
     return handle

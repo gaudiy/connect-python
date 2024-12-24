@@ -4,13 +4,12 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, TypeVar
 
 from starlette.requests import Request
+from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
-
-from connect.response import ConnectResponse
 
 T = TypeVar("T")
 Kwargs = Mapping[str, Any]
-HandleFunc = Callable[[str, Kwargs], Awaitable[ConnectResponse[Any]]]
+HandleFunc = Callable[[str, Kwargs], Awaitable[bytes]]
 
 
 class ConnectMiddleware:
@@ -28,16 +27,18 @@ class ConnectMiddleware:
         """Handle an ASGI scope."""
         if scope["type"] == "http":
             path = scope["path"]
-            request = await Request(scope, receive).body()
-            connect_response = await self.handle(
+            request = Request(scope, receive)
+            body = await request.body()
+            res_bytes = await self.handle(
                 path,
                 {
-                    "body": request,
-                    "headers": dict(scope["headers"]),
-                    "query": dict(scope["query_string"]),
+                    "body": body,
+                    "headers": request.headers,
                 },
             )
-            response = connect_response.to_response()
+            response = Response(
+                res_bytes, media_type=request.headers.get("content-type", "application/json"), status_code=200
+            )
             await response(scope, receive, send)
         else:
             await self.app(scope, receive, send)

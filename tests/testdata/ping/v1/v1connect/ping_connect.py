@@ -9,7 +9,7 @@ from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from connect.handler import UnaryHandler
 from connect.options import ConnectOptions
-from connect.request import ConnectRequest
+from connect.request import ConnectRequest, Request
 from connect.response import ConnectResponse
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -41,10 +41,11 @@ def add_PingService_to_handler(
         PingServiceProcedures.Ping.value, handler.Ping, PingRequest, PingResponse, options
     )
 
-    async def handle(path: str, request: dict[Any, Any], **kwargs: Any) -> bytes:
+    async def handle(request: Request) -> bytes:
+        path = request.url.path
         match path:
             case PingServiceProcedures.Ping.value:
-                return await pingServicePing_handler.serve(request, **kwargs)
+                return await pingServicePing_handler.serve(request)
             case _:
                 raise NotImplementedError(f"Path {path} not implemented")
 

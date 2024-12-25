@@ -16,14 +16,15 @@ class ConnectRequest(Generic[Req]):
         self.message = message
 
     @classmethod
-    def from_request(cls, message: type[Req], request: dict[Any, Any]) -> "ConnectRequest[Req]":
+    async def from_request(cls, message: type[Req], request: Request) -> "ConnectRequest[Req]":
         """Create a request from a Starlette request."""
-        content_type = request.get("headers", {}).get("content-type")
+        content_type = request.headers.get("content-type")
         if content_type == "application/json":
             raise ValueError("Unsupported content type: application/json")
         elif content_type == "application/proto":
             data = message()
-            data.ParseFromString(request.get("body", b""))
+            body = await request.body()
+            data.ParseFromString(body)
             return cls(data)
         else:
             raise ValueError(f"Unsupported content type: {content_type}")

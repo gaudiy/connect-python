@@ -7,7 +7,7 @@ from connect.connect import Spec, StreamType
 from connect.options import ConnectOptions
 from connect.protocol import HttpMethod, ProtocolHandler, ProtocolHandlerParams, mapped_method_handlers
 from connect.protocol_connect import ProtocolConnect
-from connect.request import ConnectRequest, Req
+from connect.request import ConnectRequest, Req, Request
 from connect.response import ConnectResponse, Res
 
 UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
@@ -57,8 +57,9 @@ class UnaryHandler:
         config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
         self.protocol_handlers = mapped_method_handlers(config.protocol_handlers())
 
-    async def serve(self, request: dict[Any, Any], **kwargs: Any) -> bytes:  # noqa: ARG002
+    async def serve(self, request: Request) -> bytes:
         """Serve the unary handler."""
-        response = await self.unary(ConnectRequest.from_request(self.input, request))
-        res_bytes = response.encode(content_type=request.get("headers", {}).get("content-type", "application/json"))
+        connect_request = await ConnectRequest.from_request(self.input, request)
+        response = await self.unary(connect_request)
+        res_bytes = response.encode(content_type=request.headers.get("content-type"))
         return res_bytes

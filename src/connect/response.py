@@ -17,7 +17,7 @@ class ConnectResponse(Generic[Res]):
         """Initialize the response with a message."""
         self.message = message
 
-    def encode(self, content_type: str) -> bytes:
+    def encode(self, content_type: str | None) -> bytes:
         """Encode the response into a byte string."""
         if content_type == "application/json":
             raise ValueError("Unsupported content type: application/json")

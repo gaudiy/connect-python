@@ -1,7 +1,7 @@
 """Module provides the implementation for the ping service."""
 
 import abc
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from enum import Enum
 from typing import Any
 
@@ -35,13 +35,13 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
 
 def add_PingService_to_handler(
     handler: PingServiceHandler, options: ConnectOptions | None = None
-) -> Callable[..., Coroutine[Any, Any, bytes]]:
+) -> Callable[..., Coroutine[Any, Any, tuple[bytes, Mapping[str, str]]]]:
     """Add the ping service to the handler."""
     pingServicePing_handler = UnaryHandler(
         PingServiceProcedures.Ping.value, handler.Ping, PingRequest, PingResponse, options
     )
 
-    async def handle(request: Request) -> bytes:
+    async def handle(request: Request) -> tuple[bytes, Mapping[str, str]]:
         path = request.url.path
         match path:
             case PingServiceProcedures.Ping.value:

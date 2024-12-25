@@ -9,7 +9,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 T = TypeVar("T")
 Kwargs = Mapping[str, Any]
-HandleFunc = Callable[[Request], Awaitable[bytes]]
+HandleFunc = Callable[[Request], Awaitable[tuple[bytes, Mapping[str, str]]]]
 
 
 class ConnectMiddleware:
@@ -27,10 +27,8 @@ class ConnectMiddleware:
         """Handle an ASGI scope."""
         if scope["type"] == "http":
             request = Request(scope, receive)
-            res_bytes = await self.handle(request)
-            response = Response(
-                res_bytes, media_type=request.headers.get("content-type", "application/json"), status_code=200
-            )
+            res_bytes, headers = await self.handle(request)
+            response = Response(content=res_bytes, headers=headers, status_code=200)
             await response(scope, receive, send)
         else:
             await self.app(scope, receive, send)

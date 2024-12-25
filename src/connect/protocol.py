@@ -1,9 +1,14 @@
 import abc
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
+from connect.codec import ReadOnlyCodecs
 from connect.connect import Spec
+from connect.request import Request
+
+HEADER_CONTENT_TYPE = "content-type"
+HEADER_HOST = "host"
 
 
 class HttpMethod(Enum):
@@ -19,7 +24,11 @@ class HttpMethod(Enum):
 class ProtocolHandlerParams(BaseModel):
     """ProtocolHandlerParams class."""
 
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
     spec: Spec
+    codecs: ReadOnlyCodecs
 
 
 class ProtocolHandler(abc.ABC):
@@ -33,7 +42,7 @@ class ProtocolHandler(abc.ABC):
     def content_types(self) -> None:
         pass
 
-    def can_handle_payload(self) -> bool:
+    def can_handle_payload(self, request: Request, content_type: str) -> bool:
         raise NotImplementedError
 
 

@@ -1,0 +1,2 @@
+COMPRESSION_GZIP = "gzip"
+COMPRESSION_IDENTITY = "identity"

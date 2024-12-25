@@ -100,6 +100,7 @@ disable_error_code = [
   "misc",            # Class cannot subclass "xxx" (has type "Any")
   "unused-ignore",   # Unused "type: ignore" comment
 ]
+enable_incomplete_feature = "NewGenericSyntax"
 
 [tool.pyright]
 pythonVersion = "3.13"

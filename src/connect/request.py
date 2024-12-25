@@ -5,7 +5,7 @@ from typing import Any, Generic, TypeVar
 import google.protobuf.message
 from starlette.requests import Request as Request
 
-Req = TypeVar("Req", bound=google.protobuf.message.Message)
+Req = TypeVar("Req")
 
 
 class ConnectRequest(Generic[Req]):
@@ -24,7 +24,8 @@ class ConnectRequest(Generic[Req]):
         elif content_type == "application/proto":
             data = message()
             body = await request.body()
-            data.ParseFromString(body)
+            if isinstance(data, google.protobuf.message.Message):
+                data.ParseFromString(body)
             return cls(data)
         else:
             raise ValueError(f"Unsupported content type: {content_type}")

@@ -42,8 +42,13 @@ class ProtocolHandler(abc.ABC):
     def content_types(self) -> None:
         pass
 
+    @abc.abstractmethod
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
         raise NotImplementedError
+
+    @abc.abstractmethod
+    async def conn(self, request: Request) -> None:
+        pass
 
 
 class Protocol(abc.ABC):

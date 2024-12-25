@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from connect.codec import Codec, CodecMap, ProtoBinaryCodec
-from connect.connect import Spec, StreamType
+from connect.connect import Spec, StreamingHandlerConn, StreamType
 from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_TYPE,
@@ -51,6 +51,7 @@ class UnaryHandler:
     """UnaryHandler class."""
 
     protocol_handlers: dict[HttpMethod, list[ProtocolHandler]]
+    implementation: Callable[[StreamingHandlerConn], None]
 
     def __init__(
         self,
@@ -70,6 +71,11 @@ class UnaryHandler:
         config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
         self.protocol_handlers = mapped_method_handlers(config.protocol_handlers())
 
+        def implementation(conn: StreamingHandlerConn) -> None:
+            pass
+
+        self.implementation = implementation
+
     async def serve(self, request: Request) -> tuple[bytes, Mapping[str, str]]:
         """Serve the unary handler."""
         headers = request.headers.mutablecopy()
@@ -88,6 +94,8 @@ class UnaryHandler:
         if not protocol_handler:
             # TODO(tsubakiky): Add error handling
             raise NotImplementedError(f"Content type {content_type} not implemented")
+
+        await protocol_handler.conn(request)
 
         connect_request = await ConnectRequest.from_request(self.input, request)
         response = await self.unary(connect_request)

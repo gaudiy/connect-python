@@ -17,19 +17,19 @@ class UnaryHandler:
         self,
         procedure: str,
         unary: UnaryFunc[Req, Res],
-        request_message: type[Req],
-        response_message: type[Res],
+        input: type[Req],
+        output: type[Res],
         options: ConnectOptions | None,
     ):
         """Initialize the unary handler."""
         self.procedure = procedure
         self.unary = unary
-        self.request_message = request_message
-        self.response_message = response_message
+        self.input = input
+        self.output = output
         self.options = options
 
     async def serve(self, request: dict[Any, Any], **kwargs: Any) -> bytes:  # noqa: ARG002
         """Serve the unary handler."""
-        response = await self.unary(ConnectRequest.from_request(self.request_message, request))
+        response = await self.unary(ConnectRequest.from_request(self.input, request))
         res_bytes = response.encode(content_type=request.get("headers", {}).get("content-type", "application/json"))
         return res_bytes

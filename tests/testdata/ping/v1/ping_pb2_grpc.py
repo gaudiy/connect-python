@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from ping.v1 import ping_pb2 as ping_dot_v1_dot_ping__pb2
+from tests.testdata.ping.v1 import ping_pb2 as tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2
 
 GRPC_GENERATED_VERSION = '1.68.1'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in ping/v1/ping_pb2_grpc.py depends on'
+        + f' but the generated code in tests/testdata/ping/v1/ping_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -37,9 +37,9 @@ class PingServiceStub(object):
             channel: A grpc.Channel.
         """
         self.Ping = channel.unary_unary(
-                '/ping.v1.PingService/Ping',
-                request_serializer=ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
-                response_deserializer=ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+                '/tests.testdata.ping.v1.PingService/Ping',
+                request_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+                response_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
                 _registered_method=True)
 
 
@@ -59,14 +59,14 @@ def add_PingServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
-                    request_deserializer=ping_dot_v1_dot_ping__pb2.PingRequest.FromString,
-                    response_serializer=ping_dot_v1_dot_ping__pb2.PingResponse.SerializeToString,
+                    request_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.FromString,
+                    response_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'ping.v1.PingService', rpc_method_handlers)
+            'tests.testdata.ping.v1.PingService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('ping.v1.PingService', rpc_method_handlers)
+    server.add_registered_method_handlers('tests.testdata.ping.v1.PingService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -89,9 +89,9 @@ class PingService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/ping.v1.PingService/Ping',
-            ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
-            ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+            '/tests.testdata.ping.v1.PingService/Ping',
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
             options,
             channel_credentials,
             insecure,

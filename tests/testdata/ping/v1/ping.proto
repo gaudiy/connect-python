@@ -1,11 +1,13 @@
 syntax = "proto3";
 
-package ping.v1;
+package tests.testdata.ping.v1;
 
-option go_package = "ping/v1";
+option cc_enable_arenas = true;
+option go_package = "tests/testdata/ping/v1";
 option java_multiple_files = true;
-option java_outer_classname = "GingProto";
+option java_outer_classname = "PingProto";
 option java_package = "ping.v1";
+option objc_class_prefix = "PP";
 
 /**
  * PingService defines example RPCs.

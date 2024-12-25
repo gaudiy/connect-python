@@ -3,15 +3,41 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from connect.connect import Spec, StreamType
 from connect.options import ConnectOptions
+from connect.protocol import HttpMethod, ProtocolHandler, ProtocolHandlerParams, mapped_method_handlers
+from connect.protocol_connect import ProtocolConnect
 from connect.request import ConnectRequest, Req
 from connect.response import ConnectResponse, Res
 
 UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 
 
+class HandlerConfig:
+    procedure: str
+    stream_type: StreamType
+
+    def __init__(self, procedure: str, stream_type: StreamType, options: Any | None = None):
+        self.procedure = procedure
+        self.stream_type = stream_type
+
+    def spec(self) -> Spec:
+        return Spec(stream_type=self.stream_type)
+
+    def protocol_handlers(self) -> list[ProtocolHandler]:
+        protocols = [ProtocolConnect()]
+
+        handlers: list[ProtocolHandler] = []
+        for protocol in protocols:
+            handlers.append(protocol.handler(params=ProtocolHandlerParams(spec=self.spec())))
+
+        return handlers
+
+
 class UnaryHandler:
     """UnaryHandler class."""
+
+    protocol_handlers: dict[HttpMethod, list[ProtocolHandler]]
 
     def __init__(
         self,
@@ -27,6 +53,9 @@ class UnaryHandler:
         self.input = input
         self.output = output
         self.options = options
+
+        config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
+        self.protocol_handlers = mapped_method_handlers(config.protocol_handlers())
 
     async def serve(self, request: dict[Any, Any], **kwargs: Any) -> bytes:  # noqa: ARG002
         """Serve the unary handler."""

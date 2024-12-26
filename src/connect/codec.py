@@ -33,11 +33,10 @@ class ProtoBinaryCodec(Codec):
         return CodecNameType.PROTO
 
     def marshal(self, message: Any) -> bytes:
-        obj = message()
-        if not isinstance(obj, google.protobuf.message.Message):
+        if not isinstance(message, google.protobuf.message.Message):
             raise ValueError("Data is not a protobuf message")
 
-        return obj.SerializeToString()
+        return message.SerializeToString()
 
     def unmarshal(self, data: bytes, message: Any) -> Any:
         obj = message()

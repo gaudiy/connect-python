@@ -1,7 +1,7 @@
 from typing import Any
 
 from connect.codec import Codec
-from connect.connect import StreamType
+from connect.connect import Spec, StreamingHandlerConn, StreamType
 from connect.protocol import HttpMethod, Protocol, ProtocolHandler, ProtocolHandlerParams
 from connect.request import Request
 
@@ -44,7 +44,7 @@ class ConnectHandler(ProtocolHandler):
 
         return content_type in self.accept
 
-    async def conn(self, request: Request) -> None:
+    async def conn(self, request: Request) -> StreamingHandlerConn:
         query = request.url.query
         if self.params.spec.stream_type == StreamType.Unary:
             if HttpMethod(request.method) == HttpMethod.GET:
@@ -56,6 +56,7 @@ class ConnectHandler(ProtocolHandler):
             accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, "")
         # TODO(tsubakiky): Add validations
 
+        request_body: bytes
         if HttpMethod(request.method) == HttpMethod.GET:
             pass
         else:
@@ -65,11 +66,14 @@ class ConnectHandler(ProtocolHandler):
 
         codec = self.params.codecs.get(codec_name)
         if self.params.spec.stream_type == StreamType.Unary:
-            pass
+            conn = ConnectUnaryHandlerConn(
+                marshaler=ConnectMarshaler(codec=codec), unmarshaler=ConnectUnmarshaler(body=request_body, codec=codec)
+            )
         else:
             # TODO(tsubakiky): Add streaming support
             pass
-        pass
+
+        return conn
 
 
 class ProtocolConnect(Protocol):
@@ -98,9 +102,54 @@ class ProtocolConnect(Protocol):
 
 class ConnectUnmarshaler:
     codec: Codec
+    body: bytes
+
+    def __init__(self, body: bytes, codec: Codec) -> None:
+        self.body = body
+        self.codec = codec
+
+    def unmarshal(self, message: Any) -> Any:
+        obj = self.codec.unmarshal(self.body, message)
+        return obj
+
+
+class ConnectMarshaler:
+    codec: Codec
 
     def __init__(self, codec: Codec) -> None:
         self.codec = codec
 
-    def unmarshal(self, message: Any) -> None:
+    def marshal(self, message: Any) -> bytes:
+        return self.codec.marshal(message)
+
+
+class ConnectUnaryHandlerConn(StreamingHandlerConn):
+    marshaler: ConnectMarshaler
+    unmarshaler: ConnectUnmarshaler
+
+    def __init__(self, marshaler: ConnectMarshaler, unmarshaler: ConnectUnmarshaler) -> None:
+        self.marshaler = marshaler
+        self.unmarshaler = unmarshaler
+
+    def spec(self) -> Spec:
+        raise NotImplementedError
+
+    def peer(self) -> Any:
+        raise NotImplementedError
+
+    def receive(self, message: Any) -> Any:
+        obj = self.unmarshaler.unmarshal(message)
+        return obj
+
+    def request_header(self) -> Any:
+        pass
+
+    def send(self, message: Any) -> bytes:
+        data = self.marshaler.marshal(message)
+        return data
+
+    def response_header(self) -> Any:
+        pass
+
+    def response_trailer(self) -> Any:
         pass

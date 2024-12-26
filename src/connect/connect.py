@@ -32,7 +32,7 @@ class StreamingHandlerConn(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> None:
+    def receive(self, message: Any) -> Any:
         pass
 
     @abc.abstractmethod
@@ -40,7 +40,7 @@ class StreamingHandlerConn(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def send(self, message: Any) -> None:
+    def send(self, message: Any) -> bytes:
         pass
 
     @abc.abstractmethod
@@ -55,16 +55,17 @@ class StreamingHandlerConn(abc.ABC):
 class ReceiveConn(Protocol):
     def spec(self) -> Spec: ...
 
-    def receive(self, message: Any) -> None: ...
+    def receive(self, message: Any) -> Any: ...
 
 
 T = TypeVar("T")
 
 
-def receive_unary_request(t: T) -> ConnectRequest[T] | None:
-    return None
+def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
+    message = receive_unary_message(conn, t)
+    return ConnectRequest(message)
 
 
 def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:
-    obj = t()
-    return obj
+    message = conn.receive(t)
+    return message

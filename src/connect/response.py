@@ -2,10 +2,9 @@
 
 from typing import Generic, TypeVar
 
-import google.protobuf.message
 from starlette.responses import Response as Response
 
-Res = TypeVar("Res", bound=google.protobuf.message.Message)
+Res = TypeVar("Res")
 
 
 class ConnectResponse(Generic[Res]):
@@ -17,11 +16,6 @@ class ConnectResponse(Generic[Res]):
         """Initialize the response with a message."""
         self.message = message
 
-    def encode(self, content_type: str | None) -> bytes:
-        """Encode the response into a byte string."""
-        if content_type == "application/json":
-            raise ValueError("Unsupported content type: application/json")
-        elif content_type == "application/proto":
-            return self.message.SerializeToString()
-        else:
-            raise ValueError(f"Unsupported content type: {content_type}")
+    def any(self) -> Res:
+        """Return the response message."""
+        return self.message

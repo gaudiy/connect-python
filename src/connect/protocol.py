@@ -4,7 +4,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict
 
 from connect.codec import ReadOnlyCodecs
-from connect.connect import Spec
+from connect.connect import Spec, StreamingHandlerConn
 from connect.request import Request
 
 HEADER_CONTENT_TYPE = "content-type"
@@ -47,7 +47,7 @@ class ProtocolHandler(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def conn(self, request: Request) -> None:
+    async def conn(self, request: Request) -> StreamingHandlerConn:
         pass
 
 

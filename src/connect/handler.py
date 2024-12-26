@@ -116,11 +116,13 @@ class UnaryHandler:
 
         async def untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
             response = await self.unary(request)
+
             return response
 
         async def implementation(conn: StreamingHandlerConn) -> bytes:
             request = receive_unary_request(conn, self.input)
             response = await untyped(request)
+
             return conn.send(response.any())
 
         self.implementation = implementation
@@ -145,6 +147,7 @@ class UnaryHandler:
             raise NotImplementedError(f"Method {request.method} not implemented")
 
         content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
+
         protocol_handler: ProtocolHandler | None = None
         for handler in protocol_handlers:
             if handler.can_handle_payload(request, content_type):

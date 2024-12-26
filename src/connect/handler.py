@@ -35,16 +35,17 @@ class HandlerConfig:
     def spec(self) -> Spec:
         return Spec(stream_type=self.stream_type)
 
-    def protocol_handlers(self) -> list[ProtocolHandler]:
-        protocols = [ProtocolConnect()]
 
-        codecs = CodecMap(self.codecs)
+def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
+    protocols = [ProtocolConnect()]
 
-        handlers: list[ProtocolHandler] = []
-        for protocol in protocols:
-            handlers.append(protocol.handler(params=ProtocolHandlerParams(spec=self.spec(), codecs=codecs)))
+    codecs = CodecMap(config.codecs)
 
-        return handlers
+    handlers: list[ProtocolHandler] = []
+    for protocol in protocols:
+        handlers.append(protocol.handler(params=ProtocolHandlerParams(spec=config.spec(), codecs=codecs)))
+
+    return handlers
 
 
 class UnaryHandler:
@@ -68,7 +69,7 @@ class UnaryHandler:
         self.options = options
 
         config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
-        self.protocol_handlers = mapped_method_handlers(config.protocol_handlers())
+        self.protocol_handlers = mapped_method_handlers(create_protocol_handlers(config))
 
         async def untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
             response = await self.unary(request)

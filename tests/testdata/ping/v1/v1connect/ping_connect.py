@@ -1,7 +1,7 @@
 """Module provides the implementation for the ping service."""
 
 import abc
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Mapping
 from enum import Enum
 from typing import Any
 
@@ -9,7 +9,7 @@ from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from connect.handler import UnaryHandler
 from connect.options import ConnectOptions
-from connect.request import ConnectRequest
+from connect.request import ConnectRequest, Request
 from connect.response import ConnectResponse
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -35,16 +35,17 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
 
 def add_PingService_to_handler(
     handler: PingServiceHandler, options: ConnectOptions | None = None
-) -> Callable[..., Coroutine[Any, Any, bytes]]:
+) -> Callable[..., Coroutine[Any, Any, tuple[bytes, Mapping[str, str]]]]:
     """Add the ping service to the handler."""
     pingServicePing_handler = UnaryHandler(
         PingServiceProcedures.Ping.value, handler.Ping, PingRequest, PingResponse, options
     )
 
-    async def handle(path: str, request: dict[Any, Any], **kwargs: Any) -> bytes:
+    async def handle(request: Request) -> tuple[bytes, Mapping[str, str]]:
+        path = request.url.path
         match path:
             case PingServiceProcedures.Ping.value:
-                return await pingServicePing_handler.serve(request, **kwargs)
+                return await pingServicePing_handler.serve(request)
             case _:
                 raise NotImplementedError(f"Path {path} not implemented")
 

@@ -1,19 +1,22 @@
 """Middleware for handling HTTP requests."""
 
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, TypeVar
 
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-T = TypeVar("T")
-Kwargs = Mapping[str, Any]
-HandleFunc = Callable[[str, Kwargs], Awaitable[bytes]]
+HandleFunc = Callable[[Request], Awaitable[tuple[bytes, Mapping[str, str]]]]
 
 
 class ConnectMiddleware:
-    """Middleware for handling HTTP requests."""
+    """ConnectMiddleware is an ASGI middleware that processes incoming HTTP requests.
+
+    Attributes:
+        app (ASGIApp): The ASGI application instance.
+        handle (HandleFunc): A function to handle the request and return a response.
+
+    """
 
     app: ASGIApp
     handle: HandleFunc
@@ -24,21 +27,21 @@ class ConnectMiddleware:
         self.handle = handle
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle an ASGI scope."""
+        """Asynchronous callable method to handle incoming ASGI requests.
+
+        Args:
+            scope (Scope): The scope of the request, containing details such as type, path, headers, etc.
+            receive (Receive): An awaitable callable that will yield events as they are received.
+            send (Send): An awaitable callable that will be used to send events back to the client.
+
+        Returns:
+            None
+
+        """
         if scope["type"] == "http":
-            path = scope["path"]
             request = Request(scope, receive)
-            body = await request.body()
-            res_bytes = await self.handle(
-                path,
-                {
-                    "body": body,
-                    "headers": request.headers,
-                },
-            )
-            response = Response(
-                res_bytes, media_type=request.headers.get("content-type", "application/json"), status_code=200
-            )
+            res_bytes, headers = await self.handle(request)
+            response = Response(content=res_bytes, headers=headers, status_code=200)
             await response(scope, receive, send)
         else:
             await self.app(scope, receive, send)

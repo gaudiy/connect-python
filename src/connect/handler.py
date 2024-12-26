@@ -1,17 +1,100 @@
-"""Handler module."""
+"""Module provides handler configurations and implementations for unary procedures and stream types."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from connect.codec import Codec, CodecMap, ProtoBinaryCodec
+from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
 from connect.options import ConnectOptions
-from connect.request import ConnectRequest, Req
+from connect.protocol import (
+    HEADER_CONTENT_TYPE,
+    HttpMethod,
+    ProtocolHandler,
+    ProtocolHandlerParams,
+    mapped_method_handlers,
+)
+from connect.protocol_connect import ProtocolConnect
+from connect.request import ConnectRequest, Req, Request
 from connect.response import ConnectResponse, Res
 
 UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 
 
+class HandlerConfig:
+    """Configuration class for handling procedures and stream types.
+
+    Attributes:
+        procedure (str): The name of the procedure to handle.
+        stream_type (StreamType): The type of stream to use.
+        codecs (dict[str, Codec]): A dictionary of codecs used for encoding and decoding.
+
+    """
+
+    procedure: str
+    stream_type: StreamType
+    codecs: dict[str, Codec]
+
+    def __init__(self, procedure: str, stream_type: StreamType, _options: Any | None = None):
+        """Initialize the handler with the given procedure, stream type, and options.
+
+        Args:
+            procedure (str): The name of the procedure to handle.
+            stream_type (StreamType): The type of stream to use.
+            options (Any, optional): Additional options for the handler. Defaults to None.
+
+        """
+        self.procedure = procedure
+        self.stream_type = stream_type
+
+        protp_binary_codec = ProtoBinaryCodec()
+        self.codecs = {protp_binary_codec.name(): protp_binary_codec}
+
+    def spec(self) -> Spec:
+        """Return a Spec object initialized with the current stream type.
+
+        Returns:
+            Spec: An instance of the Spec class with the stream type set to the current stream type.
+
+        """
+        return Spec(stream_type=self.stream_type)
+
+
+def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
+    """Create a list of protocol handlers based on the given configuration.
+
+    Args:
+        config (HandlerConfig): The configuration object containing the necessary parameters
+                                such as codecs and protocol specifications.
+
+    Returns:
+        list[ProtocolHandler]: A list of initialized protocol handlers.
+
+    """
+    protocols = [ProtocolConnect()]
+
+    codecs = CodecMap(config.codecs)
+
+    handlers: list[ProtocolHandler] = []
+    for protocol in protocols:
+        handlers.append(protocol.handler(params=ProtocolHandlerParams(spec=config.spec(), codecs=codecs)))
+
+    return handlers
+
+
 class UnaryHandler:
-    """UnaryHandler class."""
+    """A handler for unary RPC (Remote Procedure Call) operations.
+
+    Attributes:
+        protocol_handlers (dict[HttpMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
+        procedure (str): The name of the procedure being handled.
+        unary (UnaryFunc[Req, Res]): The unary function to be executed.
+        input (type[Req]): The type of the request input.
+        output (type[Res]): The type of the response output.
+        options (ConnectOptions | None): Optional configuration options for the handler.
+
+    """
+
+    protocol_handlers: dict[HttpMethod, list[ProtocolHandler]]
 
     def __init__(
         self,
@@ -28,8 +111,51 @@ class UnaryHandler:
         self.output = output
         self.options = options
 
-    async def serve(self, request: dict[Any, Any], **kwargs: Any) -> bytes:  # noqa: ARG002
-        """Serve the unary handler."""
-        response = await self.unary(ConnectRequest.from_request(self.input, request))
-        res_bytes = response.encode(content_type=request.get("headers", {}).get("content-type", "application/json"))
-        return res_bytes
+        config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
+        self.protocol_handlers = mapped_method_handlers(create_protocol_handlers(config))
+
+        async def untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
+            response = await self.unary(request)
+            return response
+
+        async def implementation(conn: StreamingHandlerConn) -> bytes:
+            request = receive_unary_request(conn, self.input)
+            response = await untyped(request)
+            return conn.send(response.any())
+
+        self.implementation = implementation
+
+    async def serve(self, request: Request) -> tuple[bytes, Mapping[str, str]]:
+        """Handle an incoming HTTP request and return a response.
+
+        Args:
+            request (Request): The incoming HTTP request.
+
+        Returns:
+            tuple[bytes, Mapping[str, str]]: A tuple containing the response body as bytes and the response headers as a mapping.
+
+        Raises:
+            NotImplementedError: If the HTTP method or content type is not implemented.
+
+        """
+        headers = request.headers.mutablecopy()
+        protocol_handlers = self.protocol_handlers.get(HttpMethod(request.method))
+        if not protocol_handlers:
+            # TODO(tsubakiky): Add error handling
+            raise NotImplementedError(f"Method {request.method} not implemented")
+
+        content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
+        protocol_handler: ProtocolHandler | None = None
+        for handler in protocol_handlers:
+            if handler.can_handle_payload(request, content_type):
+                protocol_handler = handler
+                break
+
+        if not protocol_handler:
+            # TODO(tsubakiky): Add error handling
+            raise NotImplementedError(f"Content type {content_type} not implemented")
+
+        conn = await protocol_handler.conn(request)
+        response = await self.implementation(conn)
+
+        return response, headers

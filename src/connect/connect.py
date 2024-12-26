@@ -1,3 +1,5 @@
+"""Defines the streaming handler connection interfaces and related utilities."""
+
 import abc
 from enum import Enum
 from typing import Any, Protocol, TypeVar
@@ -23,49 +25,159 @@ class Spec(BaseModel):
 
 
 class StreamingHandlerConn(abc.ABC):
+    """Abstract base class for a streaming handler connection.
+
+    This class defines the interface for handling streaming connections, including
+    methods for specifying the connection, handling peer communication, receiving
+    and sending messages, and managing request and response headers and trailers.
+
+    """
+
     @abc.abstractmethod
     def spec(self) -> Spec:
+        """Return the specification details.
+
+        Returns:
+            Spec: The specification details.
+
+        """
         pass
 
     @abc.abstractmethod
     def peer(self) -> Any:
+        """Establish a connection to a peer in the network.
+
+        Returns:
+            Any: The result of the connection attempt. The exact type and structure
+            of the return value will depend on the implementation details.
+
+        """
         pass
 
     @abc.abstractmethod
     def receive(self, message: Any) -> Any:
+        """Receives a message and processes it.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            Any: The result of processing the message.
+
+        """
         pass
 
     @abc.abstractmethod
     def request_header(self) -> Any:
+        """Generate and return the request header.
+
+        Returns:
+            Any: The request header.
+
+        """
         pass
 
     @abc.abstractmethod
     def send(self, message: Any) -> bytes:
+        """Send a message and returns the response as bytes.
+
+        Args:
+            message (Any): The message to be sent.
+
+        Returns:
+            bytes: The response received after sending the message.
+
+        """
         pass
 
     @abc.abstractmethod
     def response_header(self) -> Any:
+        """Retrieve the response header.
+
+        Returns:
+            Any: The response header.
+
+        """
         pass
 
     @abc.abstractmethod
     def response_trailer(self) -> Any:
+        """Handle response trailers.
+
+        This method is intended to be overridden in subclasses to provide
+        specific functionality for processing response trailers.
+
+        Returns:
+            Any: The return type is not specified as this is a placeholder method.
+
+        """
         pass
 
 
 class ReceiveConn(Protocol):
-    def spec(self) -> Spec: ...
+    """A protocol that defines the methods required for receiving connections."""
 
-    def receive(self, message: Any) -> Any: ...
+    @abc.abstractmethod
+    def spec(self) -> Spec:
+        """Retrieve the specification for the current object.
+
+        This method should be implemented by subclasses to return an instance
+        of the `Spec` class that defines the specification for the object.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
+
+        Returns:
+            Spec: The specification for the current object.
+
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def receive(self, message: Any) -> Any:
+        """Receives a message and processes it.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            Any: The result of processing the message.
+
+        Raises:
+            NotImplementedError: This method should be implemented by subclasses.
+
+        """
+        raise NotImplementedError
 
 
 T = TypeVar("T")
 
 
 def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
+    """Receives a unary request from the given connection and returns a ConnectRequest object.
+
+    Args:
+        conn (StreamingHandlerConn): The connection from which to receive the unary request.
+        t (type[T]): The type of the message to be received.
+
+    Returns:
+        ConnectRequest[T]: A ConnectRequest object containing the received message.
+
+    """
     message = receive_unary_message(conn, t)
     return ConnectRequest(message)
 
 
 def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:
+    """Receives a unary message from the given connection.
+
+    Args:
+        conn (ReceiveConn): The connection object to receive the message from.
+        t (type[T]): The type of the message to be received.
+
+    Returns:
+        T: The received message of type T.
+
+    """
     message = conn.receive(t)
     return message

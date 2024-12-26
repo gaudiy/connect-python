@@ -1,4 +1,4 @@
-"""Handler module."""
+"""Module provides handler configurations and implementations for unary procedures and stream types."""
 
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -21,11 +21,28 @@ UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 
 
 class HandlerConfig:
+    """Configuration class for handling procedures and stream types.
+
+    Attributes:
+        procedure (str): The name of the procedure to handle.
+        stream_type (StreamType): The type of stream to use.
+        codecs (dict[str, Codec]): A dictionary of codecs used for encoding and decoding.
+
+    """
+
     procedure: str
     stream_type: StreamType
     codecs: dict[str, Codec]
 
-    def __init__(self, procedure: str, stream_type: StreamType, options: Any | None = None):
+    def __init__(self, procedure: str, stream_type: StreamType, _options: Any | None = None):
+        """Initialize the handler with the given procedure, stream type, and options.
+
+        Args:
+            procedure (str): The name of the procedure to handle.
+            stream_type (StreamType): The type of stream to use.
+            options (Any, optional): Additional options for the handler. Defaults to None.
+
+        """
         self.procedure = procedure
         self.stream_type = stream_type
 
@@ -33,10 +50,26 @@ class HandlerConfig:
         self.codecs = {protp_binary_codec.name(): protp_binary_codec}
 
     def spec(self) -> Spec:
+        """Return a Spec object initialized with the current stream type.
+
+        Returns:
+            Spec: An instance of the Spec class with the stream type set to the current stream type.
+
+        """
         return Spec(stream_type=self.stream_type)
 
 
 def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
+    """Create a list of protocol handlers based on the given configuration.
+
+    Args:
+        config (HandlerConfig): The configuration object containing the necessary parameters
+                                such as codecs and protocol specifications.
+
+    Returns:
+        list[ProtocolHandler]: A list of initialized protocol handlers.
+
+    """
     protocols = [ProtocolConnect()]
 
     codecs = CodecMap(config.codecs)
@@ -49,7 +82,17 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
 
 
 class UnaryHandler:
-    """UnaryHandler class."""
+    """A handler for unary RPC (Remote Procedure Call) operations.
+
+    Attributes:
+        protocol_handlers (dict[HttpMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
+        procedure (str): The name of the procedure being handled.
+        unary (UnaryFunc[Req, Res]): The unary function to be executed.
+        input (type[Req]): The type of the request input.
+        output (type[Res]): The type of the response output.
+        options (ConnectOptions | None): Optional configuration options for the handler.
+
+    """
 
     protocol_handlers: dict[HttpMethod, list[ProtocolHandler]]
 
@@ -83,7 +126,18 @@ class UnaryHandler:
         self.implementation = implementation
 
     async def serve(self, request: Request) -> tuple[bytes, Mapping[str, str]]:
-        """Serve the unary handler."""
+        """Handle an incoming HTTP request and return a response.
+
+        Args:
+            request (Request): The incoming HTTP request.
+
+        Returns:
+            tuple[bytes, Mapping[str, str]]: A tuple containing the response body as bytes and the response headers as a mapping.
+
+        Raises:
+            NotImplementedError: If the HTTP method or content type is not implemented.
+
+        """
         headers = request.headers.mutablecopy()
         protocol_handlers = self.protocol_handlers.get(HttpMethod(request.method))
         if not protocol_handlers:

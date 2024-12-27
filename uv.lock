@@ -68,6 +68,7 @@ name = "connect-python"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "starlette", extra = ["full"] },
@@ -87,6 +88,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.7.0" },
     { name = "protobuf", specifier = ">=5.29.1" },
     { name = "pydantic", specifier = ">=2.10.4" },
     { name = "starlette", extras = ["full"], specifier = ">=0.42.0" },

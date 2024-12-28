@@ -1,12 +1,12 @@
 """Middleware for handling HTTP requests."""
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-HandleFunc = Callable[[Request], Awaitable[tuple[bytes, Mapping[str, str]]]]
+HandleFunc = Callable[[Request], Awaitable[Response]]
 
 
 class ConnectMiddleware:
@@ -40,8 +40,7 @@ class ConnectMiddleware:
         """
         if scope["type"] == "http":
             request = Request(scope, receive)
-            res_bytes, headers = await self.handle(request)
-            response = Response(content=res_bytes, headers=headers, status_code=200)
+            response = await self.handle(request)
             await response(scope, receive, send)
         else:
             await self.app(scope, receive, send)

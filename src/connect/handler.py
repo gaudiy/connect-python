@@ -1,6 +1,6 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from connect.codec import Codec, CodecMap, ProtoBinaryCodec
@@ -15,7 +15,7 @@ from connect.protocol import (
 )
 from connect.protocol_connect import ProtocolConnect
 from connect.request import ConnectRequest, Req, Request
-from connect.response import ConnectResponse, Res
+from connect.response import ConnectResponse, Res, Response
 
 UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 
@@ -102,7 +102,7 @@ class UnaryHandler:
         unary: UnaryFunc[Req, Res],
         input: type[Req],
         output: type[Res],
-        options: ConnectOptions | None,
+        options: ConnectOptions | None = None,
     ):
         """Initialize the unary handler."""
         self.procedure = procedure
@@ -127,14 +127,14 @@ class UnaryHandler:
 
         self.implementation = implementation
 
-    async def serve(self, request: Request) -> tuple[bytes, Mapping[str, str]]:
-        """Handle an incoming HTTP request and return a response.
+    async def handle(self, request: Request) -> Response:
+        """Handle an incoming HTTP request and return an HTTP response.
 
         Args:
             request (Request): The incoming HTTP request.
 
         Returns:
-            tuple[bytes, Mapping[str, str]]: A tuple containing the response body as bytes and the response headers as a mapping.
+            Response: The HTTP response generated after processing the request.
 
         Raises:
             NotImplementedError: If the HTTP method or content type is not implemented.
@@ -159,6 +159,7 @@ class UnaryHandler:
             raise NotImplementedError(f"Content type {content_type} not implemented")
 
         conn = await protocol_handler.conn(request)
-        response = await self.implementation(conn)
+        res_bytes = await self.implementation(conn)
+        response = Response(content=res_bytes, headers=headers, status_code=200)
 
-        return response, headers
+        return response

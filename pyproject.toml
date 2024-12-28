@@ -11,6 +11,7 @@ authors = [ { name = "zchee" } ]
 requires-python = ">=3.13"
 dynamic = [ "version" ]
 dependencies = [
+  "anyio>=4.7.0",
   "protobuf>=5.29.1",
   "pydantic>=2.10.4",
   "starlette[full]>=0.42.0",

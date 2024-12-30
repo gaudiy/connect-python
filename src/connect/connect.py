@@ -7,6 +7,7 @@ from typing import Any, Protocol, TypeVar
 from pydantic import BaseModel
 
 from connect.request import ConnectRequest
+from connect.response import Response
 
 
 class StreamType(Enum):
@@ -112,6 +113,21 @@ class StreamingHandlerConn(abc.ABC):
 
         """
         pass
+
+    def close(self, data: bytes) -> Response:
+        """Close the connection with the provided data.
+
+        Args:
+            data (bytes): The data to be sent when closing the connection.
+
+        Returns:
+            Response: The response received after closing the connection.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+
+        """
+        raise NotImplementedError
 
 
 class ReceiveConn(Protocol):

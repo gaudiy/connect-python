@@ -3,7 +3,9 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from connect.codec import Codec, CodecMap, ProtoBinaryCodec
+from starlette.datastructures import MutableHeaders
+
+from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
 from connect.options import ConnectOptions
 from connect.protocol import (
@@ -46,8 +48,13 @@ class HandlerConfig:
         self.procedure = procedure
         self.stream_type = stream_type
 
-        protp_binary_codec = ProtoBinaryCodec()
-        self.codecs = {protp_binary_codec.name(): protp_binary_codec}
+        codecs: list[Codec] = [
+            ProtoBinaryCodec(),
+            ProtoJSONCodec(CodecNameType.JSON),
+            ProtoJSONCodec(CodecNameType.JSON_CHARSET_UTF8),
+        ]
+
+        self.codecs = {codec.name(): codec for codec in codecs}
 
     def spec(self) -> Spec:
         """Return a Spec object initialized with the current stream type.
@@ -140,7 +147,7 @@ class UnaryHandler:
             NotImplementedError: If the HTTP method or content type is not implemented.
 
         """
-        headers = request.headers.mutablecopy()
+        response_headers = MutableHeaders()
         protocol_handlers = self.protocol_handlers.get(HttpMethod(request.method))
         if not protocol_handlers:
             # TODO(tsubakiky): Add error handling
@@ -158,8 +165,8 @@ class UnaryHandler:
             # TODO(tsubakiky): Add error handling
             raise NotImplementedError(f"Content type {content_type} not implemented")
 
-        conn = await protocol_handler.conn(request)
+        conn = await protocol_handler.conn(request, response_headers)
         res_bytes = await self.implementation(conn)
-        response = Response(content=res_bytes, headers=headers, status_code=200)
+        response = conn.close(res_bytes)
 
         return response

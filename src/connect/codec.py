@@ -4,6 +4,7 @@ import abc
 from typing import Any
 
 import google.protobuf.message
+from google.protobuf import json_format
 
 
 class CodecNameType:
@@ -123,6 +124,75 @@ class ProtoBinaryCodec(Codec):
 
         obj.ParseFromString(data)
         return obj
+
+
+class ProtoJSONCodec(Codec):
+    """A codec for encoding and decoding Protocol Buffers messages to and from JSON format.
+
+    Attributes:
+        __name (str): The name of the codec.
+
+    """
+
+    __name: str
+
+    def __init__(self, name: str) -> None:
+        """Initialize the codec with a given name.
+
+        Args:
+            name (str): The name to initialize the codec with.
+
+        """
+        self.__name = name
+
+    def name(self) -> str:
+        """Return the name of the codec.
+
+        Returns:
+            str: The name of the codec.
+
+        """
+        return self.__name
+
+    def marshal(self, message: Any) -> bytes:
+        """Serialize a protobuf message to a JSON string encoded as UTF-8 bytes.
+
+        Args:
+            message (Any): The protobuf message to be serialized. Must be an instance of google.protobuf.message.Message.
+
+        Returns:
+            bytes: The serialized JSON string encoded as UTF-8 bytes.
+
+        Raises:
+            ValueError: If the provided message is not a protobuf message.
+
+        """
+        if not isinstance(message, google.protobuf.message.Message):
+            raise ValueError("Data is not a protobuf message")
+
+        json_str = json_format.MessageToJson(message)
+
+        return json_str.encode("utf-8")
+
+    def unmarshal(self, data: bytes, message: Any) -> Any:
+        """Unmarshal the given byte data into a protobuf message.
+
+        Args:
+            data (bytes): The byte data to unmarshal.
+            message (Any): The protobuf message class to unmarshal the data into.
+
+        Returns:
+            Any: The unmarshaled protobuf message instance.
+
+        Raises:
+            ValueError: If the provided message is not a protobuf message.
+
+        """
+        obj = message()
+        if not isinstance(obj, google.protobuf.message.Message):
+            raise ValueError("Data is not a protobuf message")
+
+        return json_format.Parse(data.decode("utf-8"), obj, ignore_unknown_fields=True)
 
 
 class ReadOnlyCodecs(abc.ABC):

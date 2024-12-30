@@ -4,6 +4,7 @@ import abc
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
+from starlette.datastructures import MutableHeaders
 
 from connect.codec import ReadOnlyCodecs
 from connect.connect import Spec, StreamingHandlerConn
@@ -96,11 +97,12 @@ class ProtocolHandler(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def conn(self, request: Request) -> StreamingHandlerConn:
-        """Handle an incoming connection request.
+    async def conn(self, request: Request, response_headers: MutableHeaders) -> StreamingHandlerConn:
+        """Handle the connection for a given request and response headers.
 
         Args:
-            request (Request): The incoming connection request.
+            request (Request): The request object containing the details of the request.
+            response_headers (MutableHeaders): The mutable headers for the response.
 
         Returns:
             StreamingHandlerConn: The connection handler for streaming.

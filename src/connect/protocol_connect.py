@@ -5,15 +5,21 @@ Handles data serialization/deserialization using the Connect protocol.
 
 from typing import Any
 
+from starlette.datastructures import MutableHeaders
+
 from connect.codec import Codec
 from connect.connect import Spec, StreamingHandlerConn, StreamType
 from connect.protocol import HttpMethod, Protocol, ProtocolHandler, ProtocolHandlerParams
 from connect.request import Request
+from connect.response import Response
 
-CONNECT_UNARY_HEADER_COMPRESSION = "content-Encoding"
-CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "accept-Encoding"
+CONNECT_UNARY_HEADER_COMPRESSION = "content-encoding"
+CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "accept-encoding"
+
 CONNECT_UNARY_CONTENT_TYPE_PREFIX = "application/"
 CONNECT_STREAMING_CONTENT_TYPE_PREFIX = "application/connect+"
+CONNECT_UNARY_CONTENT_TYPE_JSON = "application/json"
+
 CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER = "compression"
 
 
@@ -86,11 +92,12 @@ class ConnectHandler(ProtocolHandler):
 
         return content_type in self.accept
 
-    async def conn(self, request: Request) -> StreamingHandlerConn:
+    async def conn(self, request: Request, response_headers: MutableHeaders) -> StreamingHandlerConn:
         """Handle the connection for the given request and return a StreamingHandlerConn object.
 
         Args:
             request (Request): The incoming request object.
+            response_headers (MutableHeaders): The headers to be included in the response.
 
         Returns:
             StreamingHandlerConn: The connection handler for the request.
@@ -127,7 +134,9 @@ class ConnectHandler(ProtocolHandler):
         codec = self.params.codecs.get(codec_name)
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
-                marshaler=ConnectMarshaler(codec=codec), unmarshaler=ConnectUnmarshaler(body=request_body, codec=codec)
+                marshaler=ConnectMarshaler(codec=codec),
+                unmarshaler=ConnectUnmarshaler(body=request_body, codec=codec),
+                response_headers=response_headers,
             )
         else:
             # TODO(tsubakiky): Add streaming support
@@ -253,17 +262,22 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
+    response_headers: MutableHeaders
 
-    def __init__(self, marshaler: ConnectMarshaler, unmarshaler: ConnectUnmarshaler) -> None:
-        """Initialize the protocol connection with the given marshaler and unmarshaler.
+    def __init__(
+        self, marshaler: ConnectMarshaler, unmarshaler: ConnectUnmarshaler, response_headers: MutableHeaders
+    ) -> None:
+        """Initialize the protocol connection.
 
         Args:
             marshaler (ConnectMarshaler): The marshaler to serialize data.
             unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
+            response_headers (MutableHeaders): The headers for the response.
 
         """
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
+        self.response_headers = response_headers
 
     def spec(self) -> Spec:
         """Retrieve the specification for the protocol.
@@ -347,3 +361,16 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         pass
+
+    def close(self, data: bytes) -> Response:
+        """Close the connection and returns a response with the provided data.
+
+        Args:
+            data (bytes): The data to include in the response.
+
+        Returns:
+            Response: A response object containing the provided data, response headers, and a status code of 200.
+
+        """
+        response = Response(content=data, headers=self.response_headers, status_code=200)
+        return response

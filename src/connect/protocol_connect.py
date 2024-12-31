@@ -8,8 +8,16 @@ from typing import Any
 from starlette.datastructures import MutableHeaders
 
 from connect.codec import Codec
+from connect.compression import Compression
 from connect.connect import Spec, StreamingHandlerConn, StreamType
-from connect.protocol import HttpMethod, Protocol, ProtocolHandler, ProtocolHandlerParams
+from connect.protocol import (
+    HEADER_CONTENT_TYPE,
+    HttpMethod,
+    Protocol,
+    ProtocolHandler,
+    ProtocolHandlerParams,
+    negotiate_compression,
+)
 from connect.request import Request
 from connect.response import Response
 
@@ -93,23 +101,23 @@ class ConnectHandler(ProtocolHandler):
         return content_type in self.accept
 
     async def conn(self, request: Request, response_headers: MutableHeaders) -> StreamingHandlerConn:
-        """Handle the connection for the given request and return a StreamingHandlerConn object.
+        """Handle the connection for the given request and response headers.
 
         Args:
             request (Request): The incoming request object.
-            response_headers (MutableHeaders): The headers to be included in the response.
+            response_headers (MutableHeaders): The headers for the response.
 
         Returns:
             StreamingHandlerConn: The connection handler for the request.
 
         Raises:
-            ValueError: If the request method is not supported or if the codec cannot be determined.
+            ValueError: If the request method is not supported or if the codec is not found.
 
         Note:
-            - For Unary stream type, handles GET and other HTTP methods differently.
-            - Retrieves compression and encoding information from request headers.
-            - Parses the request body and determines the codec based on content type.
-            - Currently, only Unary stream type is supported. Streaming support is to be added.
+            - This method currently supports only Unary stream type.
+            - Compression negotiation is performed based on request headers.
+            - The actual request body is read for non-GET methods.
+            - Streaming support is not yet implemented.
 
         """
         _query = request.url.query
@@ -118,24 +126,40 @@ class ConnectHandler(ProtocolHandler):
                 # TODO(tsubakiky): Get the compression from the query parameter
                 pass
             else:
-                _content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, "")
+                content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
 
-            _accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, "")
+            accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
+
         # TODO(tsubakiky): Add validations
+
+        request_compression, response_compression = negotiate_compression(
+            self.params.compressions, content_encoding, accept_encoding
+        )
 
         request_body: bytes
         if HttpMethod(request.method) == HttpMethod.GET:
             pass
         else:
             request_body = await request.body()
-            content_type = request.headers.get("content-type", "")
+            content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
         codec = self.params.codecs.get(codec_name)
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
-                marshaler=ConnectMarshaler(codec=codec),
-                unmarshaler=ConnectUnmarshaler(body=request_body, codec=codec),
+                marshaler=ConnectMarshaler(
+                    codec=codec,
+                    compress_min_bytes=self.params.compress_min_bytes,
+                    send_max_bytes=self.params.send_max_bytes,
+                    compression=response_compression,
+                    response_headers=response_headers,
+                ),
+                unmarshaler=ConnectUnmarshaler(
+                    body=request_body,
+                    codec=codec,
+                    compression=request_compression,
+                    read_max_bytes=self.params.read_max_bytes,
+                ),
                 response_headers=response_headers,
             )
         else:
@@ -188,22 +212,30 @@ class ConnectUnmarshaler:
     Attributes:
         codec (Codec): The codec used for unmarshaling the data.
         body (bytes): The raw data to be unmarshaled.
+        read_max_bytes (int): The maximum number of bytes to read.
+        compression (Compression | None): The compression method to use, if any.
 
     """
 
     codec: Codec
     body: bytes
+    read_max_bytes: int
+    compression: Compression | None
 
-    def __init__(self, body: bytes, codec: Codec) -> None:
+    def __init__(self, body: bytes, codec: Codec, read_max_bytes: int, compression: Compression | None) -> None:
         """Initialize the ProtocolConnect object.
 
         Args:
-            body (bytes): The body of the protocol message.
+            body (bytes): The body of the message.
             codec (Codec): The codec used for encoding/decoding the message.
+            read_max_bytes (int): The maximum number of bytes to read.
+            compression (Compression | None): The compression method to use, if any.
 
         """
         self.body = body
         self.codec = codec
+        self.read_max_bytes = read_max_bytes
+        self.compression = compression
 
     def unmarshal(self, message: Any) -> Any:
         """Unmarshals the given message using the codec.
@@ -215,40 +247,96 @@ class ConnectUnmarshaler:
             Any: The unmarshaled object.
 
         """
-        obj = self.codec.unmarshal(self.body, message)
+        data = self.body
+        if len(data) > 0 and self.compression:
+            data = self.compression.decompress(data, self.read_max_bytes)
+
+        obj = self.codec.unmarshal(data, message)
         return obj
 
 
 class ConnectMarshaler:
-    """A class responsible for marshaling messages using a specified codec.
+    """ConnectMarshaler is responsible for serializing and optionally compressing messages.
 
     Attributes:
-        codec (Codec): The codec used for marshaling messages.
+        codec (Codec): The codec used for serialization.
+        compression (Compression | None): The compression method to use, if any.
+        compress_min_bytes (int): The minimum number of bytes required to trigger compression.
+        send_max_bytes (int): The maximum number of bytes that can be sent.
+        response_headers (MutableHeaders): The headers to include in the response.
 
     """
 
     codec: Codec
+    compression: Compression | None
+    compress_min_bytes: int
+    send_max_bytes: int
+    response_headers: MutableHeaders
 
-    def __init__(self, codec: Codec) -> None:
-        """Initialize the ConnectMarshaler with the given codec.
+    def __init__(
+        self,
+        codec: Codec,
+        compression: Compression | None,
+        compress_min_bytes: int,
+        send_max_bytes: int,
+        response_headers: MutableHeaders,
+    ) -> None:
+        """Initialize the ConnectMarshaler with the given parameters.
 
-        Args:
-            codec (Codec): The codec used for marshaling messages.
+            compression (Compression | None): The compression method to use, or None if no compression is needed.
+            compress_min_bytes (int): The minimum number of bytes before compression is applied.
+            send_max_bytes (int): The maximum number of bytes that can be sent.
+            response_headers (MutableHeaders): The headers to include in the response.
+
+        Returns:
+            None
 
         """
         self.codec = codec
+        self.compression = compression
+        self.compress_min_bytes = compress_min_bytes
+        self.send_max_bytes = send_max_bytes
+        self.response_headers = response_headers
 
     def marshal(self, message: Any) -> bytes:
-        """Serialize the given message into bytes using the codec's marshal method.
+        """Serialize and optionally compresses a message.
+
+        This method serializes the given message using the codec's marshal method.
+        If the serialized data is smaller than the minimum compression size or if
+        compression is not enabled, the data is returned as is. If the data size
+        exceeds the maximum allowed size, a ValueError is raised.
+
+        If compression is enabled and the serialized data is larger than the minimum
+        compression size, the data is compressed. If the compressed data size exceeds
+        the maximum allowed size, a ValueError is raised. The response headers are
+        updated to include the compression type used.
 
         Args:
-            message (Any): The message to be serialized.
+            message (Any): The message to be serialized and optionally compressed.
 
         Returns:
-            bytes: The serialized message in bytes.
+            bytes: The serialized (and possibly compressed) message.
+
+        Raises:
+            ValueError: If the serialized or compressed data exceeds the maximum allowed size.
 
         """
-        return self.codec.marshal(message)
+        data = self.codec.marshal(message)
+        if len(data) < self.compress_min_bytes or self.compression is None:
+            if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
+                # TODO(tsubakiky): Add error handling
+                raise ValueError("Data exceeds maximum size")
+
+            return data
+
+        data = self.compression.compress(data)
+        if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
+            # TODO(tsubakiky): Add error handling
+            raise ValueError("Data exceeds maximum size")
+
+        self.response_headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name()
+
+        return data
 
 
 class ConnectUnaryHandlerConn(StreamingHandlerConn):

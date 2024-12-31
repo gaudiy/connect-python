@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.datastructures import MutableHeaders
 
 from connect.codec import ReadOnlyCodecs
+from connect.compression import COMPRESSION_IDENTITY, Compression
 from connect.connect import Spec, StreamingHandlerConn
 from connect.request import Request
 
@@ -38,11 +39,15 @@ class HttpMethod(Enum):
 
 
 class ProtocolHandlerParams(BaseModel):
-    """ProtocolHandlerParams is a data model that defines the parameters for handling protocols.
+    """ProtocolHandlerParams is a data model that holds parameters for handling protocol operations.
 
     Attributes:
-        spec (Spec): The specification object that defines the protocol details.
-        codecs (ReadOnlyCodecs): The codecs used for encoding and decoding data in the protocol.
+        spec (Spec): The specification details for the protocol.
+        codecs (ReadOnlyCodecs): The codecs used for encoding and decoding data.
+        compressions (list[Compression]): A list of compression methods to be used.
+        compress_min_bytes (int): The minimum number of bytes required to trigger compression.
+        read_max_bytes (int): The maximum number of bytes that can be read at once.
+        send_max_bytes (int): The maximum number of bytes that can be sent at once.
 
     """
 
@@ -51,6 +56,10 @@ class ProtocolHandlerParams(BaseModel):
     )
     spec: Spec
     codecs: ReadOnlyCodecs
+    compressions: list[Compression]
+    compress_min_bytes: int
+    read_max_bytes: int
+    send_max_bytes: int
 
 
 class ProtocolHandler(abc.ABC):
@@ -158,3 +167,45 @@ def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HttpMethod, 
             method_handlers.setdefault(method, []).append(handler)
 
     return method_handlers
+
+
+def negotiate_compression(
+    available: list[Compression], sent: str | None, accept: str | None
+) -> tuple[Compression | None, Compression | None]:
+    """Negotiate the compression method to be used based on the available options.
+
+    The compression method sent by the client, and the compression methods accepted
+    by the server.
+
+    Args:
+        available (list[Compression]): A list of available compression methods.
+        sent (str | None): The compression method sent by the client, or None if not specified.
+        accept (str | None): A comma-separated string of compression methods accepted by the server, or None if not specified.
+
+    Returns:
+        tuple[Compression | None, Compression | None]: A tuple containing the selected compression method for the request
+        and the response. If no suitable compression method is found, None is returned for that position in the tuple.
+
+    """
+    request = None
+    response = None
+
+    if sent is not None and sent != COMPRESSION_IDENTITY:
+        found = next((c for c in available if c.name() == sent), None)
+        if found:
+            request = found
+        else:
+            # TODO(tsubakiky): Add error handling
+            pass
+
+    if accept is None or accept == "":
+        response = request
+    else:
+        accept_names = [name.strip() for name in accept.split(",")]
+        for name in accept_names:
+            found = next((c for c in available if c.name() == name), None)
+            if found:
+                response = found
+                break
+
+    return request, response

@@ -6,6 +6,7 @@ from typing import Any
 from starlette.datastructures import MutableHeaders
 
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
+from connect.compression import Compression, GZipCompression
 from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
 from connect.options import ConnectOptions
 from connect.protocol import (
@@ -35,14 +36,18 @@ class HandlerConfig:
     procedure: str
     stream_type: StreamType
     codecs: dict[str, Codec]
+    compressions: list[Compression]
+    compress_min_bytes: int
+    read_max_bytes: int
+    send_max_bytes: int
 
     def __init__(self, procedure: str, stream_type: StreamType, _options: Any | None = None):
-        """Initialize the handler with the given procedure, stream type, and options.
+        """Initialize the handler with the given procedure, stream type, and optional settings.
 
         Args:
             procedure (str): The name of the procedure to handle.
             stream_type (StreamType): The type of stream to use.
-            options (Any, optional): Additional options for the handler. Defaults to None.
+            _options (Any, optional): Additional options for the handler. Defaults to None.
 
         """
         self.procedure = procedure
@@ -53,8 +58,12 @@ class HandlerConfig:
             ProtoJSONCodec(CodecNameType.JSON),
             ProtoJSONCodec(CodecNameType.JSON_CHARSET_UTF8),
         ]
-
         self.codecs = {codec.name(): codec for codec in codecs}
+
+        self.compressions = [GZipCompression()]
+        self.compress_min_bytes = -1
+        self.read_max_bytes = -1
+        self.send_max_bytes = -1
 
     def spec(self) -> Spec:
         """Return a Spec object initialized with the current stream type.
@@ -83,7 +92,18 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
 
     handlers: list[ProtocolHandler] = []
     for protocol in protocols:
-        handlers.append(protocol.handler(params=ProtocolHandlerParams(spec=config.spec(), codecs=codecs)))
+        handlers.append(
+            protocol.handler(
+                params=ProtocolHandlerParams(
+                    spec=config.spec(),
+                    codecs=codecs,
+                    compressions=config.compressions,
+                    compress_min_bytes=config.compress_min_bytes,
+                    read_max_bytes=config.read_max_bytes,
+                    send_max_bytes=config.send_max_bytes,
+                )
+            )
+        )
 
     return handlers
 

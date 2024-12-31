@@ -60,6 +60,7 @@ class ProtocolHandlerParams(BaseModel):
     compress_min_bytes: int
     read_max_bytes: int
     send_max_bytes: int
+    require_connect_protocol_header: bool
 
 
 class ProtocolHandler(abc.ABC):

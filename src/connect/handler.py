@@ -40,6 +40,7 @@ class HandlerConfig:
     compress_min_bytes: int
     read_max_bytes: int
     send_max_bytes: int
+    require_connect_protocol_header: bool
 
     def __init__(self, procedure: str, stream_type: StreamType, _options: Any | None = None):
         """Initialize the handler with the given procedure, stream type, and optional settings.
@@ -64,6 +65,7 @@ class HandlerConfig:
         self.compress_min_bytes = -1
         self.read_max_bytes = -1
         self.send_max_bytes = -1
+        self.require_connect_protocol_header = False
 
     def spec(self) -> Spec:
         """Return a Spec object initialized with the current stream type.
@@ -101,6 +103,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
                     compress_min_bytes=config.compress_min_bytes,
                     read_max_bytes=config.read_max_bytes,
                     send_max_bytes=config.send_max_bytes,
+                    require_connect_protocol_header=config.require_connect_protocol_header,
                 )
             )
         )

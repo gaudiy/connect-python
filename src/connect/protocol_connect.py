@@ -23,6 +23,8 @@ from connect.response import Response
 
 CONNECT_UNARY_HEADER_COMPRESSION = "content-encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "accept-encoding"
+CONNECT_HEADER_PROTOCOL_VERSION = "connect-protocol-version"
+CONNECT_PROTOCOL_VERSION = "1"
 
 CONNECT_UNARY_CONTENT_TYPE_PREFIX = "application/"
 CONNECT_STREAMING_CONTENT_TYPE_PREFIX = "application/connect+"
@@ -135,6 +137,9 @@ class ConnectHandler(ProtocolHandler):
         request_compression, response_compression = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
         )
+
+        required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
+        connect_check_protocol_version(request, required)
 
         request_body: bytes
         if HttpMethod(request.method) == HttpMethod.GET:
@@ -462,3 +467,32 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         response = Response(content=data, headers=self.response_headers, status_code=200)
         return response
+
+
+def connect_check_protocol_version(request: Request, required: bool) -> None:
+    """Check the protocol version in the request headers for POST requests.
+
+    Args:
+        request (Request): The incoming HTTP request.
+        required (bool): Flag indicating whether the protocol version is required.
+
+    Raises:
+        ValueError: If the protocol version is required but not present in the headers.
+        ValueError: If the protocol version is present but unsupported.
+        ValueError: If the HTTP method is unsupported.
+
+    """
+    match HttpMethod(request.method):
+        case HttpMethod.GET:
+            pass
+        case HttpMethod.POST:
+            version = request.headers.get(CONNECT_HEADER_PROTOCOL_VERSION, None)
+            if required and version is None:
+                # TODO(tsubakiky): Add error handling
+                raise ValueError("Protocol version is required")
+            elif version is not None and version != CONNECT_PROTOCOL_VERSION:
+                # TODO(tsubakiky): Add error handling
+                raise ValueError("Unsupported protocol version")
+        case _:
+            # TODO(tsubakiky): Add error handling
+            raise ValueError("Unsupported method")

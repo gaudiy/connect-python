@@ -25,7 +25,6 @@ class ConnectASGI(Starlette):
 
     """
 
-    handlers: list[UnaryHandler]
     options: ConnectOptions | None = None
     router: ConnectRouter
 
@@ -60,7 +59,6 @@ class ConnectASGI(Starlette):
             lifespan=kwargs.get("lifespan"),
         )
 
-        self.handlers = handlers
         self.router = ConnectRouter(self._get_routes_from_handlers(handlers), *args, **kwargs)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

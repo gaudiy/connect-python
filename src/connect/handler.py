@@ -1,9 +1,11 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
+import http
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from starlette.datastructures import MutableHeaders
+from starlette.responses import PlainTextResponse
 
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import Compression, GZipCompression
@@ -16,8 +18,12 @@ from connect.protocol import (
     ProtocolHandler,
     ProtocolHandlerParams,
     mapped_method_handlers,
+    sorted_accept_post_value,
+    sorted_allow_method_value,
 )
-from connect.protocol_connect import ProtocolConnect
+from connect.protocol_connect import (
+    ProtocolConnect,
+)
 from connect.request import ConnectRequest, Req, Request
 from connect.response import ConnectResponse, Res, Response
 
@@ -125,7 +131,10 @@ class UnaryHandler:
 
     """
 
+    implementation: Callable[[StreamingHandlerConn], Awaitable[bytes]]
     protocol_handlers: dict[HttpMethod, list[ProtocolHandler]]
+    allow_methods: str
+    accept_post: str
 
     def __init__(
         self,
@@ -143,7 +152,8 @@ class UnaryHandler:
         self.options = options
 
         config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
-        self.protocol_handlers = mapped_method_handlers(create_protocol_handlers(config))
+        protocol_handlers = create_protocol_handlers(config)
+        self.protocol_handlers = mapped_method_handlers(protocol_handlers)
 
         async def untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
             response = await self.unary(request)
@@ -157,6 +167,8 @@ class UnaryHandler:
             return conn.send(response.any())
 
         self.implementation = implementation
+        self.allow_methods = sorted_allow_method_value(protocol_handlers)
+        self.accept_post = sorted_accept_post_value(protocol_handlers)
 
     async def handle(self, request: Request) -> Response:
         """Handle an incoming HTTP request and return an HTTP response.
@@ -174,8 +186,9 @@ class UnaryHandler:
         response_headers = MutableHeaders()
         protocol_handlers = self.protocol_handlers.get(HttpMethod(request.method))
         if not protocol_handlers:
-            # TODO(tsubakiky): Add error handling
-            raise NotImplementedError(f"Method {request.method} not implemented")
+            response_headers["Allow"] = self.allow_methods
+            status = http.HTTPStatus.METHOD_NOT_ALLOWED
+            return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
         content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
 
@@ -186,8 +199,9 @@ class UnaryHandler:
                 break
 
         if not protocol_handler:
-            # TODO(tsubakiky): Add error handling
-            raise NotImplementedError(f"Content type {content_type} not implemented")
+            response_headers["Accept-Post"] = self.accept_post
+            status = http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+            return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
         if HttpMethod(request.method) == HttpMethod.GET:
             content_length = request.headers.get(HEADER_CONTENT_LENGTH, None)
@@ -205,11 +219,16 @@ class UnaryHandler:
                     pass
 
             if has_body:
-                # TODO(tsubakiky): Add error handling
-                raise NotImplementedError("GET request with body not supported")
+                status = http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+                return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
-        conn = await protocol_handler.conn(request, response_headers)
-        res_bytes = await self.implementation(conn)
+        try:
+            conn = await protocol_handler.conn(request, response_headers)
+            res_bytes = await self.implementation(conn)
+        except Exception as e:
+            response = conn.close_with_error(e)
+            return response
+
         response = conn.close(res_bytes)
 
         return response

@@ -129,6 +129,21 @@ class StreamingHandlerConn(abc.ABC):
         """
         raise NotImplementedError
 
+    def close_with_error(self, error: Exception) -> Response:
+        """Close the connection and returns a response indicating an error.
+
+        Args:
+            error (Exception): The exception that caused the connection to close.
+
+        Returns:
+            Response: A response object indicating the error.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+
+        """
+        raise NotImplementedError
+
 
 class ReceiveConn(Protocol):
     """A protocol that defines the methods required for receiving connections."""

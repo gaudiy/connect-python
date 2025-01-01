@@ -3,6 +3,7 @@
 Handles data serialization/deserialization using the Connect protocol.
 """
 
+import base64
 from typing import Any
 
 from starlette.datastructures import MutableHeaders
@@ -30,6 +31,9 @@ CONNECT_UNARY_CONTENT_TYPE_PREFIX = "application/"
 CONNECT_STREAMING_CONTENT_TYPE_PREFIX = "application/connect+"
 CONNECT_UNARY_CONTENT_TYPE_JSON = "application/json"
 
+CONNECT_UNARY_ENCODING_QUERY_PARAMETER = "encoding"
+CONNECT_UNARY_MESSAGE_QUERY_PARAMETER = "message"
+CONNECT_UNARY_BASE64_QUERY_PARAMETER = "base64"
 CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER = "compression"
 
 
@@ -48,6 +52,23 @@ def connect_codec_from_content_type(stream_type: StreamType, content_type: str) 
         return content_type[len(CONNECT_UNARY_CONTENT_TYPE_PREFIX) :]
 
     return content_type[len(CONNECT_STREAMING_CONTENT_TYPE_PREFIX) :]
+
+
+def connect_content_type_from_codec_name(stream_type: StreamType, codec_name: str) -> str:
+    """Generate the content type string for a given stream type and codec name.
+
+    Args:
+        stream_type (StreamType): The type of the stream (e.g., Unary or Streaming).
+        codec_name (str): The name of the codec.
+
+    Returns:
+        str: The content type string constructed from the stream type and codec name.
+
+    """
+    if stream_type == StreamType.Unary:
+        return CONNECT_UNARY_CONTENT_TYPE_PREFIX + codec_name
+
+    return CONNECT_STREAMING_CONTENT_TYPE_PREFIX + codec_name
 
 
 class ConnectHandler(ProtocolHandler):
@@ -98,7 +119,8 @@ class ConnectHandler(ProtocolHandler):
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
         """Check if the handler can handle the payload."""
         if HttpMethod(request.method) == HttpMethod.GET:
-            pass
+            codec_name = request.query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER, "")
+            content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
 
         return content_type in self.accept
 
@@ -122,17 +144,19 @@ class ConnectHandler(ProtocolHandler):
             - Streaming support is not yet implemented.
 
         """
-        _query = request.url.query
+        query_params = request.query_params
+
         if self.params.spec.stream_type == StreamType.Unary:
             if HttpMethod(request.method) == HttpMethod.GET:
-                # TODO(tsubakiky): Get the compression from the query parameter
-                pass
+                content_encoding = query_params.get(CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER, None)
             else:
                 content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
 
             accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
-
-        # TODO(tsubakiky): Add validations
+        else:
+            # Streaming support is not yet implemented
+            content_encoding = None
+            accept_encoding = None
 
         request_compression, response_compression = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
@@ -142,8 +166,26 @@ class ConnectHandler(ProtocolHandler):
         connect_check_protocol_version(request, required)
 
         request_body: bytes
+
         if HttpMethod(request.method) == HttpMethod.GET:
-            pass
+            encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
+            message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
+            if encoding is None:
+                # TODO(tsubakiky): Add error handling
+                raise ValueError("Encoding query parameter is required")
+            elif message is None:
+                # TODO(tsubakiky): Add error handling
+                raise ValueError("Message query parameter is required")
+
+            if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
+                decoded = base64.b64decode(message)
+            else:
+                decoded = message.encode("utf-8")
+
+            request_body = decoded
+            codec_name = encoding
+            content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
+
         else:
             request_body = await request.body()
             content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
@@ -152,6 +194,7 @@ class ConnectHandler(ProtocolHandler):
         codec = self.params.codecs.get(codec_name)
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
+                request=request,
                 marshaler=ConnectMarshaler(
                     codec=codec,
                     compress_min_bytes=self.params.compress_min_bytes,
@@ -194,6 +237,7 @@ class ProtocolConnect(Protocol):
         methods = [HttpMethod.POST]
 
         if params.spec.stream_type == StreamType.Unary:
+            # TODO(tsubakiky): Check if idempotency level is NoSideEffect.
             methods.append(HttpMethod.GET)
 
         content_types: list[str] = []
@@ -348,26 +392,35 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     """ConnectUnaryHandlerConn is a handler connection class for unary RPCs in the Connect protocol.
 
     Attributes:
+        request (Request): The incoming request object.
         marshaler (ConnectMarshaler): An instance of ConnectMarshaler used to marshal messages.
         unmarshaler (ConnectUnmarshaler): An instance of ConnectUnmarshaler used to unmarshal messages.
+        response_headers (MutableHeaders): The headers for the response.
 
     """
 
+    request: Request
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
     response_headers: MutableHeaders
 
     def __init__(
-        self, marshaler: ConnectMarshaler, unmarshaler: ConnectUnmarshaler, response_headers: MutableHeaders
+        self,
+        request: Request,
+        marshaler: ConnectMarshaler,
+        unmarshaler: ConnectUnmarshaler,
+        response_headers: MutableHeaders,
     ) -> None:
         """Initialize the protocol connection.
 
         Args:
+            request (Request): The incoming request object.
             marshaler (ConnectMarshaler): The marshaler to serialize data.
             unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
             response_headers (MutableHeaders): The headers for the response.
 
         """
+        self.request = request
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
         self.response_headers = response_headers

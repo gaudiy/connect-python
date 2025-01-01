@@ -12,6 +12,7 @@ from connect.connect import Spec, StreamingHandlerConn
 from connect.request import Request
 
 HEADER_CONTENT_TYPE = "content-type"
+HEADER_CONTENT_LENGTH = "content-length"
 HEADER_HOST = "host"
 
 

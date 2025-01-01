@@ -10,6 +10,7 @@ from connect.compression import Compression, GZipCompression
 from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
 from connect.options import ConnectOptions
 from connect.protocol import (
+    HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
     HttpMethod,
     ProtocolHandler,
@@ -187,6 +188,25 @@ class UnaryHandler:
         if not protocol_handler:
             # TODO(tsubakiky): Add error handling
             raise NotImplementedError(f"Content type {content_type} not implemented")
+
+        if HttpMethod(request.method) == HttpMethod.GET:
+            content_length = request.headers.get(HEADER_CONTENT_LENGTH, None)
+            has_body = False
+
+            if content_length is not None:
+                has_body = int(content_length) > 0
+            else:
+                try:
+                    async for chunk in request.stream():
+                        if chunk != b"":
+                            has_body = True
+                        break
+                except Exception:
+                    pass
+
+            if has_body:
+                # TODO(tsubakiky): Add error handling
+                raise NotImplementedError("GET request with body not supported")
 
         conn = await protocol_handler.conn(request, response_headers)
         res_bytes = await self.implementation(conn)

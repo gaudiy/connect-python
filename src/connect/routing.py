@@ -167,6 +167,8 @@ class ConnectRouter(routing.Router):
                 await route.handle(scope, receive, send)
                 return
 
+        await self.default(scope, receive, send)
+
 
 def get_route_path(scope: Scope) -> str:
     """Extract the route path from the given scope.

@@ -57,7 +57,7 @@ class StreamingHandlerConn(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> Any:
+    async def receive(self, message: Any) -> Any:
         """Receives a message and processes it.
 
         Args:
@@ -166,7 +166,7 @@ class ReceiveConn(Protocol):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> Any:
+    async def receive(self, message: Any) -> Any:
         """Receives a message and processes it.
 
         Args:
@@ -185,7 +185,7 @@ class ReceiveConn(Protocol):
 T = TypeVar("T")
 
 
-def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
+async def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
     """Receives a unary request from the given connection and returns a ConnectRequest object.
 
     Args:
@@ -196,11 +196,11 @@ def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> ConnectRequ
         ConnectRequest[T]: A ConnectRequest object containing the received message.
 
     """
-    message = receive_unary_message(conn, t)
+    message = await receive_unary_message(conn, t)
     return ConnectRequest(message)
 
 
-def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:
+async def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:
     """Receives a unary message from the given connection.
 
     Args:
@@ -211,5 +211,5 @@ def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:
         T: The received message of type T.
 
     """
-    message = conn.receive(t)
+    message = await conn.receive(t)
     return message

@@ -77,7 +77,7 @@ class ProtocolHandler(abc.ABC):
             list[HttpMethod]: A list of HTTP methods.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def content_types(self) -> list[str]:
@@ -90,7 +90,7 @@ class ProtocolHandler(abc.ABC):
             None
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
@@ -107,7 +107,7 @@ class ProtocolHandler(abc.ABC):
             NotImplementedError: This method should be implemented by subclasses.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @abc.abstractmethod
     async def conn(self, request: Request, response_headers: MutableHeaders) -> StreamingHandlerConn:
@@ -121,7 +121,7 @@ class ProtocolHandler(abc.ABC):
             StreamingHandlerConn: The connection handler for streaming.
 
         """
-        pass
+        raise NotImplementedError()
 
 
 class Protocol(abc.ABC):
@@ -143,7 +143,7 @@ class Protocol(abc.ABC):
             ProtocolHandler: An instance of ProtocolHandler based on the provided parameters.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def client(self) -> None:
@@ -152,7 +152,7 @@ class Protocol(abc.ABC):
         This method currently does nothing and is intended to be implemented
         in the future with the necessary client-side logic.
         """
-        pass
+        raise NotImplementedError()
 
 
 def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HttpMethod, list[ProtocolHandler]]:

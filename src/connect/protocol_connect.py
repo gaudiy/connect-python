@@ -248,10 +248,6 @@ class ConnectHandler(ProtocolHandler):
 class ProtocolConnect(Protocol):
     """ProtocolConnect is a class that implements the Protocol interface for handling connection protocols."""
 
-    def __init__(self) -> None:
-        """Initialize the class instance."""
-        pass
-
     def handler(self, params: ProtocolHandlerParams) -> ConnectHandler:
         """Handle the creation of a ConnectHandler based on the provided ProtocolHandlerParams.
 
@@ -280,7 +276,7 @@ class ProtocolConnect(Protocol):
 
     def client(self) -> None:
         """Handle the client connection."""
-        pass
+        raise NotImplementedError()
 
 
 class ConnectUnmarshaler:
@@ -505,7 +501,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             NotImplementedError: If the method is not implemented by a subclass.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def peer(self) -> Any:
         """Return the peer information.
@@ -517,7 +513,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Any: The peer information.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     async def receive(self, message: Any) -> Any:
         """Receives a message, unmarshals it, and returns the resulting object.
@@ -539,7 +535,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Any: The request header.
 
         """
-        pass
+        raise NotImplementedError()
 
     def send(self, message: Any) -> bytes:
         """Send a message by marshaling it into bytes.

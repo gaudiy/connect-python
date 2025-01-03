@@ -24,7 +24,7 @@ class Compression(abc.ABC):
             str: The name of the compression algorithm.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def compress(self, data: bytes) -> bytes:
@@ -37,7 +37,7 @@ class Compression(abc.ABC):
             bytes: The compressed data.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def decompress(self, data: bytes, read_max_bytes: int) -> bytes:
@@ -51,7 +51,7 @@ class Compression(abc.ABC):
             bytes: The decompressed data.
 
         """
-        pass
+        raise NotImplementedError()
 
 
 class GZipCompression(Compression):

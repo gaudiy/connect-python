@@ -4,12 +4,15 @@ import http
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import anyio
 from starlette.datastructures import MutableHeaders
 from starlette.responses import PlainTextResponse
 
+from connect.code import Code
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import Compression, GZipCompression
 from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
+from connect.error import ConnectError
 from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
@@ -22,7 +25,12 @@ from connect.protocol import (
     sorted_allow_method_value,
 )
 from connect.protocol_connect import (
+    CONNECT_HEADER_TIMEOUT,
+    CONNECT_UNARY_CONTENT_TYPE_JSON,
+    CONNECT_UNARY_TRAILER_PREFIX,
     ProtocolConnect,
+    connect_code_to_http,
+    error_to_json_bytes,
 )
 from connect.request import ConnectRequest, Req, Request
 from connect.response import ConnectResponse, Res, Response
@@ -186,6 +194,8 @@ class UnaryHandler:
 
         """
         response_headers = MutableHeaders()
+        response_trailers = MutableHeaders()
+
         protocol_handlers = self.protocol_handlers.get(HttpMethod(request.method))
         if not protocol_handlers:
             response_headers["Allow"] = self.allow_methods
@@ -224,13 +234,38 @@ class UnaryHandler:
                 status = http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE
                 return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
+        status_code = http.HTTPStatus.OK.value
         try:
-            conn = await protocol_handler.conn(request, response_headers)
-            res_bytes = await self.implementation(conn)
-        except Exception as e:
-            response = conn.close_with_error(e)
-            return response
+            timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
+            timeout_sec = None
+            if timeout is not None:
+                try:
+                    timeout_ms = int(timeout)
+                except ValueError as e:
+                    raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
 
-        response = conn.close(res_bytes)
+                timeout_sec = timeout_ms / 1000
+
+            with anyio.fail_after(timeout_sec):
+                conn = await protocol_handler.conn(request, response_headers, response_trailers)
+                body = await self.implementation(conn)
+
+        except Exception as e:
+            error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+
+            if isinstance(e, TimeoutError):
+                error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
+
+            status_code = connect_code_to_http(error.code)
+
+            response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
+            response_headers.update(error.metadata)
+
+            body = error_to_json_bytes(error)
+
+        for key, value in response_trailers.items():
+            response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+
+        response = Response(content=body, headers=response_headers, status_code=status_code)
 
         return response

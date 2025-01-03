@@ -25,11 +25,11 @@ from connect.protocol import (
     negotiate_compression,
 )
 from connect.request import Request
-from connect.response import Response
 
 CONNECT_UNARY_HEADER_COMPRESSION = "content-encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "accept-encoding"
 CONNECT_UNARY_TRAILER_PREFIX = "trailer-"
+CONNECT_HEADER_TIMEOUT = "connect-timeout-ms"
 CONNECT_HEADER_PROTOCOL_VERSION = "connect-protocol-version"
 CONNECT_PROTOCOL_VERSION = "1"
 
@@ -132,12 +132,15 @@ class ConnectHandler(ProtocolHandler):
 
         return content_type in self.accept
 
-    async def conn(self, request: Request, response_headers: MutableHeaders) -> StreamingHandlerConn:
+    async def conn(
+        self, request: Request, response_headers: MutableHeaders, response_trailers: MutableHeaders
+    ) -> StreamingHandlerConn:
         """Handle the connection for the given request and response headers.
 
         Args:
             request (Request): The incoming request object.
             response_headers (MutableHeaders): The headers for the response.
+            response_trailers (MutableHeaders): The headers for the response trailers.
 
         Returns:
             StreamingHandlerConn: The connection handler for the request.
@@ -237,6 +240,7 @@ class ConnectHandler(ProtocolHandler):
                     read_max_bytes=self.params.read_max_bytes,
                 ),
                 response_headers=response_headers,
+                response_trailers=response_trailers,
             )
         else:
             # TODO(tsubakiky): Add streaming support
@@ -570,54 +574,6 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         return self.response_trailers
-
-    def close(self, data: bytes) -> Response:
-        """Close the connection and returns a response with the provided data.
-
-        Args:
-            data (bytes): The data to include in the response.
-
-        Returns:
-            Response: A response object containing the provided data, response headers, and a status code of 200.
-
-        """
-        self.merge_response_header()
-        response = Response(content=data, headers=self.response_headers, status_code=200)
-        return response
-
-    def close_with_error(self, e: Exception) -> Response:
-        """Close the connection with an error response.
-
-        Args:
-            e (Exception): The exception that caused the error.
-
-        Returns:
-            Response: The HTTP response containing the error details.
-
-        """
-        error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
-        status = connect_code_to_http(error.code)
-
-        self.response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
-        self.response_headers.update(error.metadata)
-
-        body = error_to_json_bytes(error)
-
-        self.merge_response_header()
-        return Response(content=body, headers=self.response_headers, status_code=status)
-
-    def merge_response_header(self) -> None:
-        """Merge response headers into response trailers with a specific prefix.
-
-        This method iterates over the items in `self.response_headers` and adds each
-        header to `self.response_trailers` with a prefix defined by `CONNECT_UNARY_TRAILER_PREFIX`.
-
-        Returns:
-            None
-
-        """
-        for key, value in self.response_headers.items():
-            self.response_trailers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
 
 def connect_check_protocol_version(request: Request, required: bool) -> None:

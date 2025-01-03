@@ -161,7 +161,7 @@ class UnaryHandler:
             return response
 
         async def implementation(conn: StreamingHandlerConn) -> bytes:
-            request = receive_unary_request(conn, self.input)
+            request = await receive_unary_request(conn, self.input)
             response = await untyped(request)
 
             conn.response_header().update(response.headers)

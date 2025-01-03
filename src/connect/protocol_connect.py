@@ -6,6 +6,7 @@ Handles data serialization/deserialization using the Connect protocol.
 import base64
 import contextlib
 import json
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from starlette.datastructures import MutableHeaders
@@ -172,7 +173,7 @@ class ConnectHandler(ProtocolHandler):
         required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
         connect_check_protocol_version(request, required)
 
-        request_body: bytes
+        request_stream: Callable[..., AsyncGenerator[bytes]]
 
         if HttpMethod(request.method) == HttpMethod.GET:
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
@@ -193,12 +194,15 @@ class ConnectHandler(ProtocolHandler):
             else:
                 decoded = message.encode("utf-8")
 
-            request_body = decoded
+            async def stream() -> AsyncGenerator[bytes]:
+                yield decoded
+
+            request_stream = stream
             codec_name = encoding
             content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
 
         else:
-            request_body = await request.body()
+            request_stream = request.stream
             content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
@@ -227,7 +231,7 @@ class ConnectHandler(ProtocolHandler):
                     response_headers=response_headers,
                 ),
                 unmarshaler=ConnectUnmarshaler(
-                    body=request_body,
+                    request_stream=request_stream,
                     codec=codec,
                     compression=request_compression,
                     read_max_bytes=self.params.read_max_bytes,
@@ -291,26 +295,32 @@ class ConnectUnmarshaler:
     """
 
     codec: Codec
-    body: bytes
+    request_stream: Callable[..., AsyncGenerator[bytes]]
     read_max_bytes: int
     compression: Compression | None
 
-    def __init__(self, body: bytes, codec: Codec, read_max_bytes: int, compression: Compression | None) -> None:
+    def __init__(
+        self,
+        request_stream: Callable[..., AsyncGenerator[bytes]],
+        codec: Codec,
+        read_max_bytes: int,
+        compression: Compression | None,
+    ) -> None:
         """Initialize the ProtocolConnect object.
 
         Args:
-            body (bytes): The body of the message.
+            request_stream (Callable[..., AsyncGenerator[bytes]]): The stream of data to be unmarshaled.
             codec (Codec): The codec used for encoding/decoding the message.
             read_max_bytes (int): The maximum number of bytes to read.
             compression (Compression | None): The compression method to use, if any.
 
         """
-        self.body = body
+        self.request_stream = request_stream
         self.codec = codec
         self.read_max_bytes = read_max_bytes
         self.compression = compression
 
-    def unmarshal(self, message: Any) -> Any:
+    async def unmarshal(self, message: Any) -> Any:
         """Unmarshals the given message using the codec.
 
         Args:
@@ -320,13 +330,25 @@ class ConnectUnmarshaler:
             Any: The unmarshaled object.
 
         """
-        data = self.body
+        chunks: list[bytes] = []
+        bytes_read = 0
+        async for chunk in self.request_stream():
+            chunk_size = len(chunk)
+            bytes_read += chunk_size
+            if self.read_max_bytes > 0 and bytes_read > self.read_max_bytes:
+                raise ConnectError(
+                    f"message size {bytes_read} is larger than configured max {self.read_max_bytes}",
+                    Code.RESOURCE_EXHAUSTED,
+                )
+
+            chunks.append(chunk)
+
+        data = b"".join(chunks)
+
         if len(data) > 0 and self.compression:
-            # TODO(tsubakiky): Add error handling for decompression
             data = self.compression.decompress(data, self.read_max_bytes)
 
         try:
-            # TODO(tsubakiky): Add error handling for unmarshal
             obj = self.codec.unmarshal(data, message)
         except Exception as e:
             raise ConnectError(
@@ -404,7 +426,6 @@ class ConnectMarshaler:
 
         """
         try:
-            # TODO(tsubakiky): Add error handling for marshal
             data = self.codec.marshal(message)
         except Exception as e:
             raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
@@ -417,7 +438,6 @@ class ConnectMarshaler:
 
             return data
 
-        # TODO(tsubakiky): Add error handling for compression
         data = self.compression.compress(data)
 
         if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
@@ -499,7 +519,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         raise NotImplementedError
 
-    def receive(self, message: Any) -> Any:
+    async def receive(self, message: Any) -> Any:
         """Receives a message, unmarshals it, and returns the resulting object.
 
         Args:
@@ -509,7 +529,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Any: The unmarshaled object.
 
         """
-        obj = self.unmarshaler.unmarshal(message)
+        obj = await self.unmarshaler.unmarshal(message)
         return obj
 
     def request_header(self) -> Any:

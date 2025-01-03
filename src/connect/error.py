@@ -3,7 +3,7 @@
 
 """Error represents an error in the Connect protocol."""
 
-from collections.abc import Mapping
+from collections.abc import MutableMapping
 
 import google.protobuf.any_pb2 as any_pb2
 from google.protobuf.message import Message
@@ -58,21 +58,21 @@ class ConnectError(Exception):
     Attributes:
         raw_message (str): The original error message.
         code (Code): The error code, default is Code.UNKNOWN.
-        metadata (Mapping[str, str]): Additional metadata related to the error.
+        metadata (MutableMapping[str, str]): Additional metadata related to the error.
         details (list[ErrorDetail]): Detailed information about the error.
 
     """
 
     raw_message: str
     code: Code
-    metadata: Mapping[str, str]
+    metadata: MutableMapping[str, str]
     details: list[ErrorDetail]
 
     def __init__(
         self,
         message: str,
         code: Code = Code.UNKNOWN,
-        metadata: Mapping[str, str] | None = None,
+        metadata: MutableMapping[str, str] | None = None,
         details: list[ErrorDetail] | None = None,
     ):
         """Initialize a Error."""

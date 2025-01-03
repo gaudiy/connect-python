@@ -40,6 +40,8 @@ CONNECT_UNARY_ENCODING_QUERY_PARAMETER = "encoding"
 CONNECT_UNARY_MESSAGE_QUERY_PARAMETER = "message"
 CONNECT_UNARY_BASE64_QUERY_PARAMETER = "base64"
 CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER = "compression"
+CONNECT_UNARY_CONNECT_QUERY_PARAMETER = "connect"
+CONNECT_UNARY_CONNECT_QUERY_VALUE = "v" + CONNECT_PROTOCOL_VERSION
 
 
 def connect_codec_from_content_type(stream_type: StreamType, content_type: str) -> str:
@@ -164,7 +166,7 @@ class ConnectHandler(ProtocolHandler):
             accept_encoding = None
 
         request_compression, response_compression = negotiate_compression(
-            self.params.compressions, content_encoding, accept_encoding, CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
+            self.params.compressions, content_encoding, accept_encoding
         )
 
         required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
@@ -176,11 +178,15 @@ class ConnectHandler(ProtocolHandler):
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
             message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
             if encoding is None:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Encoding query parameter is required")
+                raise ConnectError(
+                    f"missing {CONNECT_UNARY_ENCODING_QUERY_PARAMETER} parameter",
+                    Code.INVALID_ARGUMENT,
+                )
             elif message is None:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Message query parameter is required")
+                raise ConnectError(
+                    f"missing {CONNECT_UNARY_MESSAGE_QUERY_PARAMETER} parameter",
+                    Code.INVALID_ARGUMENT,
+                )
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
                 decoded = base64.b64decode(message)
@@ -197,6 +203,19 @@ class ConnectHandler(ProtocolHandler):
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
         codec = self.params.codecs.get(codec_name)
+        if codec is None:
+            raise ConnectError(
+                f"invalid message encoding: {codec_name}",
+                Code.INVALID_ARGUMENT,
+            )
+
+        response_headers[HEADER_CONTENT_TYPE] = content_type
+        accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
+        if self.params.spec.stream_type != StreamType.Unary:
+            # TODO(tsubakiky): Add streaming support
+            pass
+        response_headers[accept_compression_header] = f"{', '.join(c.name() for c in self.params.compressions)}"
+
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
                 request=request,
@@ -303,9 +322,18 @@ class ConnectUnmarshaler:
         """
         data = self.body
         if len(data) > 0 and self.compression:
+            # TODO(tsubakiky): Add error handling for decompression
             data = self.compression.decompress(data, self.read_max_bytes)
 
-        obj = self.codec.unmarshal(data, message)
+        try:
+            # TODO(tsubakiky): Add error handling for unmarshal
+            obj = self.codec.unmarshal(data, message)
+        except Exception as e:
+            raise ConnectError(
+                f"unmarshal message: {str(e)}",
+                Code.INVALID_ARGUMENT,
+            ) from e
+
         return obj
 
 
@@ -375,18 +403,28 @@ class ConnectMarshaler:
             ValueError: If the serialized or compressed data exceeds the maximum allowed size.
 
         """
-        data = self.codec.marshal(message)
+        try:
+            # TODO(tsubakiky): Add error handling for marshal
+            data = self.codec.marshal(message)
+        except Exception as e:
+            raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
+
         if len(data) < self.compress_min_bytes or self.compression is None:
             if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Data exceeds maximum size")
+                raise ConnectError(
+                    f"message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                )
 
             return data
 
+        # TODO(tsubakiky): Add error handling for compression
         data = self.compression.compress(data)
+
         if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
-            # TODO(tsubakiky): Add error handling
-            raise ValueError("Data exceeds maximum size")
+            raise ConnectError(
+                f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                Code.RESOURCE_EXHAUSTED,
+            )
 
         self.response_headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name()
 
@@ -496,16 +534,16 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         data = self.marshaler.marshal(message)
         return data
 
-    def response_header(self) -> Any:
+    def response_header(self) -> MutableHeaders:
         """Retrieve the response header.
 
         Returns:
             Any: The response header.
 
         """
-        pass
+        return self.response_headers
 
-    def response_trailer(self) -> Any:
+    def response_trailer(self) -> MutableHeaders:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide
@@ -515,7 +553,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Any: The processed response trailer data.
 
         """
-        pass
+        return self.response_trailers
 
     def close(self, data: bytes) -> Response:
         """Close the connection and returns a response with the provided data.
@@ -581,18 +619,29 @@ def connect_check_protocol_version(request: Request, required: bool) -> None:
     """
     match HttpMethod(request.method):
         case HttpMethod.GET:
-            pass
+            version = request.query_params.get(CONNECT_UNARY_CONNECT_QUERY_PARAMETER)
+            if required and version is None:
+                raise ConnectError(
+                    f'missing required parameter: set {CONNECT_UNARY_CONNECT_QUERY_PARAMETER} to "{CONNECT_UNARY_CONNECT_QUERY_VALUE}"'
+                )
+            elif version is not None and version != CONNECT_UNARY_CONNECT_QUERY_VALUE:
+                raise ConnectError(
+                    f'{CONNECT_UNARY_CONNECT_QUERY_PARAMETER} must be "{CONNECT_UNARY_CONNECT_QUERY_VALUE}": get "{version}"',
+                )
         case HttpMethod.POST:
             version = request.headers.get(CONNECT_HEADER_PROTOCOL_VERSION, None)
             if required and version is None:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Protocol version is required")
+                raise ConnectError(
+                    f'missing required header: set {CONNECT_HEADER_PROTOCOL_VERSION} to "{CONNECT_PROTOCOL_VERSION}"',
+                    Code.INVALID_ARGUMENT,
+                )
             elif version is not None and version != CONNECT_PROTOCOL_VERSION:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Unsupported protocol version")
+                raise ConnectError(
+                    f'{CONNECT_HEADER_PROTOCOL_VERSION} must be "{CONNECT_PROTOCOL_VERSION}": get "{version}"',
+                    Code.INVALID_ARGUMENT,
+                )
         case _:
-            # TODO(tsubakiky): Add error handling
-            raise ValueError("Unsupported method")
+            raise ConnectError(f"unsupported method: {request.method}", Code.INVALID_ARGUMENT)
 
 
 def connect_code_to_http(code: Code) -> int:

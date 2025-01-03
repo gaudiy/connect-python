@@ -1,5 +1,6 @@
 """Response module for the connect package."""
 
+from collections.abc import MutableMapping
 from typing import Generic, TypeVar
 
 from starlette.responses import Response as Response
@@ -11,6 +12,8 @@ class ConnectResponse(Generic[Res]):
     """Response class for handling responses."""
 
     message: Res
+    headers: MutableMapping[str, str] = {}
+    trailers: MutableMapping[str, str] = {}
 
     def __init__(self, message: Res) -> None:
         """Initialize the response with a message."""

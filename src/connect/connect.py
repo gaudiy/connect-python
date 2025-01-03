@@ -5,6 +5,7 @@ from enum import Enum
 from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
+from starlette.datastructures import MutableHeaders
 
 from connect.request import ConnectRequest
 from connect.response import Response
@@ -92,7 +93,7 @@ class StreamingHandlerConn(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def response_header(self) -> Any:
+    def response_header(self) -> MutableHeaders:
         """Retrieve the response header.
 
         Returns:
@@ -102,7 +103,7 @@ class StreamingHandlerConn(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def response_trailer(self) -> Any:
+    def response_trailer(self) -> MutableHeaders:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide

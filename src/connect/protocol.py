@@ -174,7 +174,7 @@ def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HttpMethod, 
 
 
 def negotiate_compression(
-    available: list[Compression], sent: str | None, accept: str | None, header_name_accept_encoding: str
+    available: list[Compression], sent: str | None, accept: str | None
 ) -> tuple[Compression | None, Compression | None]:
     """Negotiate the compression method to be used based on the available options.
 
@@ -200,11 +200,9 @@ def negotiate_compression(
         if found:
             request = found
         else:
-            # TODO(tsubakiky): Add error handling
             raise ConnectError(
                 f"unknown compression {sent}: supported encodings are {available}",
                 Code.UNIMPLEMENTED,
-                {header_name_accept_encoding: f"{', '.join(c.name() for c in available)}"},
             )
 
     if accept is None or accept == "":

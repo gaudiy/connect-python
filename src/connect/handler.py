@@ -164,6 +164,8 @@ class UnaryHandler:
             request = receive_unary_request(conn, self.input)
             response = await untyped(request)
 
+            conn.response_header().update(response.headers)
+            conn.response_trailer().update(response.trailers)
             return conn.send(response.any())
 
         self.implementation = implementation

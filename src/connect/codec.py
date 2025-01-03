@@ -38,7 +38,7 @@ class Codec(abc.ABC):
             str: The name of the codec.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def marshal(self, message: Any) -> bytes:
@@ -54,7 +54,7 @@ class Codec(abc.ABC):
             ValueError: If the message is not a protobuf message.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def unmarshal(self, data: bytes, message: Any) -> Any:
@@ -71,7 +71,7 @@ class Codec(abc.ABC):
             NotImplementedError: This method should be implemented by subclasses.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 class ProtoBinaryCodec(Codec):
@@ -215,7 +215,7 @@ class ReadOnlyCodecs(abc.ABC):
             Codec: The codec associated with the given name.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def protobuf(self) -> Codec | None:
@@ -225,7 +225,7 @@ class ReadOnlyCodecs(abc.ABC):
             Codec: An instance of the Codec class configured for protobuf encoding.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def names(self) -> list[str]:
@@ -235,7 +235,7 @@ class ReadOnlyCodecs(abc.ABC):
             list[str]: A list of names as strings.
 
         """
-        pass
+        raise NotImplementedError()
 
 
 class CodecMap(ReadOnlyCodecs):

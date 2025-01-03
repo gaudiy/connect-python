@@ -43,7 +43,7 @@ class StreamingHandlerConn(abc.ABC):
             Spec: The specification details.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def peer(self) -> Any:
@@ -54,7 +54,7 @@ class StreamingHandlerConn(abc.ABC):
             of the return value will depend on the implementation details.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     async def receive(self, message: Any) -> Any:
@@ -67,7 +67,7 @@ class StreamingHandlerConn(abc.ABC):
             Any: The result of processing the message.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def request_header(self) -> Any:
@@ -77,7 +77,7 @@ class StreamingHandlerConn(abc.ABC):
             Any: The request header.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def send(self, message: Any) -> bytes:
@@ -90,7 +90,7 @@ class StreamingHandlerConn(abc.ABC):
             bytes: The response received after sending the message.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def response_header(self) -> MutableHeaders:
@@ -100,7 +100,7 @@ class StreamingHandlerConn(abc.ABC):
             Any: The response header.
 
         """
-        pass
+        raise NotImplementedError()
 
     @abc.abstractmethod
     def response_trailer(self) -> MutableHeaders:
@@ -113,7 +113,7 @@ class StreamingHandlerConn(abc.ABC):
             Any: The return type is not specified as this is a placeholder method.
 
         """
-        pass
+        raise NotImplementedError()
 
     def close(self, data: bytes) -> Response:
         """Close the connection with the provided data.
@@ -128,7 +128,7 @@ class StreamingHandlerConn(abc.ABC):
             NotImplementedError: This method is not yet implemented.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def close_with_error(self, error: Exception) -> Response:
         """Close the connection and returns a response indicating an error.
@@ -143,7 +143,7 @@ class StreamingHandlerConn(abc.ABC):
             NotImplementedError: This method is not yet implemented.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 class ReceiveConn(Protocol):
@@ -163,7 +163,7 @@ class ReceiveConn(Protocol):
             Spec: The specification for the current object.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
     @abc.abstractmethod
     async def receive(self, message: Any) -> Any:
@@ -179,7 +179,7 @@ class ReceiveConn(Protocol):
             NotImplementedError: This method should be implemented by subclasses.
 
         """
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 T = TypeVar("T")

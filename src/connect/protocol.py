@@ -110,12 +110,15 @@ class ProtocolHandler(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def conn(self, request: Request, response_headers: MutableHeaders) -> StreamingHandlerConn:
+    async def conn(
+        self, request: Request, response_headers: MutableHeaders, response_trailers: MutableHeaders
+    ) -> StreamingHandlerConn:
         """Handle the connection for a given request and response headers.
 
         Args:
             request (Request): The request object containing the details of the request.
             response_headers (MutableHeaders): The mutable headers for the response.
+            response_trailers (MutableHeaders): The mutable headers for the response trailers.
 
         Returns:
             StreamingHandlerConn: The connection handler for streaming.

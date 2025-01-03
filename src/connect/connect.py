@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from starlette.datastructures import MutableHeaders
 
 from connect.request import ConnectRequest
-from connect.response import Response
 
 
 class StreamType(Enum):
@@ -111,36 +110,6 @@ class StreamingHandlerConn(abc.ABC):
 
         Returns:
             Any: The return type is not specified as this is a placeholder method.
-
-        """
-        raise NotImplementedError()
-
-    def close(self, data: bytes) -> Response:
-        """Close the connection with the provided data.
-
-        Args:
-            data (bytes): The data to be sent when closing the connection.
-
-        Returns:
-            Response: The response received after closing the connection.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
-
-        """
-        raise NotImplementedError()
-
-    def close_with_error(self, error: Exception) -> Response:
-        """Close the connection and returns a response indicating an error.
-
-        Args:
-            error (Exception): The exception that caused the connection to close.
-
-        Returns:
-            Response: A response object indicating the error.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
 
         """
         raise NotImplementedError()

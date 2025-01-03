@@ -205,7 +205,7 @@ class ReadOnlyCodecs(abc.ABC):
     """
 
     @abc.abstractmethod
-    def get(self, name: str) -> Codec:
+    def get(self, name: str) -> Codec | None:
         """Retrieve a codec by its name.
 
         Args:
@@ -218,7 +218,7 @@ class ReadOnlyCodecs(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def protobuf(self) -> Codec:
+    def protobuf(self) -> Codec | None:
         """Encode data using the Protocol Buffers (protobuf) codec.
 
         Returns:
@@ -252,7 +252,7 @@ class CodecMap(ReadOnlyCodecs):
         """
         self.name_to_codec = name_to_codec
 
-    def get(self, name: str) -> Codec:
+    def get(self, name: str) -> Codec | None:
         """Retrieve a codec by its name.
 
         Args:
@@ -265,9 +265,9 @@ class CodecMap(ReadOnlyCodecs):
             KeyError: If the codec with the specified name does not exist.
 
         """
-        return self.name_to_codec[name]
+        return self.name_to_codec.get(name)
 
-    def protobuf(self) -> Codec:
+    def protobuf(self) -> Codec | None:
         """Return the Codec instance associated with Protocol Buffers (PROTO).
 
         This method retrieves the Codec instance that corresponds to the

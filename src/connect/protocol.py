@@ -6,9 +6,11 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict
 from starlette.datastructures import MutableHeaders
 
+from connect.code import Code
 from connect.codec import ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
 from connect.connect import Spec, StreamingHandlerConn
+from connect.error import ConnectError
 from connect.request import Request
 
 HEADER_CONTENT_TYPE = "content-type"
@@ -78,7 +80,7 @@ class ProtocolHandler(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def content_types(self) -> None:
+    def content_types(self) -> list[str]:
         """Handle content types.
 
         This method currently does nothing and is intended to be implemented
@@ -183,6 +185,7 @@ def negotiate_compression(
         available (list[Compression]): A list of available compression methods.
         sent (str | None): The compression method sent by the client, or None if not specified.
         accept (str | None): A comma-separated string of compression methods accepted by the server, or None if not specified.
+        header_name_accept_encoding (str): The name of the header used to specify the accepted compression methods.
 
     Returns:
         tuple[Compression | None, Compression | None]: A tuple containing the selected compression method for the request
@@ -197,8 +200,10 @@ def negotiate_compression(
         if found:
             request = found
         else:
-            # TODO(tsubakiky): Add error handling
-            pass
+            raise ConnectError(
+                f"unknown compression {sent}: supported encodings are {available}",
+                Code.UNIMPLEMENTED,
+            )
 
     if accept is None or accept == "":
         response = request
@@ -211,3 +216,32 @@ def negotiate_compression(
                 break
 
     return request, response
+
+
+def sorted_allow_method_value(handlers: list[ProtocolHandler]) -> str:
+    """Sort the allowed methods for a list of protocol handlers.
+
+    Args:
+        handlers (list[ProtocolHandler]): A list of protocol handlers.
+
+    Returns:
+        str: A comma-separated string of the allowed methods.
+
+    """
+    methods = {method for handler in handlers for method in handler.methods()}
+    return ", ".join(sorted(method.value for method in methods))
+
+
+def sorted_accept_post_value(handlers: list[ProtocolHandler]) -> str:
+    """Sort the allowed methods for a list of protocol handlers.
+
+    Args:
+        handlers (list[ProtocolHandler]): A list of protocol handlers.
+
+    Returns:
+        str: A comma-separated string of the allowed methods.
+
+    """
+    # methods = {method for handler in handlers for method in handler.methods()}
+    content_types = {content_type for handler in handlers for content_type in handler.content_types()}
+    return ", ".join(sorted(content_type for content_type in content_types))

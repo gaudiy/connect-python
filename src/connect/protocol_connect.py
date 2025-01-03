@@ -4,13 +4,17 @@ Handles data serialization/deserialization using the Connect protocol.
 """
 
 import base64
+import contextlib
+import json
 from typing import Any
 
 from starlette.datastructures import MutableHeaders
 
-from connect.codec import Codec
+from connect.code import Code
+from connect.codec import Codec, CodecNameType, ProtoJSONCodec
 from connect.compression import Compression
 from connect.connect import Spec, StreamingHandlerConn, StreamType
+from connect.error import ConnectError
 from connect.protocol import (
     HEADER_CONTENT_TYPE,
     HttpMethod,
@@ -24,6 +28,7 @@ from connect.response import Response
 
 CONNECT_UNARY_HEADER_COMPRESSION = "content-encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "accept-encoding"
+CONNECT_UNARY_TRAILER_PREFIX = "trailer-"
 CONNECT_HEADER_PROTOCOL_VERSION = "connect-protocol-version"
 CONNECT_PROTOCOL_VERSION = "1"
 
@@ -35,6 +40,8 @@ CONNECT_UNARY_ENCODING_QUERY_PARAMETER = "encoding"
 CONNECT_UNARY_MESSAGE_QUERY_PARAMETER = "message"
 CONNECT_UNARY_BASE64_QUERY_PARAMETER = "base64"
 CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER = "compression"
+CONNECT_UNARY_CONNECT_QUERY_PARAMETER = "connect"
+CONNECT_UNARY_CONNECT_QUERY_VALUE = "v" + CONNECT_PROTOCOL_VERSION
 
 
 def connect_codec_from_content_type(stream_type: StreamType, content_type: str) -> str:
@@ -107,14 +114,14 @@ class ConnectHandler(ProtocolHandler):
         """
         return self.__methods
 
-    def content_types(self) -> None:
+    def content_types(self) -> list[str]:
         """Handle content types.
 
         This method currently does nothing and serves as a placeholder for future
         implementation related to content types.
 
         """
-        pass
+        return self.accept
 
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
         """Check if the handler can handle the payload."""
@@ -171,11 +178,15 @@ class ConnectHandler(ProtocolHandler):
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
             message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
             if encoding is None:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Encoding query parameter is required")
+                raise ConnectError(
+                    f"missing {CONNECT_UNARY_ENCODING_QUERY_PARAMETER} parameter",
+                    Code.INVALID_ARGUMENT,
+                )
             elif message is None:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Message query parameter is required")
+                raise ConnectError(
+                    f"missing {CONNECT_UNARY_MESSAGE_QUERY_PARAMETER} parameter",
+                    Code.INVALID_ARGUMENT,
+                )
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
                 decoded = base64.b64decode(message)
@@ -192,6 +203,19 @@ class ConnectHandler(ProtocolHandler):
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
         codec = self.params.codecs.get(codec_name)
+        if codec is None:
+            raise ConnectError(
+                f"invalid message encoding: {codec_name}",
+                Code.INVALID_ARGUMENT,
+            )
+
+        response_headers[HEADER_CONTENT_TYPE] = content_type
+        accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
+        if self.params.spec.stream_type != StreamType.Unary:
+            # TODO(tsubakiky): Add streaming support
+            pass
+        response_headers[accept_compression_header] = f"{', '.join(c.name() for c in self.params.compressions)}"
+
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
                 request=request,
@@ -298,9 +322,18 @@ class ConnectUnmarshaler:
         """
         data = self.body
         if len(data) > 0 and self.compression:
+            # TODO(tsubakiky): Add error handling for decompression
             data = self.compression.decompress(data, self.read_max_bytes)
 
-        obj = self.codec.unmarshal(data, message)
+        try:
+            # TODO(tsubakiky): Add error handling for unmarshal
+            obj = self.codec.unmarshal(data, message)
+        except Exception as e:
+            raise ConnectError(
+                f"unmarshal message: {str(e)}",
+                Code.INVALID_ARGUMENT,
+            ) from e
+
         return obj
 
 
@@ -370,18 +403,28 @@ class ConnectMarshaler:
             ValueError: If the serialized or compressed data exceeds the maximum allowed size.
 
         """
-        data = self.codec.marshal(message)
+        try:
+            # TODO(tsubakiky): Add error handling for marshal
+            data = self.codec.marshal(message)
+        except Exception as e:
+            raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
+
         if len(data) < self.compress_min_bytes or self.compression is None:
             if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Data exceeds maximum size")
+                raise ConnectError(
+                    f"message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                )
 
             return data
 
+        # TODO(tsubakiky): Add error handling for compression
         data = self.compression.compress(data)
+
         if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
-            # TODO(tsubakiky): Add error handling
-            raise ValueError("Data exceeds maximum size")
+            raise ConnectError(
+                f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                Code.RESOURCE_EXHAUSTED,
+            )
 
         self.response_headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name()
 
@@ -403,6 +446,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
     response_headers: MutableHeaders
+    response_trailers: MutableHeaders
 
     def __init__(
         self,
@@ -410,6 +454,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         marshaler: ConnectMarshaler,
         unmarshaler: ConnectUnmarshaler,
         response_headers: MutableHeaders,
+        response_trailers: MutableHeaders | None = None,
     ) -> None:
         """Initialize the protocol connection.
 
@@ -418,12 +463,14 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             marshaler (ConnectMarshaler): The marshaler to serialize data.
             unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
             response_headers (MutableHeaders): The headers for the response.
+            response_trailers (MutableHeaders, optional): The trailers for the response.
 
         """
         self.request = request
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
         self.response_headers = response_headers
+        self.response_trailers = response_trailers or MutableHeaders()
 
     def spec(self) -> Spec:
         """Retrieve the specification for the protocol.
@@ -487,16 +534,16 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         data = self.marshaler.marshal(message)
         return data
 
-    def response_header(self) -> Any:
+    def response_header(self) -> MutableHeaders:
         """Retrieve the response header.
 
         Returns:
             Any: The response header.
 
         """
-        pass
+        return self.response_headers
 
-    def response_trailer(self) -> Any:
+    def response_trailer(self) -> MutableHeaders:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide
@@ -506,7 +553,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Any: The processed response trailer data.
 
         """
-        pass
+        return self.response_trailers
 
     def close(self, data: bytes) -> Response:
         """Close the connection and returns a response with the provided data.
@@ -518,8 +565,43 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Response: A response object containing the provided data, response headers, and a status code of 200.
 
         """
+        self.merge_response_header()
         response = Response(content=data, headers=self.response_headers, status_code=200)
         return response
+
+    def close_with_error(self, e: Exception) -> Response:
+        """Close the connection with an error response.
+
+        Args:
+            e (Exception): The exception that caused the error.
+
+        Returns:
+            Response: The HTTP response containing the error details.
+
+        """
+        error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+        status = connect_code_to_http(error.code)
+
+        self.response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
+        self.response_headers.update(error.metadata)
+
+        body = error_to_json_bytes(error)
+
+        self.merge_response_header()
+        return Response(content=body, headers=self.response_headers, status_code=status)
+
+    def merge_response_header(self) -> None:
+        """Merge response headers into response trailers with a specific prefix.
+
+        This method iterates over the items in `self.response_headers` and adds each
+        header to `self.response_trailers` with a prefix defined by `CONNECT_UNARY_TRAILER_PREFIX`.
+
+        Returns:
+            None
+
+        """
+        for key, value in self.response_headers.items():
+            self.response_trailers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
 
 def connect_check_protocol_version(request: Request, required: bool) -> None:
@@ -537,15 +619,158 @@ def connect_check_protocol_version(request: Request, required: bool) -> None:
     """
     match HttpMethod(request.method):
         case HttpMethod.GET:
-            pass
+            version = request.query_params.get(CONNECT_UNARY_CONNECT_QUERY_PARAMETER)
+            if required and version is None:
+                raise ConnectError(
+                    f'missing required parameter: set {CONNECT_UNARY_CONNECT_QUERY_PARAMETER} to "{CONNECT_UNARY_CONNECT_QUERY_VALUE}"'
+                )
+            elif version is not None and version != CONNECT_UNARY_CONNECT_QUERY_VALUE:
+                raise ConnectError(
+                    f'{CONNECT_UNARY_CONNECT_QUERY_PARAMETER} must be "{CONNECT_UNARY_CONNECT_QUERY_VALUE}": get "{version}"',
+                )
         case HttpMethod.POST:
             version = request.headers.get(CONNECT_HEADER_PROTOCOL_VERSION, None)
             if required and version is None:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Protocol version is required")
+                raise ConnectError(
+                    f'missing required header: set {CONNECT_HEADER_PROTOCOL_VERSION} to "{CONNECT_PROTOCOL_VERSION}"',
+                    Code.INVALID_ARGUMENT,
+                )
             elif version is not None and version != CONNECT_PROTOCOL_VERSION:
-                # TODO(tsubakiky): Add error handling
-                raise ValueError("Unsupported protocol version")
+                raise ConnectError(
+                    f'{CONNECT_HEADER_PROTOCOL_VERSION} must be "{CONNECT_PROTOCOL_VERSION}": get "{version}"',
+                    Code.INVALID_ARGUMENT,
+                )
         case _:
-            # TODO(tsubakiky): Add error handling
-            raise ValueError("Unsupported method")
+            raise ConnectError(f"unsupported method: {request.method}", Code.INVALID_ARGUMENT)
+
+
+def connect_code_to_http(code: Code) -> int:
+    """Convert a given `Code` enumeration to its corresponding HTTP status code.
+
+    Args:
+        code (Code): The `Code` enumeration value to be converted.
+
+    Returns:
+        int: The corresponding HTTP status code.
+
+    The mapping is as follows:
+        - Code.CANCELED -> 499
+        - Code.UNKNOWN -> 500
+        - Code.INVALID_ARGUMENT -> 400
+        - Code.DEADLINE_EXCEEDED -> 504
+        - Code.NOT_FOUND -> 404
+        - Code.ALREADY_EXISTS -> 409
+        - Code.PERMISSION_DENIED -> 403
+        - Code.RESOURCE_EXHAUSTED -> 429
+        - Code.FAILED_PRECONDITION -> 400
+        - Code.ABORTED -> 409
+        - Code.OUT_OF_RANGE -> 400
+        - Code.UNIMPLEMENTED -> 501
+        - Code.INTERNAL -> 500
+        - Code.UNAVAILABLE -> 503
+        - Code.DATA_LOSS -> 500
+        - Code.UNAUTHENTICATED -> 401
+        - Any other code -> 500
+
+    """
+    match code:
+        case Code.CANCELED:
+            return 499
+        case Code.UNKNOWN:
+            return 500
+        case Code.INVALID_ARGUMENT:
+            return 400
+        case Code.DEADLINE_EXCEEDED:
+            return 504
+        case Code.NOT_FOUND:
+            return 404
+        case Code.ALREADY_EXISTS:
+            return 409
+        case Code.PERMISSION_DENIED:
+            return 403
+        case Code.RESOURCE_EXHAUSTED:
+            return 429
+        case Code.FAILED_PRECONDITION:
+            return 400
+        case Code.ABORTED:
+            return 409
+        case Code.OUT_OF_RANGE:
+            return 400
+        case Code.UNIMPLEMENTED:
+            return 501
+        case Code.INTERNAL:
+            return 500
+        case Code.UNAVAILABLE:
+            return 503
+        case Code.DATA_LOSS:
+            return 500
+        case Code.UNAUTHENTICATED:
+            return 401
+        case _:
+            return 500
+
+
+def error_to_json(error: ConnectError) -> dict[str, Any]:
+    """Convert a ConnectError object to a JSON-serializable dictionary.
+
+    Args:
+        error (ConnectError): The error object to convert.
+
+    Returns:
+        dict[str, Any]: A dictionary representing the error in JSON format.
+            - "code" (str): The error code as a string.
+            - "message" (str, optional): The raw error message, if available.
+            - "details" (list[dict[str, Any]], optional): A list of dictionaries containing error details, if available.
+                Each detail dictionary contains:
+                - "type" (str): The type name of the detail.
+                - "value" (str): The base64-encoded value of the detail.
+                - "debug" (str, optional): The JSON-encoded debug information, if available.
+
+    """
+    obj: dict[str, Any] = {"code": error.code.string()}
+
+    if len(error.raw_message) > 0:
+        obj["message"] = error.raw_message
+
+    if len(error.details) > 0:
+        wires = []
+        for detail in error.details:
+            wire: dict[str, Any] = {
+                "type": detail.pb_any.TypeName(),
+                "value": base64.b64encode(detail.pb_any.value).decode("utf-8").rstrip("="),
+            }
+
+            codec = ProtoJSONCodec(CodecNameType.JSON)
+
+            with contextlib.suppress(Exception):
+                wire["debug"] = codec.marshal(wire)
+
+            wires.append(wire)
+
+        obj["details"] = wires
+
+    return obj
+
+
+def error_to_json_bytes(error: ConnectError) -> bytes:
+    """Serialize a ConnectError object to a JSON-encoded byte string.
+
+    Args:
+        error (ConnectError): The ConnectError object to serialize.
+
+    Returns:
+        bytes: The JSON-encoded byte string representation of the error.
+
+    Raises:
+        ConnectError: If serialization fails, a ConnectError is raised with an
+                      appropriate error message and code.
+
+    """
+    try:
+        json_obj = error_to_json(error)
+        json_str = json.dumps(json_obj)
+
+        return json_str.encode("utf-8")
+    except Exception as e:
+        message = str(e)
+        raise ConnectError(f"failed to serialize Connect Error: {message}", Code.INTERNAL) from e

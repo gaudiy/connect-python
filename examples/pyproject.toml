@@ -9,6 +9,7 @@ version = "0.1.0"
 dependencies = [
   "connect-python@git+https://github.com/gaudiy/connect-python@main",
   "grpcio==1.68.1",
+  "hypercorn>=0.17.3",
 ]
 
 [tool.uv]

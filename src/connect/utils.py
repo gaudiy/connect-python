@@ -3,8 +3,12 @@
 import asyncio
 import functools
 import typing
+from collections.abc import Awaitable, Callable
 
 import anyio.to_thread
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 T = typing.TypeVar("T")
 AwaitableCallable = typing.Callable[..., typing.Awaitable[T]]
@@ -83,3 +87,62 @@ def get_callable_attribute(obj: object, attr: str) -> typing.Callable[..., typin
         return getattr(obj, attr)
 
     return None
+
+
+def get_route_path(scope: Scope) -> str:
+    """Extract the route path from the given scope.
+
+    Args:
+        scope (Scope): The scope dictionary containing the request information.
+
+    Returns:
+        str: The extracted route path. If a root path is specified in the scope,
+            the function returns the path relative to the root path. If the path
+            does not start with the root path or if the path is equal to the root
+            path, the function returns the original path or an empty string,
+            respectively.
+
+    """
+    path: str = scope["path"]
+    root_path = scope.get("root_path", "")
+    if not root_path:
+        return path
+
+    if not path.startswith(root_path):
+        return path
+
+    if path == root_path:
+        return ""
+
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
+
+    return path
+
+
+def request_response(func: Callable[[Request], Awaitable[Response] | Response]) -> ASGIApp:
+    """Convert a request handler function into an ASGI application.
+
+    This decorator takes a function that handles a request and returns a response,
+    and wraps it into an ASGI application callable. The handler function can be either
+    synchronous or asynchronous.
+
+    Args:
+        func (Callable[[Request], Awaitable[Response] | Response]): The request handler function.
+            It can be a synchronous function returning a Response or an asynchronous function
+            returning an Awaitable of Response.
+
+    Returns:
+        ASGIApp: An ASGI application callable that can be used to handle ASGI requests.
+
+    """
+    f: Callable[[Request], Awaitable[Response]] = (
+        func if is_async_callable(func) else functools.partial(run_in_threadpool, func)  # type:ignore
+    )
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive, send)
+        response = await f(request)
+        await response(scope, receive, send)
+
+    return app

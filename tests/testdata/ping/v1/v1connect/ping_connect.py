@@ -7,6 +7,7 @@ from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from connect.connect import ConnectRequest, ConnectResponse
 from connect.handler import UnaryHandler
+from connect.options import ConnectOptions
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 
@@ -29,13 +30,16 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
     async def Ping(self, request: ConnectRequest[PingRequest]) -> ConnectResponse[PingResponse]: ...
 
 
-def create_PingService_handlers(service: PingServiceHandler) -> list[UnaryHandler]:
+def create_PingService_handlers(
+    service: PingServiceHandler, options: ConnectOptions | None = None
+) -> list[UnaryHandler]:
     rpc_handlers = [
         UnaryHandler(
-            PingServiceProcedures.Ping.value,
-            service.Ping,
-            PingRequest,
-            PingResponse,
+            procedure=PingServiceProcedures.Ping.value,
+            unary=service.Ping,
+            input=PingRequest,
+            output=PingResponse,
+            options=options,
         )
     ]
     return rpc_handlers

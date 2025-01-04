@@ -7,13 +7,12 @@
 import abc
 from enum import Enum
 
-from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
-
+from connect.connect import ConnectRequest, ConnectResponse
 from connect.handler import UnaryHandler
-from connect.request import ConnectRequest
-from connect.response import ConnectResponse
+from connect.options import ConnectOptions
 from connectrpc.eliza.v1 import eliza_pb2
 from connectrpc.eliza.v1.eliza_pb2 import SayRequest, SayResponse
+from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 
 class ElizaServiceProcedures(Enum):
@@ -34,13 +33,16 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
     async def Say(self, request: ConnectRequest[SayRequest]) -> ConnectResponse[SayResponse]: ...
 
 
-def create_ElizaService_handler(service: ElizaServiceHandler) -> list[UnaryHandler]:
+def create_ElizaService_handler(
+    service: ElizaServiceHandler, options: ConnectOptions | None = None
+) -> list[UnaryHandler]:
     rpc_handlers = [
         UnaryHandler(
-            ElizaServiceProcedures.Say.value,
-            service.Say,
-            SayRequest,
-            SayResponse,
+            procedure=ElizaServiceProcedures.Say.value,
+            unary=service.Say,
+            input=SayRequest,
+            output=SayResponse,
+            options=options,
         )
     ]
     return rpc_handlers

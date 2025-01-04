@@ -136,9 +136,14 @@ def request_response(func: Callable[[Request], Awaitable[Response] | Response]) 
         ASGIApp: An ASGI application callable that can be used to handle ASGI requests.
 
     """
-    f: Callable[[Request], Awaitable[Response]] = (
-        func if is_async_callable(func) else functools.partial(run_in_threadpool, func)  # type:ignore
-    )
+
+    async def async_func(request: Request) -> Response:
+        if is_async_callable(func):
+            return await func(request)
+        else:
+            return typing.cast(Response, await run_in_threadpool(func, request))
+
+    f: Callable[[Request], Awaitable[Response]] = async_func
 
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope, receive, send)

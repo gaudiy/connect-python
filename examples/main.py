@@ -28,8 +28,8 @@ class IPRestrictionInterceptor(Interceptor):
         """Wrap a unary function with the interceptor."""
 
         async def _wrapped(request: ConnectRequest[Any]) -> ConnectResponse[Any]:
-            white_list = os.environ.get("WHITE_LIST", "").split(",")
-            if not white_list:
+            ip_allow_list = os.environ.get("IP_ALLOW_LIST", "").split(",")
+            if not ip_allow_list:
                 raise Exception("White list not found")
 
             address = request.peer().address
@@ -40,7 +40,7 @@ class IPRestrictionInterceptor(Interceptor):
             if ip == "":
                 raise Exception("IP not allowed")
 
-            if ip not in white_list:
+            if ip not in ip_allow_list:
                 raise Exception("IP not allowed")
 
             return await next(request)

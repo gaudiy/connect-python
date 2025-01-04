@@ -9,6 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar, cast
 from pydantic import BaseModel
 from starlette.datastructures import MutableHeaders
 
+from connect.idempotency_level import IdempotencyLevel
 from connect.utils import get_callable_attribute
 
 
@@ -24,7 +25,10 @@ class StreamType(Enum):
 class Spec(BaseModel):
     """Spec class."""
 
+    procedure: str
+    descriptor: Any
     stream_type: StreamType
+    idempotency_level: IdempotencyLevel
 
 
 class Address(BaseModel):

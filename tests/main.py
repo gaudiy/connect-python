@@ -1,12 +1,12 @@
 """Main module for the tests."""
 
-from connect.app import ConnectASGI
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+
 from connect.connect import ConnectRequest, ConnectResponse
+from connect.middleware import ConnectMiddleware
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
-from tests.testdata.ping.v1.v1connect.ping_connect import (
-    PingServiceHandler,
-    create_PingService_handlers,
-)
+from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceHandler, create_PingService_handlers
 
 
 class PingService(PingServiceHandler):
@@ -18,4 +18,6 @@ class PingService(PingServiceHandler):
         return ConnectResponse(PingResponse(name=data.name))
 
 
-app = ConnectASGI(handlers=create_PingService_handlers(service=PingService()))
+middleware = [Middleware(ConnectMiddleware, create_PingService_handlers(service=PingService()))]
+
+app = Starlette(middleware=middleware)

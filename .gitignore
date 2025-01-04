@@ -210,3 +210,6 @@ bench.txt
 
 # coverage
 coverage.out
+
+# binaries
+bin/

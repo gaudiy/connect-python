@@ -13,6 +13,7 @@ from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, Prot
 from connect.compression import Compression, GZipCompression
 from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
 from connect.error import ConnectError
+from connect.interceptor import apply_interceptors
 from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
@@ -157,16 +158,18 @@ class UnaryHandler:
         self.unary = unary
         self.input = input
         self.output = output
-        self.options = options
+        self.options = options if options is not None else ConnectOptions(interceptors=[])
 
         config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
         protocol_handlers = create_protocol_handlers(config)
         self.protocol_handlers = mapped_method_handlers(protocol_handlers)
 
-        async def untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
+        async def _untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
             response = await self.unary(request)
 
             return response
+
+        untyped = apply_interceptors(_untyped, self.options.interceptors)
 
         async def implementation(conn: StreamingHandlerConn) -> bytes:
             request = await receive_unary_request(conn, self.input)

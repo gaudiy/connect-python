@@ -2,7 +2,7 @@
 # check=error=true
 
 # Use a Python image with uv pre-installed
-FROM ghcr.io/astral-sh/uv:python3.11-bookworm
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm
 
 WORKDIR /app
 

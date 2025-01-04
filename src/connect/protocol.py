@@ -11,6 +11,7 @@ from connect.codec import ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
 from connect.connect import Spec, StreamingHandlerConn
 from connect.error import ConnectError
+from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
 
 PROTOCOL_CONNECT = "connect"
@@ -43,6 +44,7 @@ class ProtocolHandlerParams(BaseModel):
     read_max_bytes: int
     send_max_bytes: int
     require_connect_protocol_header: bool
+    idempotency_level: IdempotencyLevel
 
 
 class ProtocolHandler(abc.ABC):

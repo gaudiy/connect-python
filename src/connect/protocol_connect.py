@@ -17,6 +17,7 @@ from connect.codec import Codec, CodecNameType, ProtoJSONCodec
 from connect.compression import Compression
 from connect.connect import Address, Peer, Spec, StreamingHandlerConn, StreamType
 from connect.error import ConnectError
+from connect.idempotency_level import IdempotencyLevel
 from connect.protocol import (
     HEADER_CONTENT_TYPE,
     PROTOCOL_CONNECT,
@@ -91,7 +92,7 @@ class ConnectHandler(ProtocolHandler):
     """
 
     params: ProtocolHandlerParams
-    __methods: list[HTTPMethod]
+    _methods: list[HTTPMethod]
     accept: list[str]
 
     def __init__(self, params: ProtocolHandlerParams, methods: list[HTTPMethod], accept: list[str]) -> None:
@@ -104,7 +105,7 @@ class ConnectHandler(ProtocolHandler):
 
         """
         self.params = params
-        self.__methods = methods
+        self._methods = methods
         self.accept = accept
 
     def methods(self) -> list[HTTPMethod]:
@@ -114,7 +115,7 @@ class ConnectHandler(ProtocolHandler):
             list[HTTPMethod]: A list of HTTP methods.
 
         """
-        return self.__methods
+        return self._methods
 
     def content_types(self) -> list[str]:
         """Handle content types.
@@ -273,8 +274,7 @@ class ProtocolConnect(Protocol):
         """
         methods = [HTTPMethod.POST]
 
-        if params.spec.stream_type == StreamType.Unary:
-            # TODO(tsubakiky): Check if idempotency level is NoSideEffect.
+        if params.spec.stream_type == StreamType.Unary and params.idempotency_level == IdempotencyLevel.NO_SIDE_EFFECTS:
             methods.append(HTTPMethod.GET)
 
         content_types: list[str] = []

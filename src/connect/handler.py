@@ -23,6 +23,7 @@ from connect.connect import (
     receive_unary_request,
 )
 from connect.error import ConnectError
+from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
 from connect.options import ConnectOptions
 from connect.protocol import (
@@ -62,35 +63,39 @@ class HandlerConfig:
     stream_type: StreamType
     codecs: dict[str, Codec]
     compressions: list[Compression]
+    descriptor: Any
     compress_min_bytes: int
     read_max_bytes: int
     send_max_bytes: int
     require_connect_protocol_header: bool
+    idempotency_level: IdempotencyLevel
 
-    def __init__(self, procedure: str, stream_type: StreamType, _options: Any | None = None):
+    def __init__(self, procedure: str, stream_type: StreamType, options: ConnectOptions):
         """Initialize the handler with the given procedure, stream type, and optional settings.
 
         Args:
             procedure (str): The name of the procedure to handle.
             stream_type (StreamType): The type of stream to use.
-            _options (Any, optional): Additional options for the handler. Defaults to None.
+            options (Any, optional): Additional options for the handler. Defaults to None.
 
         """
         self.procedure = procedure
         self.stream_type = stream_type
-
-        codecs: list[Codec] = [
-            ProtoBinaryCodec(),
-            ProtoJSONCodec(CodecNameType.JSON),
-            ProtoJSONCodec(CodecNameType.JSON_CHARSET_UTF8),
-        ]
-        self.codecs = {codec.name(): codec for codec in codecs}
-
+        self.codecs = {
+            codec.name(): codec
+            for codec in [
+                ProtoBinaryCodec(),
+                ProtoJSONCodec(CodecNameType.JSON),
+                ProtoJSONCodec(CodecNameType.JSON_CHARSET_UTF8),
+            ]
+        }
         self.compressions = [GZipCompression()]
-        self.compress_min_bytes = -1
-        self.read_max_bytes = -1
-        self.send_max_bytes = -1
-        self.require_connect_protocol_header = False
+        self.descriptor = options.descriptor
+        self.compress_min_bytes = options.compress_min_bytes
+        self.read_max_bytes = options.read_max_bytes
+        self.send_max_bytes = options.send_max_bytes
+        self.require_connect_protocol_header = options.require_connect_protocol_header
+        self.idempotency_level = options.idempotency_level
 
     def spec(self) -> Spec:
         """Return a Spec object initialized with the current stream type.
@@ -99,7 +104,12 @@ class HandlerConfig:
             Spec: An instance of the Spec class with the stream type set to the current stream type.
 
         """
-        return Spec(stream_type=self.stream_type)
+        return Spec(
+            procedure=self.procedure,
+            descriptor=self.descriptor,
+            stream_type=self.stream_type,
+            idempotency_level=self.idempotency_level,
+        )
 
 
 def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
@@ -129,6 +139,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
                     read_max_bytes=config.read_max_bytes,
                     send_max_bytes=config.send_max_bytes,
                     require_connect_protocol_header=config.require_connect_protocol_header,
+                    idempotency_level=config.idempotency_level,
                 )
             )
         )
@@ -149,6 +160,7 @@ class UnaryHandler:
 
     """
 
+    procedure: str
     implementation: Callable[[StreamingHandlerConn], Awaitable[bytes]]
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
@@ -163,32 +175,35 @@ class UnaryHandler:
         options: ConnectOptions | None = None,
     ):
         """Initialize the unary handler."""
-        self.procedure = procedure
-        self.unary = unary
-        self.input = input
-        self.output = output
-        self.options = options if options is not None else ConnectOptions(interceptors=[])
+        options = options if options is not None else ConnectOptions()
 
-        config = HandlerConfig(procedure=self.procedure, stream_type=StreamType.Unary)
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
         protocol_handlers = create_protocol_handlers(config)
-        self.protocol_handlers = mapped_method_handlers(protocol_handlers)
 
         async def _untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
-            response = await self.unary(request)
+            response = await unary(request)
 
             return response
 
-        untyped = apply_interceptors(_untyped, self.options.interceptors)
+        untyped = apply_interceptors(_untyped, options.interceptors)
 
         async def implementation(conn: StreamingHandlerConn) -> bytes:
-            request = await receive_unary_request(conn, self.input)
+            request = await receive_unary_request(conn, input)
             response = await untyped(request)
+
+            if isinstance(response, output):
+                raise ConnectError(
+                    f"expected response of type: {output.__name__}",
+                    Code.INTERNAL,
+                )
 
             conn.response_header().update(response.headers)
             conn.response_trailer().update(response.trailers)
             return conn.send(response.any())
 
+        self.procedure = procedure
         self.implementation = implementation
+        self.protocol_handlers = mapped_method_handlers(protocol_handlers)
         self.allow_methods = sorted_allow_method_value(protocol_handlers)
         self.accept_post = sorted_accept_post_value(protocol_handlers)
 
@@ -252,7 +267,7 @@ class UnaryHandler:
             timeout_sec = None
             if timeout is not None:
                 try:
-                    timeout_ms = int(timeout)
+                    timeout_ms = float(timeout)
                 except ValueError as e:
                     raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
 

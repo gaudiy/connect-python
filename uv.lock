@@ -98,7 +98,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "grpcio-tools", specifier = "==1.68.1" },
-    { name = "hypercorn", extras = ["aioquic", "trio", "uvloop"], specifier = ">=0.17.3" },
+    { name = "hypercorn", extras = ["trio", "uvloop"], specifier = ">=0.17.3" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "mypy-protobuf", specifier = ">=3.6.0" },
     { name = "pyright", specifier = ">=1.1.390" },

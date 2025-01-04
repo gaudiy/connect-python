@@ -15,9 +15,9 @@ from connect.request import Request
 
 PROTOCOL_CONNECT = "connect"
 
-HEADER_CONTENT_TYPE = "content-type"
-HEADER_CONTENT_LENGTH = "content-length"
-HEADER_HOST = "host"
+HEADER_CONTENT_TYPE = "Content-Type"
+HEADER_CONTENT_LENGTH = "Content-Length"
+HEADER_HOST = "Host"
 
 
 class ProtocolHandlerParams(BaseModel):

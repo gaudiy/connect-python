@@ -1,7 +1,4 @@
-"""Provides classes and functions for handling protocol connections.
-
-Handles data serialization/deserialization using the Connect protocol.
-"""
+"""Provides classes and functions for handling protocol connections."""
 
 import base64
 import contextlib

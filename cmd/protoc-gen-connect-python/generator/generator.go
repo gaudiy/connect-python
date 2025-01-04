@@ -187,7 +187,7 @@ func (gen *Generator) generate(g *protogen.GeneratedFile, f *protogen.File) {
 	}
 	p.P()
 	p.P()
-	p.P(`def create_`, svcNameService, `_handler`, `(`)
+	p.P(`def create_`, svcNameService, `_handlers`, `(`)
 	p.P(`    service: `, handler, `, options: ConnectOptions | None = None`)
 	p.P(`) -> list[UnaryHandler]:`)
 	p.P(`    rpc_handlers = [`)

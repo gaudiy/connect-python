@@ -11,7 +11,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import SayRequest, SayResponse
-from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceHandler, create_ElizaService_handler
+from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceHandler, create_ElizaService_handlers
 
 
 class ElizaService(ElizaServiceHandler):
@@ -53,7 +53,7 @@ class IPRestrictionInterceptor(Interceptor):
 middleware = [
     Middleware(
         ConnectMiddleware,
-        create_ElizaService_handler(
+        create_ElizaService_handlers(
             service=ElizaService(), options=ConnectOptions(interceptors=[IPRestrictionInterceptor()])
         ),
     )

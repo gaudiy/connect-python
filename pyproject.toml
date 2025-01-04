@@ -35,6 +35,9 @@ dev-dependencies = [
   "hypercorn[aioquic,trio,uvloop]>=0.17.3",
 ]
 
+[tool.hatch.build.targets.sdist]
+exclude = [ "examples" ]
+
 [tool.ruff]
 line-length = 120
 

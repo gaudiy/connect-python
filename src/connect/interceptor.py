@@ -2,30 +2,33 @@
 
 import abc
 from collections.abc import Awaitable, Callable
+from typing import Any
 
-from connect.connect import ConnectRequest, ConnectResponse, Req, Res
+from connect.connect import ConnectRequest, ConnectResponse
 
-UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
+UnaryFunc = Callable[[ConnectRequest[Any]], Awaitable[ConnectResponse[Any]]]
 
 
 class Interceptor(abc.ABC):
     """Abstract base class for interceptors that can wrap unary functions."""
 
     @abc.abstractmethod
-    def wrap_unary(self, next: UnaryFunc[Req, Res]) -> UnaryFunc[Req, Res]:
+    def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
         """Wrap a unary function with the interceptor."""
         raise NotImplementedError()
 
 
-def apply_interceptors(next: UnaryFunc[Req, Res], interceptors: list[Interceptor]) -> UnaryFunc[Req, Res]:
+def apply_interceptors(next: UnaryFunc, interceptors: list[Interceptor]) -> UnaryFunc:
     """Apply a list of interceptors to a unary function.
 
     Args:
-        next (UnaryFunc[Req, Res]): The unary function to be intercepted.
-        interceptors (list[Interceptor]): A list of interceptors to apply. If None, the original function is returned.
+        next (UnaryFunc): The original unary function to be wrapped by interceptors.
+        interceptors (list[Interceptor]): A list of interceptors to apply. Each interceptor
+                                          should have a method `wrap_unary` that takes a
+                                          UnaryFunc and returns a wrapped UnaryFunc.
 
     Returns:
-        UnaryFunc[Req, Res]: The intercepted unary function.
+        UnaryFunc: The unary function wrapped with all the provided interceptors.
 
     """
     if interceptors is None:

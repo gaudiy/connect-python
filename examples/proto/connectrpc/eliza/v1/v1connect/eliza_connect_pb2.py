@@ -18,7 +18,7 @@ from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 class ElizaServiceProcedures(Enum):
     """Procedures for the eliza service."""
 
-    Say = "/connectrpc.eliza.v1.ElizaService/Say"
+    Say = "/examples.proto.connectrpc.eliza.v1.ElizaService/Say"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]

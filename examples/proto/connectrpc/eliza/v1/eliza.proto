@@ -14,7 +14,7 @@
 
 syntax = "proto3";
 
-package connectrpc.eliza.v1;
+package examples.proto.connectrpc.eliza.v1;
 
 option go_package = "examples/proto/connectrpc/eliza/v1";
 

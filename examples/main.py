@@ -3,10 +3,12 @@
 import os
 from typing import Any
 
-from connect.app import ConnectASGI
 from connect.connect import ConnectRequest, ConnectResponse
 from connect.interceptor import Interceptor, UnaryFunc
+from connect.middleware import ConnectMiddleware
 from connect.options import ConnectOptions
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import SayRequest, SayResponse
 from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceHandler, create_ElizaService_handler
@@ -48,8 +50,13 @@ class IPRestrictionInterceptor(Interceptor):
         return _wrapped
 
 
-app = ConnectASGI(
-    handlers=create_ElizaService_handler(
-        service=ElizaService(), options=ConnectOptions(interceptors=[IPRestrictionInterceptor()])
+middleware = [
+    Middleware(
+        ConnectMiddleware,
+        create_ElizaService_handler(
+            service=ElizaService(), options=ConnectOptions(interceptors=[IPRestrictionInterceptor()])
+        ),
     )
-)
+]
+
+app = Starlette(middleware=middleware)

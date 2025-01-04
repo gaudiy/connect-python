@@ -36,12 +36,12 @@ class ConnectMiddleware:
         self.handlers = handlers
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Asynchronous callable method for the middleware.
+        """Asynchronous callable method to handle incoming ASGI requests.
 
-        This method is invoked when the middleware instance is called. It processes
-        HTTP requests by iterating through the registered handlers and invoking the
-        appropriate handler based on the route path. If the request type is not HTTP,
-        it directly forwards the request to the next application in the middleware chain.
+        This method intercepts HTTP requests, determines the appropriate handler
+        based on the route path, and delegates the request to the handler if found.
+        If no handler is found, the request is passed to the next application in the
+        middleware stack.
 
         Args:
             scope (Scope): The ASGI scope dictionary containing request information.
@@ -53,14 +53,21 @@ class ConnectMiddleware:
 
         """
         if scope["type"] == "http":
-            rote_path = get_route_path(scope)
-            for handler in self.handlers:
-                if rote_path != handler.procedure:
-                    await self.app(scope, receive, send)
-                    return
-
+            route_path = get_route_path(scope)
+            handler = self._match_handler(route_path)
+            if handler:
                 app = request_response(handler.handle)
                 await app(scope, receive, send)
-            pass
-        else:
-            await self.app(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
+
+    def _match_handler(self, route_path: str) -> UnaryHandler | None:
+        if route_path == "":
+            return None
+
+        for handler in self.handlers:
+            if route_path == handler.procedure:
+                return handler
+
+        return None

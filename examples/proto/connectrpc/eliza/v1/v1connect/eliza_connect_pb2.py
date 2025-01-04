@@ -10,9 +10,10 @@ from enum import Enum
 from connect.connect import ConnectRequest, ConnectResponse
 from connect.handler import UnaryHandler
 from connect.options import ConnectOptions
-from connectrpc.eliza.v1 import eliza_pb2
-from connectrpc.eliza.v1.eliza_pb2 import SayRequest, SayResponse
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
+
+from .. import eliza_pb2
+from ..eliza_pb2 import SayRequest, SayResponse
 
 
 class ElizaServiceProcedures(Enum):

@@ -1,8 +1,7 @@
 """Main module for the tests."""
 
 from connect.app import ConnectASGI
-from connect.request import ConnectRequest
-from connect.response import ConnectResponse
+from connect.connect import ConnectRequest, ConnectResponse
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import (
     PingServiceHandler,

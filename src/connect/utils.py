@@ -66,3 +66,20 @@ async def run_in_threadpool(func: typing.Callable[P, T], *args: P.args, **kwargs
     """
     func = functools.partial(func, *args, **kwargs)
     return await anyio.to_thread.run_sync(func)
+
+
+def get_callable_attribute(obj: object, attr: str) -> typing.Callable[..., typing.Any] | None:
+    """Retrieve a callable attribute from an object if it exists and is callable.
+
+    Args:
+        obj (object): The object from which to retrieve the attribute.
+        attr (str): The name of the attribute to retrieve.
+
+    Returns:
+        typing.Callable[..., typing.Any] | None: The callable attribute if it exists and is callable, otherwise None.
+
+    """
+    if hasattr(obj, attr) and callable(getattr(obj, attr)):
+        return getattr(obj, attr)
+
+    return None

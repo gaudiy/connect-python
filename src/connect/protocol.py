@@ -1,7 +1,7 @@
 """Module defining the protocol handling classes and functions."""
 
 import abc
-from enum import Enum
+from http import HTTPMethod
 
 from pydantic import BaseModel, ConfigDict
 from starlette.datastructures import MutableHeaders
@@ -13,32 +13,11 @@ from connect.connect import Spec, StreamingHandlerConn
 from connect.error import ConnectError
 from connect.request import Request
 
+PROTOCOL_CONNECT = "connect"
+
 HEADER_CONTENT_TYPE = "content-type"
 HEADER_CONTENT_LENGTH = "content-length"
 HEADER_HOST = "host"
-
-
-class HttpMethod(Enum):
-    """Enum representing HTTP methods.
-
-    Attributes:
-        GET (str): The GET method requests a representation of the specified resource. Requests using GET should only retrieve data.
-        POST (str): The POST method submits an entity to the specified resource, often causing a change in state or side effects on the server.
-        PUT (str): The PUT method replaces all current representations of the target resource with the request payload.
-        DELETE (str): The DELETE method deletes the specified resource.
-        PATCH (str): The PATCH method is used to apply partial modifications to a resource.
-        OPTIONS (str): The OPTIONS method is used to describe the communication options for the target resource.
-        HEAD (str): The HEAD method asks for a response identical to that of a GET request, but without the response body.
-
-    """
-
-    GET = "GET"
-    POST = "POST"
-    PUT = "PUT"
-    DELETE = "DELETE"
-    PATCH = "PATCH"
-    OPTIONS = "OPTIONS"
-    HEAD = "HEAD"
 
 
 class ProtocolHandlerParams(BaseModel):
@@ -70,11 +49,11 @@ class ProtocolHandler(abc.ABC):
     """Abstract base class for handling different protocols."""
 
     @abc.abstractmethod
-    def methods(self) -> list[HttpMethod]:
+    def methods(self) -> list[HTTPMethod]:
         """Retrieve a list of HTTP methods.
 
         Returns:
-            list[HttpMethod]: A list of HTTP methods.
+            list[HTTPMethod]: A list of HTTP methods.
 
         """
         raise NotImplementedError()
@@ -158,17 +137,17 @@ class Protocol(abc.ABC):
         raise NotImplementedError()
 
 
-def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HttpMethod, list[ProtocolHandler]]:
+def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HTTPMethod, list[ProtocolHandler]]:
     """Map protocol handlers to their respective HTTP methods.
 
     Args:
         handlers (list[ProtocolHandler]): A list of protocol handlers.
 
     Returns:
-        dict[HttpMethod, list[ProtocolHandler]]: A dictionary where the keys are HTTP methods and the values are lists of protocol handlers that support those methods.
+        dict[HTTPMethod, list[ProtocolHandler]]: A dictionary where the keys are HTTP methods and the values are lists of protocol handlers that support those methods.
 
     """
-    method_handlers: dict[HttpMethod, list[ProtocolHandler]] = {}
+    method_handlers: dict[HTTPMethod, list[ProtocolHandler]] = {}
     for handler in handlers:
         for method in handler.methods():
             method_handlers.setdefault(method, []).append(handler)

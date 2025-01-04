@@ -6,7 +6,8 @@ Handles data serialization/deserialization using the Connect protocol.
 import base64
 import contextlib
 import json
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Mapping
+from http import HTTPMethod
 from typing import Any
 
 from starlette.datastructures import MutableHeaders
@@ -14,11 +15,11 @@ from starlette.datastructures import MutableHeaders
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, ProtoJSONCodec
 from connect.compression import Compression
-from connect.connect import Spec, StreamingHandlerConn, StreamType
+from connect.connect import Address, Peer, Spec, StreamingHandlerConn, StreamType
 from connect.error import ConnectError
 from connect.protocol import (
     HEADER_CONTENT_TYPE,
-    HttpMethod,
+    PROTOCOL_CONNECT,
     Protocol,
     ProtocolHandler,
     ProtocolHandlerParams,
@@ -84,21 +85,21 @@ class ConnectHandler(ProtocolHandler):
 
     Attributes:
         params (ProtocolHandlerParams): Parameters for the protocol handler.
-        __methods (list[HttpMethod]): List of HTTP methods supported by the handler.
+        __methods (list[HTTPMethod]): List of HTTP methods supported by the handler.
         accept (list[str]): List of accepted content types.
 
     """
 
     params: ProtocolHandlerParams
-    __methods: list[HttpMethod]
+    __methods: list[HTTPMethod]
     accept: list[str]
 
-    def __init__(self, params: ProtocolHandlerParams, methods: list[HttpMethod], accept: list[str]) -> None:
+    def __init__(self, params: ProtocolHandlerParams, methods: list[HTTPMethod], accept: list[str]) -> None:
         """Initialize the ProtocolConnect instance.
 
         Args:
             params (ProtocolHandlerParams): The parameters for the protocol handler.
-            methods (list[HttpMethod]): A list of HTTP methods.
+            methods (list[HTTPMethod]): A list of HTTP methods.
             accept (list[str]): A list of accepted content types.
 
         """
@@ -106,11 +107,11 @@ class ConnectHandler(ProtocolHandler):
         self.__methods = methods
         self.accept = accept
 
-    def methods(self) -> list[HttpMethod]:
+    def methods(self) -> list[HTTPMethod]:
         """Return the list of HTTP methods.
 
         Returns:
-            list[HttpMethod]: A list of HTTP methods.
+            list[HTTPMethod]: A list of HTTP methods.
 
         """
         return self.__methods
@@ -126,7 +127,7 @@ class ConnectHandler(ProtocolHandler):
 
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
         """Check if the handler can handle the payload."""
-        if HttpMethod(request.method) == HttpMethod.GET:
+        if HTTPMethod(request.method) == HTTPMethod.GET:
             codec_name = request.query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER, "")
             content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
 
@@ -158,7 +159,7 @@ class ConnectHandler(ProtocolHandler):
         query_params = request.query_params
 
         if self.params.spec.stream_type == StreamType.Unary:
-            if HttpMethod(request.method) == HttpMethod.GET:
+            if HTTPMethod(request.method) == HTTPMethod.GET:
                 content_encoding = query_params.get(CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER, None)
             else:
                 content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
@@ -178,7 +179,7 @@ class ConnectHandler(ProtocolHandler):
 
         request_stream: Callable[..., AsyncGenerator[bytes]]
 
-        if HttpMethod(request.method) == HttpMethod.GET:
+        if HTTPMethod(request.method) == HTTPMethod.GET:
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
             message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
             if encoding is None:
@@ -223,9 +224,17 @@ class ConnectHandler(ProtocolHandler):
             pass
         response_headers[accept_compression_header] = f"{', '.join(c.name() for c in self.params.compressions)}"
 
+        peer = Peer(
+            address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
+            protocol=PROTOCOL_CONNECT,
+            query=request.query_params,
+        )
+
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
                 request=request,
+                peer=peer,
+                spec=self.params.spec,
                 marshaler=ConnectMarshaler(
                     codec=codec,
                     compress_min_bytes=self.params.compress_min_bytes,
@@ -262,11 +271,11 @@ class ProtocolConnect(Protocol):
             ConnectHandler: An instance of ConnectHandler configured with the appropriate methods and content types.
 
         """
-        methods = [HttpMethod.POST]
+        methods = [HTTPMethod.POST]
 
         if params.spec.stream_type == StreamType.Unary:
             # TODO(tsubakiky): Check if idempotency level is NoSideEffect.
-            methods.append(HttpMethod.GET)
+            methods.append(HTTPMethod.GET)
 
         content_types: list[str] = []
         for name in params.codecs.names():
@@ -463,6 +472,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     """
 
     request: Request
+    _peer: Peer
+    _spec: Spec
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
     response_headers: MutableHeaders
@@ -471,6 +482,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     def __init__(
         self,
         request: Request,
+        peer: Peer,
+        spec: Spec,
         marshaler: ConnectMarshaler,
         unmarshaler: ConnectUnmarshaler,
         response_headers: MutableHeaders,
@@ -480,6 +493,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         Args:
             request (Request): The incoming request object.
+            peer (Peer): The peer information.
+            spec (Spec): The specification object.
             marshaler (ConnectMarshaler): The marshaler to serialize data.
             unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
             response_headers (MutableHeaders): The headers for the response.
@@ -487,37 +502,29 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         self.request = request
+        self._peer = peer
+        self._spec = spec
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
         self.response_headers = response_headers
         self.response_trailers = response_trailers or MutableHeaders()
 
     def spec(self) -> Spec:
-        """Retrieve the specification for the protocol.
-
-        This method should be implemented by subclasses to provide the specific
-        details of the protocol's specification.
+        """Return the specification object.
 
         Returns:
-            Spec: The specification of the protocol.
-
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
+            Spec: The specification object.
 
         """
-        raise NotImplementedError()
+        return self._spec
 
-    def peer(self) -> Any:
-        """Return the peer information.
+    def peer(self) -> Peer:
+        """Return the peer associated with this instance.
 
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
-
-        Returns:
-            Any: The peer information.
-
+        :return: The peer associated with this instance.
+        :rtype: Peer
         """
-        raise NotImplementedError()
+        return self._peer
 
     async def receive(self, message: Any) -> Any:
         """Receives a message, unmarshals it, and returns the resulting object.
@@ -532,14 +539,14 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         obj = await self.unmarshaler.unmarshal(message)
         return obj
 
-    def request_header(self) -> Any:
-        """Generate and return the request header.
+    def request_header(self) -> Mapping[str, str]:
+        """Retrieve the headers from the request.
 
         Returns:
-            Any: The request header.
+            Mapping[str, str]: A dictionary-like object containing the request headers.
 
         """
-        raise NotImplementedError()
+        return self.request.headers
 
     def send(self, message: Any) -> bytes:
         """Send a message by marshaling it into bytes.
@@ -575,6 +582,15 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         return self.response_trailers
 
+    def get_http_method(self) -> HTTPMethod:
+        """Retrieve the HTTP method from the request.
+
+        Returns:
+            HTTPMethod: The HTTP method from the request.
+
+        """
+        return HTTPMethod(self.request.method)
+
 
 def connect_check_protocol_version(request: Request, required: bool) -> None:
     """Check the protocol version in the request headers for POST requests.
@@ -589,8 +605,8 @@ def connect_check_protocol_version(request: Request, required: bool) -> None:
         ValueError: If the HTTP method is unsupported.
 
     """
-    match HttpMethod(request.method):
-        case HttpMethod.GET:
+    match HTTPMethod(request.method):
+        case HTTPMethod.GET:
             version = request.query_params.get(CONNECT_UNARY_CONNECT_QUERY_PARAMETER)
             if required and version is None:
                 raise ConnectError(
@@ -600,7 +616,7 @@ def connect_check_protocol_version(request: Request, required: bool) -> None:
                 raise ConnectError(
                     f'{CONNECT_UNARY_CONNECT_QUERY_PARAMETER} must be "{CONNECT_UNARY_CONNECT_QUERY_VALUE}": get "{version}"',
                 )
-        case HttpMethod.POST:
+        case HTTPMethod.POST:
             version = request.headers.get(CONNECT_HEADER_PROTOCOL_VERSION, None)
             if required and version is None:
                 raise ConnectError(

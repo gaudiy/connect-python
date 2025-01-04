@@ -5,9 +5,8 @@ from enum import Enum
 
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
+from connect.connect import ConnectRequest, ConnectResponse
 from connect.handler import UnaryHandler
-from connect.request import ConnectRequest
-from connect.response import ConnectResponse
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 

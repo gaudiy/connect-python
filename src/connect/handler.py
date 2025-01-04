@@ -2,6 +2,7 @@
 
 import http
 from collections.abc import Awaitable, Callable
+from http import HTTPMethod
 from typing import Any
 
 import anyio
@@ -11,14 +12,22 @@ from starlette.responses import PlainTextResponse
 from connect.code import Code
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import Compression, GZipCompression
-from connect.connect import Spec, StreamingHandlerConn, StreamType, receive_unary_request
+from connect.connect import (
+    ConnectRequest,
+    ConnectResponse,
+    Req,
+    Res,
+    Spec,
+    StreamingHandlerConn,
+    StreamType,
+    receive_unary_request,
+)
 from connect.error import ConnectError
 from connect.interceptor import apply_interceptors
 from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
-    HttpMethod,
     ProtocolHandler,
     ProtocolHandlerParams,
     mapped_method_handlers,
@@ -33,8 +42,8 @@ from connect.protocol_connect import (
     connect_code_to_http,
     error_to_json_bytes,
 )
-from connect.request import ConnectRequest, Req, Request
-from connect.response import ConnectResponse, Res, Response
+from connect.request import Request
+from connect.response import Response
 
 UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 
@@ -131,7 +140,7 @@ class UnaryHandler:
     """A handler for unary RPC (Remote Procedure Call) operations.
 
     Attributes:
-        protocol_handlers (dict[HttpMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
+        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
         procedure (str): The name of the procedure being handled.
         unary (UnaryFunc[Req, Res]): The unary function to be executed.
         input (type[Req]): The type of the request input.
@@ -141,7 +150,7 @@ class UnaryHandler:
     """
 
     implementation: Callable[[StreamingHandlerConn], Awaitable[bytes]]
-    protocol_handlers: dict[HttpMethod, list[ProtocolHandler]]
+    protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
 
@@ -199,7 +208,7 @@ class UnaryHandler:
         response_headers = MutableHeaders()
         response_trailers = MutableHeaders()
 
-        protocol_handlers = self.protocol_handlers.get(HttpMethod(request.method))
+        protocol_handlers = self.protocol_handlers.get(HTTPMethod(request.method))
         if not protocol_handlers:
             response_headers["Allow"] = self.allow_methods
             status = http.HTTPStatus.METHOD_NOT_ALLOWED
@@ -218,7 +227,7 @@ class UnaryHandler:
             status = http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE
             return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
-        if HttpMethod(request.method) == HttpMethod.GET:
+        if HTTPMethod(request.method) == HTTPMethod.GET:
             content_length = request.headers.get(HEADER_CONTENT_LENGTH, None)
             has_body = False
 

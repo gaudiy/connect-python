@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: connect-python
+resources:
+- ../base
+patches:
+- path: deployment.yaml
+- path: horizontal_pod_autoscaler.yaml
+- path: service_account.yaml
+images:
+- name: asia-northeast1-docker.pkg.dev/gaudiy-containers/connect/connect-python
+  newTag: latest

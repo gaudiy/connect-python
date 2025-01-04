@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connect-python
+spec:
+  progressDeadlineSeconds: 600
+  selector:
+    matchLabels:
+      app: connect-python
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: connect-python
+    spec:
+      containers:
+        - name: connect-python
+          command:
+            - "uv"
+            - "run"
+            - "hypercorn"
+            - "main:app"
+            - "--bind"
+            - "0.0.0.0"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http2
+              protocol: TCP
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 800m
+              memory: 400Mi
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      serviceAccountName: connect-python
+      terminationGracePeriodSeconds: 30

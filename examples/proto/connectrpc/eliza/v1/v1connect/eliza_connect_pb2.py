@@ -19,26 +19,26 @@ from connectrpc.eliza.v1.eliza_pb2 import SayRequest, SayResponse
 class ElizaServiceProcedures(Enum):
     """Procedures for the eliza service."""
 
-    Eliza = "/connectrpc.eliza.v1.ElizaService/Eliza"
+    Say = "/connectrpc.eliza.v1.ElizaService/Say"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]
 
-ElizaService_Ping_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Eliza"]
+ElizaService_Say_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
 
 
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
     @abc.abstractmethod
-    async def Eliza(self, request: ConnectRequest[SayRequest]) -> ConnectResponse[SayResponse]: ...
+    async def Say(self, request: ConnectRequest[SayRequest]) -> ConnectResponse[SayResponse]: ...
 
 
 def create_ElizaService_handler(service: ElizaServiceHandler) -> list[UnaryHandler]:
     rpc_handlers = [
         UnaryHandler(
-            ElizaServiceProcedures.Eliza.value,
-            service.Eliza,
+            ElizaServiceProcedures.Say.value,
+            service.Say,
             SayRequest,
             SayResponse,
         )

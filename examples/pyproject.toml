@@ -15,6 +15,9 @@ dependencies = [
 [tool.uv]
 dev-dependencies = ["mypy>=1.13.0", "pyright>=1.1.390", "ruff>=0.8.2"]
 
+[tool.hatch.build.targets.sdist]
+exclude = ["examples"]
+
 [tool.ruff]
 line-length = 120
 

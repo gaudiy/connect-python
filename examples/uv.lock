@@ -35,7 +35,7 @@ wheels = [
 [[package]]
 name = "connect-python"
 version = "0.0.1"
-source = { git = "https://github.com/gaudiy/connect-python?rev=main#29f02b672e84d7e10d5d45d7fd305912f5a325ce" }
+source = { git = "https://github.com/gaudiy/connect-python?rev=main#225ab93af872c79361cca11ef2a4a95b152ae52f" }
 dependencies = [
     { name = "anyio" },
     { name = "protobuf" },

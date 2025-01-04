@@ -36,7 +36,7 @@ const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ElizaServiceName is the fully-qualified name of the ElizaService service.
-	ElizaServiceName = "examples.proto.connectrpc.eliza.v1.ElizaService"
+	ElizaServiceName = "connectrpc.eliza.v1.ElizaService"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -48,7 +48,7 @@ const (
 // period.
 const (
 	// ElizaServiceSayProcedure is the fully-qualified name of the ElizaService's Say RPC.
-	ElizaServiceSayProcedure = "/examples.proto.connectrpc.eliza.v1.ElizaService/Say"
+	ElizaServiceSayProcedure = "/connectrpc.eliza.v1.ElizaService/Say"
 )
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
@@ -57,16 +57,16 @@ var (
 	elizaServiceSayMethodDescriptor = elizaServiceServiceDescriptor.Methods().ByName("Say")
 )
 
-// ElizaServiceClient is a client for the examples.proto.connectrpc.eliza.v1.ElizaService service.
+// ElizaServiceClient is a client for the connectrpc.eliza.v1.ElizaService service.
 type ElizaServiceClient interface {
 	// Say is a unary RPC. Eliza responds to the prompt with a single sentence.
 	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)
 }
 
-// NewElizaServiceClient constructs a client for the examples.proto.connectrpc.eliza.v1.ElizaService
-// service. By default, it uses the Connect protocol with the binary Protobuf Codec, asks for
-// gzipped responses, and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply
-// the connect.WithGRPC() or connect.WithGRPCWeb() options.
+// NewElizaServiceClient constructs a client for the connectrpc.eliza.v1.ElizaService service. By
+// default, it uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses,
+// and sends uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the
+// connect.WithGRPC() or connect.WithGRPCWeb() options.
 //
 // The URL supplied here should be the base URL for the Connect or gRPC server (for example,
 // http://api.acme.com or https://acme.com/grpc).
@@ -88,13 +88,12 @@ type elizaServiceClient struct {
 	say *connect.Client[v1.SayRequest, v1.SayResponse]
 }
 
-// Say calls examples.proto.connectrpc.eliza.v1.ElizaService.Say.
+// Say calls connectrpc.eliza.v1.ElizaService.Say.
 func (c *elizaServiceClient) Say(ctx context.Context, req *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error) {
 	return c.say.CallUnary(ctx, req)
 }
 
-// ElizaServiceHandler is an implementation of the examples.proto.connectrpc.eliza.v1.ElizaService
-// service.
+// ElizaServiceHandler is an implementation of the connectrpc.eliza.v1.ElizaService service.
 type ElizaServiceHandler interface {
 	// Say is a unary RPC. Eliza responds to the prompt with a single sentence.
 	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)
@@ -113,7 +112,7 @@ func NewElizaServiceHandler(svc ElizaServiceHandler, opts ...connect.HandlerOpti
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
-	return "/examples.proto.connectrpc.eliza.v1.ElizaService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return "/connectrpc.eliza.v1.ElizaService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ElizaServiceSayProcedure:
 			elizaServiceSayHandler.ServeHTTP(w, r)
@@ -127,5 +126,5 @@ func NewElizaServiceHandler(svc ElizaServiceHandler, opts ...connect.HandlerOpti
 type UnimplementedElizaServiceHandler struct{}
 
 func (UnimplementedElizaServiceHandler) Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("examples.proto.connectrpc.eliza.v1.ElizaService.Say is not implemented"))
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("connectrpc.eliza.v1.ElizaService.Say is not implemented"))
 }

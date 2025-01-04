@@ -57,6 +57,7 @@ class ConnectMiddleware:
             for handler in self.handlers:
                 if rote_path != handler.procedure:
                     await self.app(scope, receive, send)
+                    return
 
                 app = request_response(handler.handle)
                 await app(scope, receive, send)

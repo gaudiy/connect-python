@@ -1,13 +1,15 @@
 """Defines the streaming handler connection interfaces and related utilities."""
 
 import abc
+from collections.abc import Mapping, MutableMapping
 from enum import Enum
-from typing import Any, Protocol, TypeVar
+from http import HTTPMethod
+from typing import Any, Generic, Protocol, TypeVar, cast
 
 from pydantic import BaseModel
 from starlette.datastructures import MutableHeaders
 
-from connect.request import ConnectRequest
+from connect.utils import get_callable_attribute
 
 
 class StreamType(Enum):
@@ -23,6 +25,102 @@ class Spec(BaseModel):
     """Spec class."""
 
     stream_type: StreamType
+
+
+class Address(BaseModel):
+    """Address class."""
+
+    host: str
+    port: int
+
+
+class Peer(BaseModel):
+    """Peer class."""
+
+    address: Address | None
+    protocol: str
+    query: Mapping[str, str]
+
+
+Req = TypeVar("Req")
+
+
+class ConnectRequest(Generic[Req]):
+    """ConnectRequest is a class that encapsulates a request with a message, specification, peer, headers, and method.
+
+    Attributes:
+        message (Req): The request message.
+        _spec (Spec): The specification of the request.
+        _peer (Peer): The peer associated with the request.
+        _header (Mapping[str, str]): The headers of the request.
+        _method (str): The method of the request.
+
+    """
+
+    message: Req
+    _spec: Spec
+    _peer: Peer
+    _header: Mapping[str, str]
+    _method: str
+
+    def __init__(self, message: Req, spec: Spec, peer: Peer, header: Mapping[str, str], method: str) -> None:
+        """Initialize a new Request instance.
+
+        Args:
+            message (Req): The request message.
+            spec (Spec): The specification for the request.
+            peer (Peer): The peer information.
+            header (Mapping[str, str]): The request headers.
+            method (str): The HTTP method used for the request.
+
+        Returns:
+            None
+
+        """
+        self.message = message
+        self._spec = spec
+        self._peer = peer
+        self._header = header
+        self._method = method
+
+    def any(self) -> Req:
+        """Return the request message."""
+        return self.message
+
+    def spec(self) -> Spec:
+        """Return the request specification."""
+        return self._spec
+
+    def peer(self) -> Peer:
+        """Return the request peer."""
+        return self._peer
+
+    def header(self) -> Mapping[str, str]:
+        """Return the request headers."""
+        return self._header
+
+    def method(self) -> str:
+        """Return the request method."""
+        return self._method
+
+
+Res = TypeVar("Res")
+
+
+class ConnectResponse(Generic[Res]):
+    """Response class for handling responses."""
+
+    message: Res
+    headers: MutableMapping[str, str] = {}
+    trailers: MutableMapping[str, str] = {}
+
+    def __init__(self, message: Res) -> None:
+        """Initialize the response with a message."""
+        self.message = message
+
+    def any(self) -> Res:
+        """Return the response message."""
+        return self.message
 
 
 class StreamingHandlerConn(abc.ABC):
@@ -166,7 +264,19 @@ async def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> Conne
 
     """
     message = await receive_unary_message(conn, t)
-    return ConnectRequest(message)
+
+    method = HTTPMethod.POST
+    get_http_method = get_callable_attribute(conn, "get_http_method")
+    if get_http_method:
+        method = cast(HTTPMethod, get_http_method())
+
+    return ConnectRequest(
+        message=message,
+        spec=conn.spec(),
+        peer=conn.peer(),
+        header=conn.request_header(),
+        method=method.value,
+    )
 
 
 async def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:

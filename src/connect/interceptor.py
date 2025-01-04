@@ -3,8 +3,7 @@
 import abc
 from collections.abc import Awaitable, Callable
 
-from connect.request import ConnectRequest, Req
-from connect.response import ConnectResponse, Res
+from connect.connect import ConnectRequest, ConnectResponse, Req, Res
 
 UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 

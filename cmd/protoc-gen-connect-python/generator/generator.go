@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"google.golang.org/protobuf/compiler/protogen"
@@ -166,15 +167,15 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P(`    """Procedures for the `, svcName, ` service."""`)
 	p.P()
 	for meth := range p.services {
-		p.P(`    `, meth.Method, ` = `, `"/`, filepath.Join(meth.FullName, meth.Method), `"`)
+		p.P(`    `, meth.Method, ` = `, strconv.Quote(`/`+filepath.Join(meth.FullName, meth.Method)))
 	}
 	p.P()
 	p.P()
 	serviceDescriptor := svcNameService + `_service_descriptor`
-	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, svcNamePB+`.DESCRIPTOR.services_by_name["`, svcNameService, `"]`)
+	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, svcNamePB+`.DESCRIPTOR.services_by_name[`, strconv.Quote(svcNameService), `]`)
 	p.P()
 	for meth := range p.services {
-		p.P(svcNameService, `_`, meth.Method, `_method_descriptor`, `: `, `MethodDescriptor`, ` = `, serviceDescriptor, `.methods_by_name["`, meth.Method, `"]`)
+		p.P(svcNameService, `_`, meth.Method, `_method_descriptor`, `: `, `MethodDescriptor`, ` = `, serviceDescriptor, `.methods_by_name[`, strconv.Quote(meth.Method), `]`)
 	}
 	p.P()
 	p.P()

@@ -154,10 +154,10 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	svcName := filepath.Base(f.GeneratedFilenamePrefix)
 	upperSvcName := camelCase(svcName)
 	svcNameService := upperSvcName + `Service`
-	importPB := svcName + "_pb2"
-	p.P(`from `, `..`, ` import `, importPB)
+	svcNamePB := svcName + "_pb2"
+	p.P(`from `, `..`, ` import `, svcNamePB)
 	for _, svc := range p.services {
-		p.P(`from `, `..`+importPB, ` import `, svc.input.method, `, `, svc.output.method)
+		p.P(`from `, `..`+svcNamePB, ` import `, svc.input.method, `, `, svc.output.method)
 	}
 	p.P()
 	p.P()
@@ -171,7 +171,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P()
 	p.P()
 	serviceDescriptor := svcNameService + `_service_descriptor`
-	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, importPB+`.DESCRIPTOR.services_by_name["`, svcNameService, `"]`)
+	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, svcNamePB+`.DESCRIPTOR.services_by_name["`, svcNameService, `"]`)
 	p.P()
 	for meth := range p.services {
 		p.P(svcNameService, `_`, meth.Method, `_method_descriptor`, `: `, `MethodDescriptor`, ` = `, serviceDescriptor, `.methods_by_name["`, meth.Method, `"]`)

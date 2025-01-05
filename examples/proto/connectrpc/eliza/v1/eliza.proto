@@ -16,7 +16,7 @@ syntax = "proto3";
 
 package connectrpc.eliza.v1;
 
-option go_package = "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1;v1";
+option go_package = "examples/proto/connectrpc/eliza/v1";
 
 // ElizaService provides a way to talk to Eliza, a port of the DOCTOR script
 // for Joseph Weizenbaum's original ELIZA program. Created in the mid-1960s at

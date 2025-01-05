@@ -67,8 +67,8 @@ func (gen *Generator) Generate() {
 	}
 }
 
-func protocVersion(gen *protogen.Plugin) string {
-	v := gen.Request.GetCompilerVersion()
+func protocVersion(plugin *protogen.Plugin) string {
+	v := plugin.Request.GetCompilerVersion()
 	if v == nil {
 		return "(unknown)"
 	}
@@ -81,15 +81,15 @@ func protocVersion(gen *protogen.Plugin) string {
 	return fmt.Sprintf("v%d.%d.%d%s", v.GetMajor(), v.GetMinor(), v.GetPatch(), suffix)
 }
 
+type method struct {
+	Method   string
+	FullName string
+}
+
 type message struct {
 	*protogen.Message
 
 	method string
-}
-
-type method struct {
-	Method   string
-	FullName string
 }
 
 type service struct {

@@ -1,18 +1,16 @@
 package generator
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // p.P(`import abc`)
-// p.P(`from collections.abc import Callable, Coroutine`)
 // p.P(`from enum import Enum`)
-// p.P(`from typing import Any`)
-
-// Package represents a generates Python import directive.
-// type Package string
-
-// func (p Package) Import(gf *protogen.GeneratedFile) {
-// 	// gf.Import()
-// }
+// p.P()
+// p.P(`from connect.connect import ConnectRequest, ConnectResponse`)
+// p.P(`from connect.handler import UnaryHandler`)
+// p.P(`from connect.options import ConnectOptions`)
+// p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
 
 // PythonIdent is a Python identifier, consisting of a name and import path.
 //
@@ -40,3 +38,10 @@ func (p PythonImportPath) Ident(s string) PythonIdent {
 		PythonImportPath: p,
 	}
 }
+
+// Package represents a generates Python import directive.
+// type Package string
+
+// func (p Package) Import(gf *protogen.GeneratedFile) {
+// 	gf.Import()
+// }

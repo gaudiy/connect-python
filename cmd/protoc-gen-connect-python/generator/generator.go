@@ -112,7 +112,6 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p := &GeneratedFile{
 		GeneratedFile: gen,
 		services:      make(map[method]*service),
-		imports:       make(map[PythonImportPath]bool),
 	}
 	for _, svc := range f.Services {
 		for _, meth := range svc.Methods {

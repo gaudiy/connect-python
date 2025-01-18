@@ -33,3 +33,25 @@ class ConnectOptions(BaseModel):
 
     send_max_bytes: int = Field(default=-1)
     """The maximum number of bytes to send."""
+
+
+class ClientOptions(BaseModel):
+    """Options for the Connect client."""
+
+    descriptor: Any = Field(default="")
+    """The descriptor for the RPC method."""
+
+    idempotency_level: IdempotencyLevel = Field(default=IdempotencyLevel.IDEMPOTENCY_UNKNOWN)
+    """The idempotency level of the RPC method."""
+
+    request_compression_name: str | None = Field(default=None)
+    """The name of the compression method to use for requests."""
+
+    compress_min_bytes: int = Field(default=-1)
+    """The minimum number of bytes to compress."""
+
+    read_max_bytes: int = Field(default=-1)
+    """The maximum number of bytes to read."""
+
+    send_max_bytes: int = Field(default=-1)
+    """The maximum number of bytes to send."""

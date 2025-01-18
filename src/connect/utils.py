@@ -151,3 +151,30 @@ def request_response(func: Callable[[Request], Awaitable[Response] | Response]) 
         await response(scope, receive, send)
 
     return app
+
+
+class AsyncByteStream:
+    """An asynchronous byte stream for reading and writing byte chunks."""
+
+    aiterator: typing.AsyncIterable[bytes] | None
+    aclose_func: typing.Callable[..., typing.Awaitable[None]] | None
+
+    def __init__(
+        self,
+        aiterator: typing.AsyncIterable[bytes] | None = None,
+        aclose_func: typing.Callable[..., typing.Awaitable[None]] | None = None,
+    ) -> None:
+        """Initialize the asynchronous byte stream with the given iterator and close function."""
+        self.aiterator = aiterator
+        self.aclose_func = aclose_func
+
+    async def __aiter__(self) -> typing.AsyncIterator[bytes]:
+        """Asynchronous iterator method to read byte chunks from the stream."""
+        if self.aiterator is not None:
+            async for chunk in self.aiterator:
+                yield chunk
+
+    async def aclose(self) -> None:
+        """Asynchronously close the byte stream."""
+        if self.aclose_func is not None:
+            await self.aclose_func()

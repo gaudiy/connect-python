@@ -1,5 +1,5 @@
 [build-system]
-requires = [ "hatchling" ]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
@@ -7,19 +7,20 @@ name = "connect-python"
 description = "The Python implementation of Connect: Protobuf RPC that works."
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [ { name = "zchee" } ]
+authors = [{ name = "zchee" }]
 requires-python = ">=3.13"
-dynamic = [ "version" ]
+dynamic = ["version"]
 dependencies = [
   "anyio>=4.7.0",
   "protobuf>=5.29.1",
   "pydantic>=2.10.4",
   "starlette[full]>=0.42.0",
   "types-protobuf>=5.29.1.20241207",
+  "yarl>=1.18.3",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = [ "src/connect" ]
+packages = ["src/connect"]
 
 [tool.hatch.version]
 path = "src/connect/version.py"
@@ -33,6 +34,8 @@ dev-dependencies = [
   "grpcio-tools==1.68.1",
   "mypy-protobuf>=3.6.0",
   "hypercorn[trio,uvloop]>=0.17.3",
+  "pytest-asyncio>=0.25.1",
+  "uvicorn>=0.34.0",
 ]
 
 [tool.ruff]
@@ -84,8 +87,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"__init__.py" = [ "D104" ]
-"version.py" = [ "D100" ]
+"__init__.py" = ["D104"]
+"version.py" = ["D100"]
 
 [tool.ruff.format]
 preview = true
@@ -101,7 +104,11 @@ disable_error_code = [
   "misc",            # Class cannot subclass "xxx" (has type "Any")
   "unused-ignore",   # Unused "type: ignore" comment
 ]
+enable_incomplete_feature = "NewGenericSyntax"
 
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"

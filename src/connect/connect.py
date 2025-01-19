@@ -1,10 +1,11 @@
 """Defines the streaming handler connection interfaces and related utilities."""
 
 import abc
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping
 from enum import Enum
 from http import HTTPMethod
-from typing import Any, Generic, Protocol, TypeVar, cast
+from types import TracebackType
+from typing import Any, Generic, Protocol, Self, TypeVar, cast
 
 from pydantic import BaseModel
 from starlette.datastructures import MutableHeaders
@@ -56,7 +57,7 @@ class ConnectRequest(Generic[Req]):
         message (Req): The request message.
         _spec (Spec): The specification of the request.
         _peer (Peer): The peer associated with the request.
-        _header (Mapping[str, str]): The headers of the request.
+        _headers (Mapping[str, str]): The headers of the request.
         _method (str): The method of the request.
 
     """
@@ -64,17 +65,24 @@ class ConnectRequest(Generic[Req]):
     message: Req
     _spec: Spec
     _peer: Peer
-    _header: Mapping[str, str]
+    _headers: MutableMapping[str, str]
     _method: str
 
-    def __init__(self, message: Req, spec: Spec, peer: Peer, header: Mapping[str, str], method: str) -> None:
+    def __init__(
+        self,
+        message: Req,
+        spec: Spec | None = None,
+        peer: Peer | None = None,
+        headers: MutableMapping[str, str] | None = None,
+        method: str | None = None,
+    ) -> None:
         """Initialize a new Request instance.
 
         Args:
             message (Req): The request message.
             spec (Spec): The specification for the request.
             peer (Peer): The peer information.
-            header (Mapping[str, str]): The request headers.
+            headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
 
         Returns:
@@ -82,10 +90,19 @@ class ConnectRequest(Generic[Req]):
 
         """
         self.message = message
-        self._spec = spec
-        self._peer = peer
-        self._header = header
-        self._method = method
+        self._spec = (
+            spec
+            if spec
+            else Spec(
+                procedure="",
+                descriptor=None,
+                stream_type=StreamType.Unary,
+                idempotency_level=IdempotencyLevel.IDEMPOTENT,
+            )
+        )
+        self._peer = peer if peer else Peer(address=None, protocol="", query={})
+        self._headers = headers if headers else {}
+        self._method = method if method else HTTPMethod.POST.value
 
     def any(self) -> Req:
         """Return the request message."""
@@ -99,13 +116,17 @@ class ConnectRequest(Generic[Req]):
         """Return the request peer."""
         return self._peer
 
-    def header(self) -> Mapping[str, str]:
+    def headers(self) -> MutableMapping[str, str]:
         """Return the request headers."""
-        return self._header
+        return self._headers
 
     def method(self) -> str:
         """Return the request method."""
         return self._method
+
+    def set_request_method(self, value: str) -> None:
+        """Set the request method."""
+        self._method = value
 
 
 Res = TypeVar("Res")
@@ -115,12 +136,19 @@ class ConnectResponse(Generic[Res]):
     """Response class for handling responses."""
 
     message: Res
-    headers: MutableMapping[str, str] = {}
-    trailers: MutableMapping[str, str] = {}
+    headers: MutableMapping[str, str]
+    trailers: MutableMapping[str, str]
 
-    def __init__(self, message: Res) -> None:
+    def __init__(
+        self,
+        message: Res,
+        headers: MutableMapping[str, str] | None = None,
+        trailers: MutableMapping[str, str] | None = None,
+    ) -> None:
         """Initialize the response with a message."""
         self.message = message
+        self.headers = headers if headers else {}
+        self.trailers = trailers if trailers else {}
 
     def any(self) -> Res:
         """Return the response message."""
@@ -171,11 +199,11 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def request_header(self) -> Any:
-        """Generate and return the request header.
+    def request_headers(self) -> Any:
+        """Generate and return the request headers.
 
         Returns:
-            Any: The request header.
+            Any: The request headers.
 
         """
         raise NotImplementedError()
@@ -194,17 +222,17 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def response_header(self) -> MutableHeaders:
-        """Retrieve the response header.
+    def response_headers(self) -> MutableHeaders:
+        """Retrieve the response headers.
 
         Returns:
-            Any: The response header.
+            Any: The response headers.
 
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def response_trailer(self) -> MutableHeaders:
+    def response_trailers(self) -> MutableHeaders:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide
@@ -214,6 +242,68 @@ class StreamingHandlerConn(abc.ABC):
             Any: The return type is not specified as this is a placeholder method.
 
         """
+        raise NotImplementedError()
+
+
+class AbstractAsyncContextManager(abc.ABC):
+    """Abstract base class for an asynchronous context manager."""
+
+    async def __aenter__(self) -> Self:
+        """Enter the context manager and return the instance."""
+        return self
+
+    @abc.abstractmethod
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit the context manager and handle any exceptions that occur."""
+        return None
+
+
+class StreamingClientConn(AbstractAsyncContextManager):
+    """Abstract base class for a streaming client connection."""
+
+    @abc.abstractmethod
+    def spec(self) -> Spec:
+        """Return the specification details."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def peer(self) -> Peer:
+        """Return the peer information."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def receive(self, message: Any) -> None:
+        """Receives a message and processes it."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def request_headers(self) -> MutableMapping[str, str]:
+        """Return the request headers."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def send(self, message: Any) -> bytes:
+        """Send a message."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def response_headers(self) -> MutableMapping[str, str]:
+        """Return the response headers."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def response_trailers(self) -> MutableMapping[str, str]:
+        """Return response trailers."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def on_request_send(self, fn: Callable[..., Any]) -> None:
+        """Handle the request send event."""
         raise NotImplementedError()
 
 
@@ -278,9 +368,25 @@ async def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> Conne
         message=message,
         spec=conn.spec(),
         peer=conn.peer(),
-        header=conn.request_header(),
+        headers=conn.request_headers(),
         method=method.value,
     )
+
+
+async def recieve_unary_response(conn: StreamingClientConn, t: type[T]) -> ConnectResponse[T]:
+    """Receive a unary response from a streaming client connection.
+
+    Args:
+        conn (StreamingClientConn): The streaming client connection.
+        t (type[T]): The type of the expected response message.
+
+    Returns:
+        ConnectResponse[T]: The response containing the message, response headers, and response trailers.
+
+    """
+    message = await receive_unary_message(conn, t)
+
+    return ConnectResponse(message, conn.response_headers(), conn.response_trailers())
 
 
 async def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:

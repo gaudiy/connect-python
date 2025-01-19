@@ -3,27 +3,40 @@
 import base64
 import contextlib
 import json
-from collections.abc import AsyncGenerator, Callable, Mapping
-from http import HTTPMethod
+import types
+from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping, MutableMapping
+from http import HTTPMethod, HTTPStatus
+from sys import version
 from typing import Any
 
+import httpcore
 from starlette.datastructures import MutableHeaders
+from yarl import URL
 
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, ProtoJSONCodec
-from connect.compression import Compression
-from connect.connect import Address, Peer, Spec, StreamingHandlerConn, StreamType
+from connect.compression import COMPRESSION_IDENTITY, Compression
+from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
 from connect.error import ConnectError
+from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.protocol import (
+    HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
+    HEADER_HOST,
+    HEADER_USER_AGENT,
     PROTOCOL_CONNECT,
     Protocol,
+    ProtocolClient,
+    ProtocolClientParams,
     ProtocolHandler,
     ProtocolHandlerParams,
+    code_from_http_status,
     negotiate_compression,
 )
 from connect.request import Request
+from connect.utils import AsyncByteStream
+from connect.version import __version__
 
 CONNECT_UNARY_HEADER_COMPRESSION = "Content-Encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "Accept-Encoding"
@@ -42,6 +55,8 @@ CONNECT_UNARY_BASE64_QUERY_PARAMETER = "base64"
 CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER = "compression"
 CONNECT_UNARY_CONNECT_QUERY_PARAMETER = "connect"
 CONNECT_UNARY_CONNECT_QUERY_VALUE = "v" + CONNECT_PROTOCOL_VERSION
+
+DEFAULT_CONNECT_USER_AGENT = f"connect-python/{__version__} (Python/{version})"
 
 
 def connect_codec_from_content_type(stream_type: StreamType, content_type: str) -> str:
@@ -238,10 +253,10 @@ class ConnectHandler(ProtocolHandler):
                     compress_min_bytes=self.params.compress_min_bytes,
                     send_max_bytes=self.params.send_max_bytes,
                     compression=response_compression,
-                    response_headers=response_headers,
+                    headers=response_headers,
                 ),
                 unmarshaler=ConnectUnmarshaler(
-                    request_stream=request_stream,
+                    stream=request_stream(),
                     codec=codec,
                     compression=request_compression,
                     read_max_bytes=self.params.read_max_bytes,
@@ -284,9 +299,17 @@ class ProtocolConnect(Protocol):
 
         return ConnectHandler(params, methods=methods, accept=content_types)
 
-    def client(self) -> None:
-        """Handle the client connection."""
-        raise NotImplementedError()
+    def client(self, params: ProtocolClientParams) -> ProtocolClient:
+        """Create and returns a ConnectClient instance.
+
+        Args:
+            params (ProtocolClientParams): The parameters required to initialize the client.
+
+        Returns:
+            ProtocolClient: An instance of ConnectClient.
+
+        """
+        return ConnectClient(params)
 
 
 class ConnectUnmarshaler:
@@ -301,30 +324,30 @@ class ConnectUnmarshaler:
     """
 
     codec: Codec
-    request_stream: Callable[..., AsyncGenerator[bytes]]
     read_max_bytes: int
     compression: Compression | None
+    stream: AsyncGenerator[bytes] | AsyncByteStream | None
 
     def __init__(
         self,
-        request_stream: Callable[..., AsyncGenerator[bytes]],
         codec: Codec,
         read_max_bytes: int,
-        compression: Compression | None,
+        compression: Compression | None = None,
+        stream: AsyncGenerator[bytes] | AsyncByteStream | None = None,
     ) -> None:
         """Initialize the ProtocolConnect object.
 
         Args:
-            request_stream (Callable[..., AsyncGenerator[bytes]]): The stream of data to be unmarshaled.
+            stream (Callable[..., AsyncGenerator[bytes]]): The stream of data to be unmarshaled.
             codec (Codec): The codec used for encoding/decoding the message.
             read_max_bytes (int): The maximum number of bytes to read.
             compression (Compression | None): The compression method to use, if any.
 
         """
-        self.request_stream = request_stream
         self.codec = codec
         self.read_max_bytes = read_max_bytes
         self.compression = compression
+        self.stream = stream
 
     async def unmarshal(self, message: Any) -> Any:
         """Unmarshals the given message using the codec.
@@ -336,9 +359,12 @@ class ConnectUnmarshaler:
             Any: The unmarshaled object.
 
         """
+        if self.stream is None:
+            raise ConnectError("stream is not set", Code.INTERNAL)
+
         chunks: list[bytes] = []
         bytes_read = 0
-        async for chunk in self.request_stream():
+        async for chunk in self.stream:
             chunk_size = len(chunk)
             bytes_read += chunk_size
             if self.read_max_bytes > 0 and bytes_read > self.read_max_bytes:
@@ -369,11 +395,11 @@ class ConnectMarshaler:
     """ConnectMarshaler is responsible for serializing and optionally compressing messages.
 
     Attributes:
-        codec (Codec): The codec used for serialization.
-        compression (Compression | None): The compression method to use, if any.
-        compress_min_bytes (int): The minimum number of bytes required to trigger compression.
-        send_max_bytes (int): The maximum number of bytes that can be sent.
-        response_headers (MutableHeaders): The headers to include in the response.
+        codec (Codec): The codec used for serializing messages.
+        compression (Compression | None): The compression method used for compressing messages, if any.
+        compress_min_bytes (int): The minimum size in bytes for a message to be compressed.
+        send_max_bytes (int): The maximum allowed size in bytes for a message to be sent.
+        headers (MutableHeaders | Headers): The headers to be included in the message.
 
     """
 
@@ -381,7 +407,7 @@ class ConnectMarshaler:
     compression: Compression | None
     compress_min_bytes: int
     send_max_bytes: int
-    response_headers: MutableHeaders
+    headers: MutableHeaders | Headers
 
     def __init__(
         self,
@@ -389,14 +415,16 @@ class ConnectMarshaler:
         compression: Compression | None,
         compress_min_bytes: int,
         send_max_bytes: int,
-        response_headers: MutableHeaders,
+        headers: MutableHeaders | Headers,  # TODO(tsubakiky): Fix MutableHeaders type
     ) -> None:
-        """Initialize the ConnectMarshaler with the given parameters.
+        """Initialize the protocol connection.
 
-            compression (Compression | None): The compression method to use, or None if no compression is needed.
+        Args:
+            codec (Codec): The codec to be used for encoding/decoding.
+            compression (Compression | None): The compression method to be used, or None if no compression.
             compress_min_bytes (int): The minimum number of bytes before compression is applied.
-            send_max_bytes (int): The maximum number of bytes that can be sent.
-            response_headers (MutableHeaders): The headers to include in the response.
+            send_max_bytes (int): The maximum number of bytes to send in a single message.
+            headers (MutableHeaders | Headers): The headers to be included in the connection.
 
         Returns:
             None
@@ -406,29 +434,19 @@ class ConnectMarshaler:
         self.compression = compression
         self.compress_min_bytes = compress_min_bytes
         self.send_max_bytes = send_max_bytes
-        self.response_headers = response_headers
+        self.headers = headers
 
     def marshal(self, message: Any) -> bytes:
-        """Serialize and optionally compresses a message.
-
-        This method serializes the given message using the codec's marshal method.
-        If the serialized data is smaller than the minimum compression size or if
-        compression is not enabled, the data is returned as is. If the data size
-        exceeds the maximum allowed size, a ValueError is raised.
-
-        If compression is enabled and the serialized data is larger than the minimum
-        compression size, the data is compressed. If the compressed data size exceeds
-        the maximum allowed size, a ValueError is raised. The response headers are
-        updated to include the compression type used.
+        """Marshals a message into bytes, optionally compressing it if it exceeds a certain size.
 
         Args:
-            message (Any): The message to be serialized and optionally compressed.
+            message (Any): The message to be marshaled.
 
         Returns:
-            bytes: The serialized (and possibly compressed) message.
+            bytes: The marshaled (and possibly compressed) message.
 
         Raises:
-            ValueError: If the serialized or compressed data exceeds the maximum allowed size.
+            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
 
         """
         try:
@@ -452,7 +470,7 @@ class ConnectMarshaler:
                 Code.RESOURCE_EXHAUSTED,
             )
 
-        self.response_headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name()
+        self.headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name()
 
         return data
 
@@ -464,7 +482,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         request (Request): The incoming request object.
         marshaler (ConnectMarshaler): An instance of ConnectMarshaler used to marshal messages.
         unmarshaler (ConnectUnmarshaler): An instance of ConnectUnmarshaler used to unmarshal messages.
-        response_headers (MutableHeaders): The headers for the response.
+        headers (MutableHeaders): The headers for the response.
 
     """
 
@@ -473,8 +491,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     _spec: Spec
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
-    response_headers: MutableHeaders
-    response_trailers: MutableHeaders
+    _response_headers: MutableHeaders
+    _response_trailers: MutableHeaders
 
     def __init__(
         self,
@@ -503,8 +521,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         self._spec = spec
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
-        self.response_headers = response_headers
-        self.response_trailers = response_trailers or MutableHeaders()
+        self._response_headers = response_headers
+        self._response_trailers = response_trailers or MutableHeaders()
 
     def spec(self) -> Spec:
         """Return the specification object.
@@ -536,7 +554,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         obj = await self.unmarshaler.unmarshal(message)
         return obj
 
-    def request_header(self) -> Mapping[str, str]:
+    def request_headers(self) -> Mapping[str, str]:
         """Retrieve the headers from the request.
 
         Returns:
@@ -558,16 +576,16 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         data = self.marshaler.marshal(message)
         return data
 
-    def response_header(self) -> MutableHeaders:
-        """Retrieve the response header.
+    def response_headers(self) -> MutableHeaders:
+        """Retrieve the response headers.
 
         Returns:
-            Any: The response header.
+            Any: The response headers.
 
         """
-        return self.response_headers
+        return self._response_headers
 
-    def response_trailer(self) -> MutableHeaders:
+    def response_trailers(self) -> MutableHeaders:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide
@@ -577,7 +595,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             Any: The processed response trailer data.
 
         """
-        return self.response_trailers
+        return self._response_trailers
 
     def get_http_method(self) -> HTTPMethod:
         """Retrieve the HTTP method from the request.
@@ -587,6 +605,499 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         return HTTPMethod(self.request.method)
+
+
+class ConnectClient(ProtocolClient):
+    """ConnectClient is a client for handling connections using the Connect protocol.
+
+    Attributes:
+        params (ProtocolClientParams): Parameters for the protocol client.
+        _peer (Peer): The peer object representing the connection endpoint.
+
+    """
+
+    params: ProtocolClientParams
+    _peer: Peer
+
+    def __init__(self, params: ProtocolClientParams) -> None:
+        """Initialize the ProtocolConnect instance with the given parameters.
+
+        Args:
+            params (ProtocolClientParams): The parameters required to initialize the ProtocolConnect instance.
+
+        """
+        self.params = params
+        self._peer = Peer(
+            address=Address(host=params.url.host or "", port=params.url.port or 80),
+            protocol=PROTOCOL_CONNECT,
+            query={},
+        )
+
+    def peer(self) -> Peer:
+        """Return the peer associated with this instance.
+
+        :return: The peer associated with this instance.
+        :rtype: Peer
+        """
+        return self._peer
+
+    def write_request_headers(self, stream_type: StreamType, headers: MutableMapping[str, str]) -> None:
+        """Write the necessary request headers to the provided headers dictionary.
+
+        This method ensures that the headers dictionary contains the required headers
+        for a request, including user agent, protocol version, content type, and
+        optionally, compression settings.
+
+        Args:
+            stream_type (StreamType): The type of stream for the request.
+            headers (MutableMapping[str, str]): The dictionary of headers to be updated.
+
+        Returns:
+            None
+
+        """
+        if headers.get(HEADER_USER_AGENT, None) is None:
+            headers[HEADER_USER_AGENT] = DEFAULT_CONNECT_USER_AGENT
+
+        headers[CONNECT_HEADER_PROTOCOL_VERSION] = CONNECT_PROTOCOL_VERSION
+        headers[HEADER_CONTENT_TYPE] = connect_content_type_from_codec_name(stream_type, self.params.codec.name())
+
+        accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
+        if stream_type != StreamType.Unary:
+            # TODO(tsubakiky): Add streaming support
+            pass
+
+        if self.params.compressions:
+            headers[accept_compression_header] = ", ".join(c.name() for c in self.params.compressions)
+
+    def conn(self, spec: Spec, headers: MutableMapping[str, str]) -> StreamingClientConn:
+        """Establish a connection based on the provided specification and headers.
+
+        Args:
+            spec (Spec): The specification for the connection, including stream type.
+            headers (MutableMapping[str, str]): The headers to be included in the connection request.
+
+        Returns:
+            StreamingClientConn: The established connection object.
+
+        Raises:
+            NotImplementedError: If the stream type is not supported.
+
+        """
+        conn: StreamingClientConn
+        if spec.stream_type == StreamType.Unary:
+            compression = (
+                next(
+                    (
+                        compression
+                        for compression in self.params.compressions
+                        if compression.name() == self.params.compression_name
+                    ),
+                    None,
+                )
+                if self.params.compression_name
+                else None
+            )
+
+            request_headers = Headers(headers)
+            conn = ConnectUnaryClientConn(
+                spec=spec,
+                peer=self.peer(),
+                url=self.params.url,
+                compressions=self.params.compressions,
+                request_headers=request_headers,
+                marshaler=ConnectUnaryRequestMarshaler(
+                    connect_marshaler=ConnectMarshaler(
+                        codec=self.params.codec,
+                        compression=compression,
+                        compress_min_bytes=self.params.compress_min_bytes,
+                        send_max_bytes=self.params.send_max_bytes,
+                        headers=request_headers,
+                    )
+                ),
+                unmarshaler=ConnectUnmarshaler(
+                    codec=self.params.codec,
+                    read_max_bytes=self.params.read_max_bytes,
+                ),
+            )
+        else:
+            # TODO(tsubakiky): Add streaming support
+            pass
+
+        return conn
+
+
+class ConnectUnaryRequestMarshaler:
+    """A class responsible for marshaling unary requests using a provided ConnectMarshaler.
+
+    Attributes:
+        connect_marshaler (ConnectMarshaler): An instance of ConnectMarshaler used to marshal messages.
+
+    """
+
+    connect_marshaler: ConnectMarshaler
+
+    def __init__(self, connect_marshaler: ConnectMarshaler) -> None:
+        """Initialize the ProtocolConnect instance with the given ConnectMarshaler.
+
+        Args:
+            connect_marshaler (ConnectMarshaler): An instance of ConnectMarshaler used for marshaling connections.
+
+        """
+        self.connect_marshaler = connect_marshaler
+
+    def marshal(self, message: Any) -> bytes:
+        """Serialize a given message into bytes using the connect_marshaler.
+
+        Args:
+            message (Any): The message to be serialized.
+
+        Returns:
+            bytes: The serialized message in bytes.
+
+        """
+        return self.connect_marshaler.marshal(message)
+
+
+EventHook = Callable[..., Any]
+
+
+class ConnectUnaryClientConn(StreamingClientConn):
+    """A client connection for unary RPCs using the Connect protocol.
+
+    Attributes:
+        _spec (Spec): The specification for the connection.
+        _peer (Peer): The peer information.
+        url (URL): The URL for the connection.
+        compressions (list[Compression]): List of supported compressions.
+        marshaler (ConnectUnaryRequestMarshaler): The marshaler for requests.
+        unmarshaler (ConnectUnmarshaler): The unmarshaler for responses.
+        response_content (bytes | None): The content of the response.
+        _response_headers (Headers): The headers of the response.
+        _response_trailers (Headers): The trailers of the response.
+        _request_headers (Headers): The headers of the request.
+        _pool (httpcore.AsyncConnectionPool): The connection pool.
+        _event_hooks (dict[str, list[EventHook]]): Event hooks for request and response.
+
+    """
+
+    _spec: Spec
+    _peer: Peer
+    url: URL
+    compressions: list[Compression]
+    marshaler: ConnectUnaryRequestMarshaler
+    unmarshaler: ConnectUnmarshaler
+    response_content: bytes | None
+    _response_headers: Headers
+    _response_trailers: Headers
+    _request_headers: Headers
+
+    _pool: httpcore.AsyncConnectionPool
+
+    def __init__(
+        self,
+        spec: Spec,
+        peer: Peer,
+        url: URL,
+        compressions: list[Compression],
+        request_headers: Headers,
+        marshaler: ConnectUnaryRequestMarshaler,
+        unmarshaler: ConnectUnmarshaler,
+        event_hooks: None | (Mapping[str, list[EventHook]]) = None,
+    ) -> None:
+        """Initialize the ConnectProtocol instance.
+
+        Args:
+            spec (Spec): The specification for the connection.
+            peer (Peer): The peer information.
+            url (URL): The URL for the connection.
+            compressions (list[Compression]): List of compression methods.
+            request_headers (Headers): The headers for the request.
+            marshaler (ConnectUnaryRequestMarshaler): The marshaler for the request.
+            unmarshaler (ConnectUnmarshaler): The unmarshaler for the response.
+            event_hooks (None | Mapping[str, list[EventHook]], optional): Event hooks for request and response. Defaults to None.
+
+        Returns:
+            None
+
+        """
+        event_hooks = {} if event_hooks is None else event_hooks
+
+        self._spec = spec
+        self._peer = peer
+        self.url = url
+        self.compressions = compressions
+        self.marshaler = marshaler
+        self.unmarshaler = unmarshaler
+        self.response_content = None
+        self._response_headers = Headers()
+        self._response_trailers = Headers()
+        self._pool = self._connection_pool()
+        self._request_headers = self._init_request_headers(request_headers)
+        self._event_hooks = {
+            "request": list(event_hooks.get("request", [])),
+            "response": list(event_hooks.get("response", [])),
+        }
+
+    def _connection_pool(self, http2: bool = False) -> httpcore.AsyncConnectionPool:
+        return httpcore.AsyncConnectionPool(
+            http2=http2,
+        )
+
+    def _init_request_headers(self, headers: Headers) -> Headers:
+        headers[HEADER_HOST] = self.url.host or ""
+
+        return headers
+
+    def spec(self) -> Spec:
+        """Return the specification of the protocol.
+
+        Returns:
+            Spec: The specification object of the protocol.
+
+        """
+        return self._spec
+
+    def peer(self) -> Peer:
+        """Return the peer object associated with this instance.
+
+        :return: The peer object.
+        :rtype: Peer
+        """
+        return self._peer
+
+    async def receive(self, message: Any) -> None:
+        """Asynchronously receives a message, unmarshals it, and returns the resulting object.
+
+        Args:
+            message (Any): The message to be unmarshaled.
+
+        Returns:
+            None: This method does not return a value. The unmarshaled object is returned implicitly.
+
+        """
+        obj = await self.unmarshaler.unmarshal(message)
+        return obj
+
+    def request_headers(self) -> MutableMapping[str, str]:
+        """Retrieve the request headers.
+
+        Returns:
+            MutableMapping[str, str]: A dictionary-like object containing the request headers.
+
+        """
+        return self._request_headers
+
+    def on_request_send(self, fn: EventHook) -> None:
+        """Register a callback function to be called when a request is sent.
+
+        Args:
+            fn (EventHook): The callback function to be registered. This function
+                            will be called with the request details when a request
+                            is sent.
+
+        """
+        self._event_hooks["request"].append(fn)
+
+    async def send(self, message: Any) -> bytes:
+        """Send a message asynchronously and returns the marshaled data.
+
+        Args:
+            message (Any): The message to be sent.
+
+        Returns:
+            bytes: The marshaled data of the message.
+
+        Raises:
+            Exception: If the response validation fails.
+
+        """
+        data = self.marshaler.marshal(message)
+
+        self._request_headers[HEADER_CONTENT_LENGTH] = str(len(data))
+
+        request = httpcore.Request(
+            method=HTTPMethod.POST,
+            url=httpcore.URL(
+                scheme=self.url.scheme,
+                host=self.url.host or "",
+                port=self.url.port,
+                target=self.url.raw_path,
+            ),
+            headers=list(self._request_headers.items()),
+            content=data,
+        )
+
+        for hook in self._event_hooks["request"]:
+            hook(request)
+
+        response = await self._pool.handle_async_request(request=request)
+
+        for hook in self._event_hooks["response"]:
+            hook(response)
+
+        self._validate_response(response)
+
+        assert isinstance(response.stream, AsyncIterable)
+        self.unmarshaler.stream = AsyncByteStream(response.stream)
+
+        return data
+
+    def response_headers(self) -> MutableMapping[str, str]:
+        """Return the response headers.
+
+        Returns:
+            MutableMapping[str, str]: A dictionary-like object containing the response headers.
+
+        """
+        return self._response_headers
+
+    def response_trailers(self) -> MutableMapping[str, str]:
+        """Return the response trailers.
+
+        Response trailers are additional headers sent after the response body.
+
+        Returns:
+            MutableMapping[str, str]: A dictionary containing the response trailers.
+
+        """
+        return self._response_trailers
+
+    def _validate_response(self, response: httpcore.Response) -> None:
+        headers = Headers(response.headers)
+        for key, value in headers.items():
+            if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX):
+                self._response_headers[key] = value
+                continue
+
+            self._response_trailers[key[len(CONNECT_UNARY_TRAILER_PREFIX) :]] = value
+
+        # TOTO(tsubakiky): Error handling.
+        connect_validate_unary_response_content_type(
+            self.marshaler.connect_marshaler.codec.name(),
+            HTTPMethod.POST,
+            response.status,
+            headers.get(HEADER_CONTENT_TYPE, ""),
+        )
+
+        compression = headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
+        if (
+            compression
+            and compression != COMPRESSION_IDENTITY
+            and not any(c.name() == compression for c in self.compressions)
+        ):
+            raise ConnectError(
+                f"unknown encoding {compression}: accepted encodings are {', '.join(c.name() for c in self.compressions)}",
+                Code.INTERNAL,
+            )
+
+        self.unmarshaler.compression = next((c for c in self.compressions if c.name() == compression), None)
+
+        return
+
+    @property
+    def event_hooks(self) -> dict[str, list[EventHook]]:
+        """Return the event hooks.
+
+        This method returns a dictionary where the keys are strings representing
+        event names, and the values are lists of EventHook objects associated with
+        those events.
+
+        Returns:
+            dict[str, list[EventHook]]: A dictionary mapping event names to lists
+            of EventHook objects.
+
+        """
+        return self._event_hooks
+
+    @event_hooks.setter
+    def event_hooks(self, event_hooks: dict[str, list[EventHook]]) -> None:
+        self._event_hooks = {
+            "request": list(event_hooks.get("request", [])),
+            "response": list(event_hooks.get("response", [])),
+        }
+
+    async def aclose(self) -> None:
+        """Asynchronously closes the connection pool.
+
+        This method should be called to properly close all connections in the pool
+        and release any resources associated with them.
+        """
+        await self._pool.aclose()
+
+    async def __aenter__(self) -> "ConnectUnaryClientConn":
+        """Asynchronous context manager entry method.
+
+        This method is called when entering the asynchronous context using the `async with` statement.
+        It awaits the entry of the connection pool and returns the current instance of `ConnectUnaryClientConn`.
+
+        Returns:
+            ConnectUnaryClientConn: The current instance of the connection.
+
+        """
+        await self._pool.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc: BaseException | None = None,
+        tb: types.TracebackType | None = None,
+    ) -> None:
+        """Exit the runtime context related to this object.
+
+        This method is called when the execution of the block inside the `async with` statement is finished.
+        It delegates the exit process to the underlying pool's `__aexit__` method.
+
+        Args:
+            exc_type (type[BaseException] | None): The exception type if an exception was raised, otherwise None.
+            exc (BaseException | None): The exception instance if an exception was raised, otherwise None.
+            tb (types.TracebackType | None): The traceback object if an exception was raised, otherwise None.
+
+        Returns:
+            None
+
+        """
+        await self._pool.__aexit__(exc_type, exc, tb)
+
+
+def connect_validate_unary_response_content_type(
+    request_codec_name: str,  # noqa: ARG001
+    http_method: HTTPMethod,
+    status_code: int,
+    response_content_type: str,
+) -> None:
+    """Validate the content type of a unary response based on the HTTP status code and method.
+
+    Args:
+        request_codec_name (str): The name of the codec used for the request.
+        http_method (HTTPMethod): The HTTP method used for the request.
+        status_code (int): The HTTP status code of the response.
+        response_content_type (str): The content type of the response.
+
+    Raises:
+        ConnectError: If the status code is not OK and the response content type is not valid.
+
+    """
+    if status_code != HTTPStatus.OK:
+        if status_code == HTTPStatus.NOT_MODIFIED and http_method == HTTPMethod.GET:
+            # TODO(tsubakiky): Change to wire error.
+            raise ConnectError(
+                f"HTTP {status_code}",
+                Code.UNKNOWN,
+            )
+        if (
+            response_content_type == CONNECT_UNARY_CONTENT_TYPE_PREFIX + CodecNameType.JSON
+            or response_content_type == CONNECT_UNARY_CONTENT_TYPE_PREFIX + CodecNameType.JSON_CHARSET_UTF8
+        ):
+            # Error response must be JSON-encoded.
+            return
+        raise ConnectError(
+            f"HTTP {status_code}",
+            code_from_http_status(status_code),
+        )
+
+    return
 
 
 def connect_check_protocol_version(request: Request, required: bool) -> None:

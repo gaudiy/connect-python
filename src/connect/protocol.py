@@ -1,15 +1,17 @@
 """Module defining the protocol handling classes and functions."""
 
 import abc
+from collections.abc import MutableMapping
 from http import HTTPMethod
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.datastructures import MutableHeaders
+from yarl import URL
 
 from connect.code import Code
-from connect.codec import ReadOnlyCodecs
+from connect.codec import Codec, ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Spec, StreamingHandlerConn
+from connect.connect import Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
@@ -19,6 +21,7 @@ PROTOCOL_CONNECT = "connect"
 HEADER_CONTENT_TYPE = "Content-Type"
 HEADER_CONTENT_LENGTH = "Content-Length"
 HEADER_HOST = "Host"
+HEADER_USER_AGENT = "User-Agent"
 
 
 class ProtocolHandlerParams(BaseModel):
@@ -37,6 +40,7 @@ class ProtocolHandlerParams(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
+
     spec: Spec
     codecs: ReadOnlyCodecs
     compressions: list[Compression]
@@ -45,6 +49,41 @@ class ProtocolHandlerParams(BaseModel):
     send_max_bytes: int
     require_connect_protocol_header: bool
     idempotency_level: IdempotencyLevel
+
+
+class ProtocolClientParams(BaseModel):
+    """ProtocolClientParams is a data model for configuring protocol client parameters."""
+
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
+    codec: Codec
+    url: URL
+    compression_name: str | None = Field(default=None)
+    compressions: list[Compression]
+    compress_min_bytes: int
+    read_max_bytes: int
+    send_max_bytes: int
+
+
+class ProtocolClient(abc.ABC):
+    """Abstract base class for defining a protocol client."""
+
+    @abc.abstractmethod
+    def peer(self) -> Peer:
+        """Retern the peer for the client."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def write_request_headers(self, stream_type: StreamType, headers: MutableMapping[str, str]) -> None:
+        """Write the request headers."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def conn(self, spec: Spec, headers: MutableMapping[str, str]) -> StreamingClientConn:
+        """Return the connection for the client."""
+        raise NotImplementedError()
 
 
 class ProtocolHandler(abc.ABC):
@@ -130,7 +169,7 @@ class Protocol(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def client(self) -> None:
+    def client(self, params: ProtocolClientParams) -> ProtocolClient:
         """Implement client functionality.
 
         This method currently does nothing and is intended to be implemented
@@ -226,6 +265,31 @@ def sorted_accept_post_value(handlers: list[ProtocolHandler]) -> str:
         str: A comma-separated string of the allowed methods.
 
     """
-    # methods = {method for handler in handlers for method in handler.methods()}
     content_types = {content_type for handler in handlers for content_type in handler.content_types()}
     return ", ".join(sorted(content_type for content_type in content_types))
+
+
+def code_from_http_status(status: int) -> Code:
+    """Determine the gRPC-web error code for the given HTTP status code.
+
+    See https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md.
+    """
+    match status:
+        case 400:  # Bad Request
+            return Code.INTERNAL
+        case 401:  # Unauthorized
+            return Code.UNAUTHENTICATED
+        case 403:  # Forbidden
+            return Code.PERMISSION_DENIED
+        case 404:  # Not Found
+            return Code.UNIMPLEMENTED
+        case 429:  # Too Many Requests
+            return Code.UNAVAILABLE
+        case 502:  # Bad Gateway
+            return Code.UNAVAILABLE
+        case 503:  # Service Unavailable
+            return Code.UNAVAILABLE
+        case 504:  # Gateway Timeout
+            return Code.UNAVAILABLE
+        case _:  # 200 is UNKNOWN because there should be a grpc-status in case of truly OK response.
+            return Code.UNKNOWN

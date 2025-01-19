@@ -15,8 +15,6 @@ from connect.compression import Compression, GZipCompression
 from connect.connect import (
     ConnectRequest,
     ConnectResponse,
-    Req,
-    Res,
     Spec,
     StreamingHandlerConn,
     StreamType,
@@ -45,8 +43,6 @@ from connect.protocol_connect import (
 )
 from connect.request import Request
 from connect.response import Response
-
-UnaryFunc = Callable[[ConnectRequest[Req]], Awaitable[ConnectResponse[Res]]]
 
 
 class HandlerConfig:
@@ -147,7 +143,10 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-class UnaryHandler:
+type UnaryFunc[T_Request, T_Response] = Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
+
+
+class UnaryHandler[T_Request, T_Response]:
     """A handler for unary RPC (Remote Procedure Call) operations.
 
     Attributes:
@@ -169,9 +168,9 @@ class UnaryHandler:
     def __init__(
         self,
         procedure: str,
-        unary: UnaryFunc[Req, Res],
-        input: type[Req],
-        output: type[Res],
+        unary: UnaryFunc[T_Request, T_Response],
+        input: type[T_Request],
+        output: type[T_Response],
         options: ConnectOptions | None = None,
     ):
         """Initialize the unary handler."""
@@ -180,7 +179,7 @@ class UnaryHandler:
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
-        async def _untyped(request: ConnectRequest[Req]) -> ConnectResponse[Res]:
+        async def _untyped(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
             response = await unary(request)
 
             return response

@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, MutableMapping
 from enum import Enum
 from http import HTTPMethod
 from types import TracebackType
-from typing import Any, Generic, Protocol, Self, TypeVar, cast
+from typing import Any, Protocol, Self, cast
 
 from pydantic import BaseModel
 from starlette.datastructures import MutableHeaders
@@ -47,10 +47,7 @@ class Peer(BaseModel):
     query: Mapping[str, str]
 
 
-Req = TypeVar("Req")
-
-
-class ConnectRequest(Generic[Req]):
+class ConnectRequest[T]:
     """ConnectRequest is a class that encapsulates a request with a message, specification, peer, headers, and method.
 
     Attributes:
@@ -62,7 +59,7 @@ class ConnectRequest(Generic[Req]):
 
     """
 
-    message: Req
+    message: T
     _spec: Spec
     _peer: Peer
     _headers: MutableMapping[str, str]
@@ -70,7 +67,7 @@ class ConnectRequest(Generic[Req]):
 
     def __init__(
         self,
-        message: Req,
+        message: T,
         spec: Spec | None = None,
         peer: Peer | None = None,
         headers: MutableMapping[str, str] | None = None,
@@ -104,7 +101,7 @@ class ConnectRequest(Generic[Req]):
         self._headers = headers if headers else {}
         self._method = method if method else HTTPMethod.POST.value
 
-    def any(self) -> Req:
+    def any(self) -> T:
         """Return the request message."""
         return self.message
 
@@ -129,19 +126,16 @@ class ConnectRequest(Generic[Req]):
         self._method = value
 
 
-Res = TypeVar("Res")
-
-
-class ConnectResponse(Generic[Res]):
+class ConnectResponse[T]:
     """Response class for handling responses."""
 
-    message: Res
+    message: T
     headers: MutableMapping[str, str]
     trailers: MutableMapping[str, str]
 
     def __init__(
         self,
-        message: Res,
+        message: T,
         headers: MutableMapping[str, str] | None = None,
         trailers: MutableMapping[str, str] | None = None,
     ) -> None:
@@ -150,7 +144,7 @@ class ConnectResponse(Generic[Res]):
         self.headers = headers if headers else {}
         self.trailers = trailers if trailers else {}
 
-    def any(self) -> Res:
+    def any(self) -> T:
         """Return the response message."""
         return self.message
 
@@ -343,10 +337,7 @@ class ReceiveConn(Protocol):
         raise NotImplementedError()
 
 
-T = TypeVar("T")
-
-
-async def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
+async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
     """Receives a unary request from the given connection and returns a ConnectRequest object.
 
     Args:
@@ -373,7 +364,7 @@ async def receive_unary_request(conn: StreamingHandlerConn, t: type[T]) -> Conne
     )
 
 
-async def recieve_unary_response(conn: StreamingClientConn, t: type[T]) -> ConnectResponse[T]:
+async def recieve_unary_response[T](conn: StreamingClientConn, t: type[T]) -> ConnectResponse[T]:
     """Receive a unary response from a streaming client connection.
 
     Args:
@@ -389,7 +380,7 @@ async def recieve_unary_response(conn: StreamingClientConn, t: type[T]) -> Conne
     return ConnectResponse(message, conn.response_headers(), conn.response_trailers())
 
 
-async def receive_unary_message(conn: ReceiveConn, t: type[T]) -> T:
+async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
     """Receives a unary message from the given connection.
 
     Args:

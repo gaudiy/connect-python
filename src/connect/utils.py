@@ -10,12 +10,11 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-T = typing.TypeVar("T")
-AwaitableCallable = typing.Callable[..., typing.Awaitable[T]]
+type AwaitableCallable[T] = typing.Callable[..., typing.Awaitable[T]]
 
 
 @typing.overload
-def is_async_callable(obj: AwaitableCallable[T]) -> typing.TypeGuard[AwaitableCallable[T]]: ...
+def is_async_callable[T](obj: AwaitableCallable[T]) -> typing.TypeGuard[AwaitableCallable[T]]: ...
 
 
 @typing.overload
@@ -43,11 +42,7 @@ def is_async_callable(obj: typing.Any) -> typing.Any:
     return asyncio.iscoroutinefunction(obj) or (callable(obj) and asyncio.iscoroutinefunction(obj.__call__))
 
 
-P = typing.ParamSpec("P")
-T = typing.TypeVar("T")
-
-
-async def run_in_threadpool(func: typing.Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+async def run_in_threadpool[T, **P](func: typing.Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
     """Run a function in a thread pool and return the result.
 
     This function is useful for running synchronous code in an asynchronous context

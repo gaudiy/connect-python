@@ -1,6 +1,7 @@
 """Module providing codec classes for serializing and deserializing protobuf messages."""
 
 import abc
+import json
 from typing import Any
 
 import google.protobuf.message
@@ -74,7 +75,46 @@ class Codec(abc.ABC):
         raise NotImplementedError()
 
 
-class ProtoBinaryCodec(Codec):
+class StableCodec(Codec):
+    """StableCodec is an abstract base class that defines the interface for codecs.
+
+    This class can marshal messages into a stable binary format.
+    """
+
+    @abc.abstractmethod
+    def marshal_stable(self, message: Any) -> bytes:
+        """Serialize the given message into a stable byte representation.
+
+        Args:
+            message (Any): The message to be serialized.
+
+        Returns:
+            bytes: The serialized byte representation of the message.
+
+        Raises:
+            NotImplementedError: This method must be implemented by subclasses.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def is_binary(self) -> bool:
+        """Determine if the codec is binary.
+
+        This method should be implemented by subclasses to indicate whether the codec
+        handles binary data.
+
+        Returns:
+            bool: True if the codec is binary, False otherwise.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
+
+        """
+        raise NotImplementedError()
+
+
+class ProtoBinaryCodec(StableCodec):
     """ProtoBinaryCodec is a codec for serializing and deserializing protobuf messages."""
 
     def name(self) -> str:
@@ -125,8 +165,42 @@ class ProtoBinaryCodec(Codec):
         obj.ParseFromString(data)
         return obj
 
+    def marshal_stable(self, message: Any) -> bytes:
+        """Serialize a given protobuf message to a deterministic byte string.
 
-class ProtoJSONCodec(Codec):
+        Protobuf does not offer a canonical output today, so this format is not
+        guaranteed to match deterministic output from other protobuf libraries.
+        In addition, unknown fields may cause inconsistent output for otherwise
+        equal messages.
+        https://github.com/golang/protobuf/issues/1121
+
+        Args:
+            message (Any): The protobuf message to be serialized. It must be an
+                           instance of `google.protobuf.message.Message`.
+
+        Returns:
+            bytes: The serialized byte string representation of the protobuf message.
+
+        Raises:
+            ValueError: If the provided message is not a protobuf message.
+
+        """
+        if not isinstance(message, google.protobuf.message.Message):
+            raise ValueError("Data is not a protobuf message")
+
+        return message.SerializeToString(deterministic=True)
+
+    def is_binary(self) -> bool:
+        """Check if the codec is binary.
+
+        Returns:
+            bool: Always returns True indicating the codec is binary.
+
+        """
+        return True
+
+
+class ProtoJSONCodec(StableCodec):
     """A codec for encoding and decoding Protocol Buffers messages to and from JSON format.
 
     Attributes:
@@ -193,6 +267,44 @@ class ProtoJSONCodec(Codec):
             raise ValueError("Data is not a protobuf message")
 
         return json_format.Parse(data.decode("utf-8"), obj, ignore_unknown_fields=True)
+
+    def marshal_stable(self, message: Any) -> bytes:
+        """Serialize a protobuf message to a JSON string encoded as UTF-8 bytes in a deterministic way.
+
+        protojson does not offer a "deterministic" field ordering, but fields
+        are still ordered consistently by their index. However, protojson can
+        output inconsistent whitespace for some reason, therefore it is
+        suggested to use a formatter to ensure consistent formatting.
+        https://github.com/golang/protobuf/issues/1373
+
+        Args:
+            message (Any): The protobuf message to be serialized. Must be an instance of google.protobuf.message.Message.
+
+        Returns:
+            bytes: The serialized JSON string encoded as UTF-8 bytes.
+
+        Raises:
+            ValueError: If the provided message is not a protobuf message.
+
+        """
+        if not isinstance(message, google.protobuf.message.Message):
+            raise ValueError("Data is not a protobuf message")
+
+        json_str = json_format.MessageToJson(message)
+
+        parsed = json.loads(json_str)
+        compacted_json = json.dumps(parsed, separators=(",", ":"))
+
+        return compacted_json.encode("utf-8")
+
+    def is_binary(self) -> bool:
+        """Determine if the codec is binary.
+
+        Returns:
+            bool: Always returns False, indicating the codec is not binary.
+
+        """
+        return False
 
 
 class ReadOnlyCodecs(abc.ABC):

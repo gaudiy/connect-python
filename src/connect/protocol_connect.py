@@ -14,13 +14,14 @@ from starlette.datastructures import MutableHeaders
 from yarl import URL
 
 from connect.code import Code
-from connect.codec import Codec, CodecNameType, ProtoJSONCodec
+from connect.codec import Codec, CodecNameType, ProtoJSONCodec, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression
 from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.protocol import (
+    HEADER_CONTENT_ENCODING,
     HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
     HEADER_HOST,
@@ -207,7 +208,7 @@ class ConnectHandler(ProtocolHandler):
                 )
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
-                decoded = base64.b64decode(message)
+                decoded = base64.urlsafe_b64decode(message)
             else:
                 decoded = message.encode("utf-8")
 
@@ -700,7 +701,7 @@ class ConnectClient(ProtocolClient):
             )
 
             request_headers = Headers(headers)
-            conn = ConnectUnaryClientConn(
+            unary_conn = ConnectUnaryClientConn(
                 spec=spec,
                 peer=self.peer(),
                 url=self.params.url,
@@ -720,6 +721,13 @@ class ConnectClient(ProtocolClient):
                     read_max_bytes=self.params.read_max_bytes,
                 ),
             )
+            if spec.idempotency_level == IdempotencyLevel.NO_SIDE_EFFECTS:
+                unary_conn.marshaler.enable_get = self.params.enable_get
+                unary_conn.marshaler.url = self.params.url
+                if isinstance(self.params.codec, StableCodec):
+                    unary_conn.marshaler.stable_codec = self.params.codec
+
+            conn = unary_conn
         else:
             # TODO(tsubakiky): Add streaming support
             pass
@@ -736,27 +744,158 @@ class ConnectUnaryRequestMarshaler:
     """
 
     connect_marshaler: ConnectMarshaler
+    enable_get: bool
+    stable_codec: StableCodec | None
+    url: URL | None
 
-    def __init__(self, connect_marshaler: ConnectMarshaler) -> None:
-        """Initialize the ProtocolConnect instance with the given ConnectMarshaler.
+    def __init__(
+        self,
+        connect_marshaler: ConnectMarshaler,
+        enable_get: bool = False,
+        stable_codec: StableCodec | None = None,
+        url: URL | None = None,
+    ) -> None:
+        """Initialize the ProtocolConnect instance.
 
         Args:
-            connect_marshaler (ConnectMarshaler): An instance of ConnectMarshaler used for marshaling connections.
+            connect_marshaler (ConnectMarshaler): The marshaler used for connecting.
+            enable_get (bool, optional): Flag to enable GET requests. Defaults to False.
+            stable_codec (StableCodec | None, optional): The codec to use for stable connections. Defaults to None.
+            url (URL | None, optional): The URL for the connection. Defaults to None.
 
         """
         self.connect_marshaler = connect_marshaler
+        self.enable_get = enable_get
+        self.stable_codec = stable_codec
+        self.url = url
 
     def marshal(self, message: Any) -> bytes:
-        """Serialize a given message into bytes using the connect_marshaler.
+        """Marshal a message into bytes.
+
+        If `enable_get` is True and `stable_codec` is None, raises a `ConnectError`
+        indicating that the codec does not support stable marshal and cannot use get.
+        Otherwise, if `enable_get` is True and `stable_codec` is not None, marshals
+        the message using the `marshal_with_get` method.
+
+        If `enable_get` is False, marshals the message using the `connect_marshaler`.
 
         Args:
-            message (Any): The message to be serialized.
+            message (Any): The message to be marshaled.
 
         Returns:
-            bytes: The serialized message in bytes.
+            bytes: The marshaled message in bytes.
+
+        Raises:
+            ConnectError: If `enable_get` is True and `stable_codec` is None.
 
         """
+        if self.enable_get:
+            if self.stable_codec is None:
+                raise ConnectError(
+                    f"codec {self.connect_marshaler.codec.name()} doesn't support stable marshal; can't use get",
+                    Code.INTERNAL,
+                )
+            else:
+                return self.marshal_with_get(message)
+
         return self.connect_marshaler.marshal(message)
+
+    def marshal_with_get(self, message: Any) -> bytes:
+        """Marshals the given message and sends it using a GET request.
+
+        This method first marshals the message using the stable codec. If the marshaled
+        data exceeds the maximum allowed size (`send_max_bytes`) and compression is not
+        enabled, it raises a `ConnectError`. If the data size is within the limit, it
+        builds the GET URL and sends the data.
+
+        If the data size exceeds the limit and compression is enabled, it compresses
+        the data and checks the size again. If the compressed data still exceeds the
+        limit, it raises a `ConnectError`. Otherwise, it builds the GET URL with the
+        compressed data and sends it.
+
+        Args:
+            message (Any): The message to be marshaled and sent.
+
+        Returns:
+            bytes: The marshaled (and possibly compressed) data.
+
+        Raises:
+            ConnectError: If the data size exceeds the maximum allowed size and compression
+                          is not enabled, or if the compressed data size still exceeds the
+                          limit.
+
+        """
+        assert self.stable_codec is not None
+
+        data = self.stable_codec.marshal_stable(message)
+
+        is_too_big = self.connect_marshaler.send_max_bytes > 0 and len(data) > self.connect_marshaler.send_max_bytes
+        if is_too_big and not self.connect_marshaler.compression:
+            raise ConnectError(
+                f"message size {len(data)} exceeds sendMaxBytes {self.connect_marshaler.send_max_bytes}: enabling request compression may help",
+                Code.RESOURCE_EXHAUSTED,
+            )
+
+        if not is_too_big:
+            url = self._build_get_url(data, False)
+
+            self._write_with_get(url)
+            return data
+
+        assert self.connect_marshaler.compression
+        data = self.connect_marshaler.compression.compress(data)
+
+        if self.connect_marshaler.send_max_bytes > 0 and len(data) > self.connect_marshaler.send_max_bytes:
+            raise ConnectError(
+                f"compressed message size {len(data)} exceeds send_mas_bytes {self.connect_marshaler.send_max_bytes}",
+                Code.RESOURCE_EXHAUSTED,
+            )
+
+        url = self._build_get_url(data, True)
+        self._write_with_get(url)
+
+        return data
+
+    def _build_get_url(self, data: bytes, compressed: bool) -> URL:
+        assert self.url is not None
+        assert self.stable_codec is not None
+
+        url = self.url
+        url = url.update_query({
+            CONNECT_UNARY_CONNECT_QUERY_PARAMETER: CONNECT_UNARY_CONNECT_QUERY_VALUE,
+            CONNECT_UNARY_ENCODING_QUERY_PARAMETER: self.connect_marshaler.codec.name(),
+        })
+        if self.stable_codec.is_binary() or compressed:
+            url = url.update_query({
+                CONNECT_UNARY_MESSAGE_QUERY_PARAMETER: base64.urlsafe_b64encode(data).rstrip(b"=").decode("utf-8"),
+                CONNECT_UNARY_BASE64_QUERY_PARAMETER: "1",
+            })
+        else:
+            url = url.update_query({
+                CONNECT_UNARY_MESSAGE_QUERY_PARAMETER: data.decode("utf-8"),
+            })
+
+        if compressed:
+            if not self.connect_marshaler.compression:
+                raise ConnectError(
+                    "compression must be set for compressed message",
+                    Code.INTERNAL,
+                )
+
+            url = url.update_query({
+                CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER: self.connect_marshaler.compression.name()
+            })
+
+        return url
+
+    def _write_with_get(self, url: URL) -> None:
+        with contextlib.suppress(Exception):
+            del self.connect_marshaler.headers[CONNECT_HEADER_PROTOCOL_VERSION]
+            del self.connect_marshaler.headers[HEADER_CONTENT_TYPE]
+            del self.connect_marshaler.headers[HEADER_CONTENT_ENCODING]
+            del self.connect_marshaler.headers[HEADER_CONTENT_LENGTH]
+
+        self.url = url
 
 
 EventHook = Callable[..., Any]
@@ -914,19 +1053,33 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """
         data = self.marshaler.marshal(message)
 
-        self._request_headers[HEADER_CONTENT_LENGTH] = str(len(data))
+        if self.marshaler.enable_get:
+            assert self.marshaler.url is not None
 
-        request = httpcore.Request(
-            method=HTTPMethod.POST,
-            url=httpcore.URL(
-                scheme=self.url.scheme,
-                host=self.url.host or "",
-                port=self.url.port,
-                target=self.url.raw_path,
-            ),
-            headers=list(self._request_headers.items()),
-            content=data,
-        )
+            request = httpcore.Request(
+                method=HTTPMethod.GET,
+                url=httpcore.URL(
+                    scheme=self.marshaler.url.scheme,
+                    host=self.marshaler.url.host or "",
+                    port=self.marshaler.url.port,
+                    target=self.marshaler.url.raw_path_qs,
+                ),
+                headers=list(self._request_headers.items()),
+            )
+        else:
+            self._request_headers[HEADER_CONTENT_LENGTH] = str(len(data))
+
+            request = httpcore.Request(
+                method=HTTPMethod.POST,
+                url=httpcore.URL(
+                    scheme=self.url.scheme,
+                    host=self.url.host or "",
+                    port=self.url.port,
+                    target=self.url.raw_path,
+                ),
+                headers=list(self._request_headers.items()),
+                content=data,
+            )
 
         for hook in self._event_hooks["request"]:
             hook(request)

@@ -19,6 +19,7 @@ from connect.request import Request
 PROTOCOL_CONNECT = "connect"
 
 HEADER_CONTENT_TYPE = "Content-Type"
+HEADER_CONTENT_ENCODING = "Content-Encoding"
 HEADER_CONTENT_LENGTH = "Content-Length"
 HEADER_HOST = "Host"
 HEADER_USER_AGENT = "User-Agent"
@@ -65,6 +66,7 @@ class ProtocolClientParams(BaseModel):
     compress_min_bytes: int
     read_max_bytes: int
     send_max_bytes: int
+    enable_get: bool
 
 
 class ProtocolClient(abc.ABC):

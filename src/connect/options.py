@@ -55,3 +55,6 @@ class ClientOptions(BaseModel):
 
     send_max_bytes: int = Field(default=-1)
     """The maximum number of bytes to send."""
+
+    enable_get: bool = Field(default=False)
+    """A boolean indicating whether to enable GET requests."""

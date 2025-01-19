@@ -73,6 +73,7 @@ class ClientConfig:
     compress_min_bytes: int
     read_max_bytes: int
     send_max_bytes: int
+    enable_get: bool
 
     def __init__(self, raw_url: str, options: ClientOptions):
         """Initialize the client with the given URL and options.
@@ -109,6 +110,7 @@ class ClientConfig:
         self.compress_min_bytes = options.compress_min_bytes
         self.read_max_bytes = options.read_max_bytes
         self.send_max_bytes = options.send_max_bytes
+        self.enable_get = options.enable_get
 
     def spec(self, stream_type: StreamType) -> Spec:
         """Generate a Spec object with the given stream type.
@@ -180,6 +182,7 @@ class Client[T_Request, T_Response]:
                 compress_min_bytes=config.compress_min_bytes,
                 read_max_bytes=config.read_max_bytes,
                 send_max_bytes=config.send_max_bytes,
+                enable_get=config.enable_get,
             )
         )
         self.protocol_client = protocol_client

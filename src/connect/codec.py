@@ -76,12 +76,41 @@ class Codec(abc.ABC):
 
 
 class StableCodec(Codec):
+    """StableCodec is an abstract base class that defines the interface for codecs.
+
+    This class can marshal messages into a stable binary format.
+    """
+
     @abc.abstractmethod
     def marshal_stable(self, message: Any) -> bytes:
+        """Serialize the given message into a stable byte representation.
+
+        Args:
+            message (Any): The message to be serialized.
+
+        Returns:
+            bytes: The serialized byte representation of the message.
+
+        Raises:
+            NotImplementedError: This method must be implemented by subclasses.
+
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def is_binary(self) -> bool:
+        """Determine if the codec is binary.
+
+        This method should be implemented by subclasses to indicate whether the codec
+        handles binary data.
+
+        Returns:
+            bool: True if the codec is binary, False otherwise.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
+
+        """
         raise NotImplementedError()
 
 

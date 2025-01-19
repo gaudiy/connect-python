@@ -755,10 +755,13 @@ class ConnectUnaryRequestMarshaler:
         stable_codec: StableCodec | None = None,
         url: URL | None = None,
     ) -> None:
-        """Initialize the ProtocolConnect instance with the given ConnectMarshaler.
+        """Initialize the ProtocolConnect instance.
 
         Args:
-            connect_marshaler (ConnectMarshaler): An instance of ConnectMarshaler used for marshaling connections.
+            connect_marshaler (ConnectMarshaler): The marshaler used for connecting.
+            enable_get (bool, optional): Flag to enable GET requests. Defaults to False.
+            stable_codec (StableCodec | None, optional): The codec to use for stable connections. Defaults to None.
+            url (URL | None, optional): The URL for the connection. Defaults to None.
 
         """
         self.connect_marshaler = connect_marshaler
@@ -767,6 +770,25 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
     def marshal(self, message: Any) -> bytes:
+        """Marshal a message into bytes.
+
+        If `enable_get` is True and `stable_codec` is None, raises a `ConnectError`
+        indicating that the codec does not support stable marshal and cannot use get.
+        Otherwise, if `enable_get` is True and `stable_codec` is not None, marshals
+        the message using the `marshal_with_get` method.
+
+        If `enable_get` is False, marshals the message using the `connect_marshaler`.
+
+        Args:
+            message (Any): The message to be marshaled.
+
+        Returns:
+            bytes: The marshaled message in bytes.
+
+        Raises:
+            ConnectError: If `enable_get` is True and `stable_codec` is None.
+
+        """
         if self.enable_get:
             if self.stable_codec is None:
                 raise ConnectError(
@@ -779,6 +801,30 @@ class ConnectUnaryRequestMarshaler:
         return self.connect_marshaler.marshal(message)
 
     def marshal_with_get(self, message: Any) -> bytes:
+        """Marshals the given message and sends it using a GET request.
+
+        This method first marshals the message using the stable codec. If the marshaled
+        data exceeds the maximum allowed size (`send_max_bytes`) and compression is not
+        enabled, it raises a `ConnectError`. If the data size is within the limit, it
+        builds the GET URL and sends the data.
+
+        If the data size exceeds the limit and compression is enabled, it compresses
+        the data and checks the size again. If the compressed data still exceeds the
+        limit, it raises a `ConnectError`. Otherwise, it builds the GET URL with the
+        compressed data and sends it.
+
+        Args:
+            message (Any): The message to be marshaled and sent.
+
+        Returns:
+            bytes: The marshaled (and possibly compressed) data.
+
+        Raises:
+            ConnectError: If the data size exceeds the maximum allowed size and compression
+                          is not enabled, or if the compressed data size still exceeds the
+                          limit.
+
+        """
         assert self.stable_codec is not None
 
         data = self.stable_codec.marshal_stable(message)

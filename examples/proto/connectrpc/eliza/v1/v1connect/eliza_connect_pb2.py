@@ -7,9 +7,10 @@
 import abc
 from enum import Enum
 
+from connect.client import Client
 from connect.connect import ConnectRequest, ConnectResponse
 from connect.handler import UnaryHandler
-from connect.options import ConnectOptions
+from connect.options import ClientOptions, ConnectOptions
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2
@@ -27,6 +28,15 @@ ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.servic
 ElizaService_Say_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
 
 
+class ElizaServiceClient:
+    def __init__(self, base_url: str, options: ClientOptions | None = None) -> None:
+        base_url = base_url.removesuffix("/")
+
+        self.Say = Client[SayRequest, SayResponse](
+            base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
+        ).call_unary
+
+
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
@@ -37,7 +47,7 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
 def create_ElizaService_handlers(
     service: ElizaServiceHandler, options: ConnectOptions | None = None
 ) -> list[UnaryHandler]:
-    rpc_handlers = [
+    handlers = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
             unary=service.Say,
@@ -46,4 +56,4 @@ def create_ElizaService_handlers(
             options=options,
         )
     ]
-    return rpc_handlers
+    return handlers

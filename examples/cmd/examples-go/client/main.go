@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
+
 	elizav1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
 	"github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1/v1connect"
 )

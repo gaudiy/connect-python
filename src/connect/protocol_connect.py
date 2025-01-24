@@ -4,13 +4,12 @@ import base64
 import contextlib
 import json
 import types
-from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping, MutableMapping
+from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping
 from http import HTTPMethod, HTTPStatus
 from sys import version
 from typing import Any
 
 import httpcore
-from starlette.datastructures import MutableHeaders
 from yarl import URL
 
 from connect.code import Code
@@ -148,14 +147,14 @@ class ConnectHandler(ProtocolHandler):
         return content_type in self.accept
 
     async def conn(
-        self, request: Request, response_headers: MutableHeaders, response_trailers: MutableHeaders
+        self, request: Request, response_headers: Headers, response_trailers: Headers
     ) -> StreamingHandlerConn:
         """Handle the connection for the given request and response headers.
 
         Args:
             request (Request): The incoming request object.
-            response_headers (MutableHeaders): The headers for the response.
-            response_trailers (MutableHeaders): The headers for the response trailers.
+            response_headers (Headers): The headers for the response.
+            response_trailers (Headers): The headers for the response trailers.
 
         Returns:
             StreamingHandlerConn: The connection handler for the request.
@@ -400,7 +399,7 @@ class ConnectMarshaler:
         compression (Compression | None): The compression method used for compressing messages, if any.
         compress_min_bytes (int): The minimum size in bytes for a message to be compressed.
         send_max_bytes (int): The maximum allowed size in bytes for a message to be sent.
-        headers (MutableHeaders | Headers): The headers to be included in the message.
+        headers (Headers | Headers): The headers to be included in the message.
 
     """
 
@@ -408,7 +407,7 @@ class ConnectMarshaler:
     compression: Compression | None
     compress_min_bytes: int
     send_max_bytes: int
-    headers: MutableHeaders | Headers
+    headers: Headers
 
     def __init__(
         self,
@@ -416,7 +415,7 @@ class ConnectMarshaler:
         compression: Compression | None,
         compress_min_bytes: int,
         send_max_bytes: int,
-        headers: MutableHeaders | Headers,  # TODO(tsubakiky): Fix MutableHeaders type
+        headers: Headers,
     ) -> None:
         """Initialize the protocol connection.
 
@@ -425,7 +424,7 @@ class ConnectMarshaler:
             compression (Compression | None): The compression method to be used, or None if no compression.
             compress_min_bytes (int): The minimum number of bytes before compression is applied.
             send_max_bytes (int): The maximum number of bytes to send in a single message.
-            headers (MutableHeaders | Headers): The headers to be included in the connection.
+            headers (Headers): The headers to be included in the connection.
 
         Returns:
             None
@@ -483,7 +482,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         request (Request): The incoming request object.
         marshaler (ConnectMarshaler): An instance of ConnectMarshaler used to marshal messages.
         unmarshaler (ConnectUnmarshaler): An instance of ConnectUnmarshaler used to unmarshal messages.
-        headers (MutableHeaders): The headers for the response.
+        headers (Headers): The headers for the response.
 
     """
 
@@ -492,8 +491,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     _spec: Spec
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
-    _response_headers: MutableHeaders
-    _response_trailers: MutableHeaders
+    _response_headers: Headers
+    _response_trailers: Headers
 
     def __init__(
         self,
@@ -502,8 +501,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         spec: Spec,
         marshaler: ConnectMarshaler,
         unmarshaler: ConnectUnmarshaler,
-        response_headers: MutableHeaders,
-        response_trailers: MutableHeaders | None = None,
+        response_headers: Headers,
+        response_trailers: Headers | None = None,
     ) -> None:
         """Initialize the protocol connection.
 
@@ -513,8 +512,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             spec (Spec): The specification object.
             marshaler (ConnectMarshaler): The marshaler to serialize data.
             unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
-            response_headers (MutableHeaders): The headers for the response.
-            response_trailers (MutableHeaders, optional): The trailers for the response.
+            response_headers (Headers): The headers for the response.
+            response_trailers (Headers, optional): The trailers for the response.
 
         """
         self.request = request
@@ -523,7 +522,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
         self._response_headers = response_headers
-        self._response_trailers = response_trailers or MutableHeaders()
+        self._response_trailers = response_trailers or Headers()
 
     def spec(self) -> Spec:
         """Return the specification object.
@@ -577,7 +576,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         data = self.marshaler.marshal(message)
         return data
 
-    def response_headers(self) -> MutableHeaders:
+    @property
+    def response_headers(self) -> Headers:
         """Retrieve the response headers.
 
         Returns:
@@ -586,7 +586,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         return self._response_headers
 
-    def response_trailers(self) -> MutableHeaders:
+    @property
+    def response_trailers(self) -> Headers:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide
@@ -642,7 +643,7 @@ class ConnectClient(ProtocolClient):
         """
         return self._peer
 
-    def write_request_headers(self, stream_type: StreamType, headers: MutableMapping[str, str]) -> None:
+    def write_request_headers(self, stream_type: StreamType, headers: Headers) -> None:
         """Write the necessary request headers to the provided headers dictionary.
 
         This method ensures that the headers dictionary contains the required headers
@@ -651,7 +652,7 @@ class ConnectClient(ProtocolClient):
 
         Args:
             stream_type (StreamType): The type of stream for the request.
-            headers (MutableMapping[str, str]): The dictionary of headers to be updated.
+            headers (Headers): The dictionary of headers to be updated.
 
         Returns:
             None
@@ -671,12 +672,12 @@ class ConnectClient(ProtocolClient):
         if self.params.compressions:
             headers[accept_compression_header] = ", ".join(c.name() for c in self.params.compressions)
 
-    def conn(self, spec: Spec, headers: MutableMapping[str, str]) -> StreamingClientConn:
+    def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
         """Establish a connection based on the provided specification and headers.
 
         Args:
             spec (Spec): The specification for the connection, including stream type.
-            headers (MutableMapping[str, str]): The headers to be included in the connection request.
+            headers (Headers): The headers to be included in the connection request.
 
         Returns:
             StreamingClientConn: The established connection object.
@@ -700,20 +701,19 @@ class ConnectClient(ProtocolClient):
                 else None
             )
 
-            request_headers = Headers(headers)
             unary_conn = ConnectUnaryClientConn(
                 spec=spec,
                 peer=self.peer(),
                 url=self.params.url,
                 compressions=self.params.compressions,
-                request_headers=request_headers,
+                request_headers=headers,
                 marshaler=ConnectUnaryRequestMarshaler(
                     connect_marshaler=ConnectMarshaler(
                         codec=self.params.codec,
                         compression=compression,
                         compress_min_bytes=self.params.compress_min_bytes,
                         send_max_bytes=self.params.send_max_bytes,
-                        headers=request_headers,
+                        headers=headers,
                     )
                 ),
                 unmarshaler=ConnectUnmarshaler(
@@ -1018,11 +1018,11 @@ class ConnectUnaryClientConn(StreamingClientConn):
         obj = await self.unmarshaler.unmarshal(message)
         return obj
 
-    def request_headers(self) -> MutableMapping[str, str]:
+    def request_headers(self) -> Headers:
         """Retrieve the request headers.
 
         Returns:
-            MutableMapping[str, str]: A dictionary-like object containing the request headers.
+            Headers: A dictionary-like object containing the request headers.
 
         """
         return self._request_headers
@@ -1096,22 +1096,22 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
         return data
 
-    def response_headers(self) -> MutableMapping[str, str]:
+    def response_headers(self) -> Headers:
         """Return the response headers.
 
         Returns:
-            MutableMapping[str, str]: A dictionary-like object containing the response headers.
+            Headers: A dictionary-like object containing the response headers.
 
         """
         return self._response_headers
 
-    def response_trailers(self) -> MutableMapping[str, str]:
+    def response_trailers(self) -> Headers:
         """Return the response trailers.
 
         Response trailers are additional headers sent after the response body.
 
         Returns:
-            MutableMapping[str, str]: A dictionary containing the response trailers.
+            Headers: A dictionary containing the response trailers.
 
         """
         return self._response_trailers

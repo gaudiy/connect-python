@@ -1,15 +1,15 @@
 """Defines the streaming handler connection interfaces and related utilities."""
 
 import abc
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
 from types import TracebackType
 from typing import Any, Protocol, Self, cast
 
 from pydantic import BaseModel
-from starlette.datastructures import MutableHeaders
 
+from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.utils import get_callable_attribute
 
@@ -62,7 +62,7 @@ class ConnectRequest[T]:
     message: T
     _spec: Spec
     _peer: Peer
-    _headers: MutableMapping[str, str]
+    _headers: Headers
     _method: str
 
     def __init__(
@@ -70,7 +70,7 @@ class ConnectRequest[T]:
         message: T,
         spec: Spec | None = None,
         peer: Peer | None = None,
-        headers: MutableMapping[str, str] | None = None,
+        headers: Headers | None = None,
         method: str | None = None,
     ) -> None:
         """Initialize a new Request instance.
@@ -98,7 +98,7 @@ class ConnectRequest[T]:
             )
         )
         self._peer = peer if peer else Peer(address=None, protocol="", query={})
-        self._headers = headers if headers else {}
+        self._headers = headers if headers else Headers()
         self._method = method if method else HTTPMethod.POST.value
 
     def any(self) -> T:
@@ -113,7 +113,7 @@ class ConnectRequest[T]:
         """Return the request peer."""
         return self._peer
 
-    def headers(self) -> MutableMapping[str, str]:
+    def headers(self) -> Headers:
         """Return the request headers."""
         return self._headers
 
@@ -130,19 +130,19 @@ class ConnectResponse[T]:
     """Response class for handling responses."""
 
     message: T
-    headers: MutableMapping[str, str]
-    trailers: MutableMapping[str, str]
+    headers: Headers
+    trailers: Headers
 
     def __init__(
         self,
         message: T,
-        headers: MutableMapping[str, str] | None = None,
-        trailers: MutableMapping[str, str] | None = None,
+        headers: Headers | None = None,
+        trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
         self.message = message
-        self.headers = headers if headers else {}
-        self.trailers = trailers if trailers else {}
+        self.headers = headers if headers else Headers()
+        self.trailers = trailers if trailers else Headers()
 
     def any(self) -> T:
         """Return the response message."""
@@ -215,8 +215,9 @@ class StreamingHandlerConn(abc.ABC):
         """
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
-    def response_headers(self) -> MutableHeaders:
+    def response_headers(self) -> Headers:
         """Retrieve the response headers.
 
         Returns:
@@ -225,8 +226,9 @@ class StreamingHandlerConn(abc.ABC):
         """
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
-    def response_trailers(self) -> MutableHeaders:
+    def response_trailers(self) -> Headers:
         """Handle response trailers.
 
         This method is intended to be overridden in subclasses to provide
@@ -276,7 +278,7 @@ class StreamingClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def request_headers(self) -> MutableMapping[str, str]:
+    def request_headers(self) -> Headers:
         """Return the request headers."""
         raise NotImplementedError()
 
@@ -286,12 +288,12 @@ class StreamingClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def response_headers(self) -> MutableMapping[str, str]:
+    def response_headers(self) -> Headers:
         """Return the response headers."""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def response_trailers(self) -> MutableMapping[str, str]:
+    def response_trailers(self) -> Headers:
         """Return response trailers."""
         raise NotImplementedError()
 

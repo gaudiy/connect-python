@@ -1,11 +1,9 @@
 """Module defining the protocol handling classes and functions."""
 
 import abc
-from collections.abc import MutableMapping
 from http import HTTPMethod
 
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.datastructures import MutableHeaders
 from yarl import URL
 
 from connect.code import Code
@@ -13,6 +11,7 @@ from connect.codec import Codec, ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
 from connect.connect import Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
 from connect.error import ConnectError
+from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
 
@@ -78,12 +77,12 @@ class ProtocolClient(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def write_request_headers(self, stream_type: StreamType, headers: MutableMapping[str, str]) -> None:
+    def write_request_headers(self, stream_type: StreamType, headers: Headers) -> None:
         """Write the request headers."""
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def conn(self, spec: Spec, headers: MutableMapping[str, str]) -> StreamingClientConn:
+    def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
         """Return the connection for the client."""
         raise NotImplementedError()
 
@@ -133,14 +132,14 @@ class ProtocolHandler(abc.ABC):
 
     @abc.abstractmethod
     async def conn(
-        self, request: Request, response_headers: MutableHeaders, response_trailers: MutableHeaders
+        self, request: Request, response_headers: Headers, response_trailers: Headers
     ) -> StreamingHandlerConn:
         """Handle the connection for a given request and response headers.
 
         Args:
             request (Request): The request object containing the details of the request.
-            response_headers (MutableHeaders): The mutable headers for the response.
-            response_trailers (MutableHeaders): The mutable headers for the response trailers.
+            response_headers (Headers): The mutable headers for the response.
+            response_trailers (Headers): The mutable headers for the response trailers.
 
         Returns:
             StreamingHandlerConn: The connection handler for streaming.

@@ -6,7 +6,6 @@ from http import HTTPMethod
 from typing import Any
 
 import anyio
-from starlette.datastructures import MutableHeaders
 from starlette.responses import PlainTextResponse
 
 from connect.code import Code
@@ -21,6 +20,7 @@ from connect.connect import (
     receive_unary_request,
 )
 from connect.error import ConnectError
+from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
 from connect.options import ConnectOptions
@@ -196,8 +196,8 @@ class UnaryHandler[T_Request, T_Response]:
                     Code.INTERNAL,
                 )
 
-            conn.response_headers().update(response.headers)
-            conn.response_trailers().update(response.trailers)
+            conn.response_headers.update(response.headers)
+            conn.response_trailers.update(response.trailers)
             return conn.send(response.any())
 
         self.procedure = procedure
@@ -219,8 +219,8 @@ class UnaryHandler[T_Request, T_Response]:
             NotImplementedError: If the HTTP method or content type is not implemented.
 
         """
-        response_headers = MutableHeaders()
-        response_trailers = MutableHeaders()
+        response_headers = Headers(encoding="latin-1")
+        response_trailers = Headers(encoding="latin-1")
 
         protocol_handlers = self.protocol_handlers.get(HTTPMethod(request.method))
         if not protocol_handlers:

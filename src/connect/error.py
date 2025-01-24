@@ -3,12 +3,14 @@
 
 """Error represents an error in the Connect protocol."""
 
-from collections.abc import MutableMapping
-
 import google.protobuf.any_pb2 as any_pb2
 from google.protobuf.message import Message
 
 from connect.code import Code
+from connect.headers import Headers
+
+DEFAULT_ANY_RESOLVER_PREFIX = "type.googleapis.com/"
+TYPE_URL_PREFIX = "type.googleapis.com/"
 
 
 # Helper function to create error messages with code prefix
@@ -31,10 +33,10 @@ class ErrorDetail:
     """
 
     pb_any: any_pb2.Any
-    pb_inner: Message
+    pb_inner: Message | None = None
     wire_json: str | None = None
 
-    def __init__(self, pb_any: any_pb2.Any, pb_inner: Message, wire_json: str | None = None) -> None:
+    def __init__(self, pb_any: any_pb2.Any, pb_inner: Message | None = None, wire_json: str | None = None) -> None:
         """Initialize an ErrorDetail."""
         self.pb_any = pb_any
         self.pb_inner = pb_inner
@@ -48,6 +50,8 @@ def create_error_detail(msg: Message) -> ErrorDetail:
 
     pb_any = any_pb2.Any()
     pb_any.Pack(msg)
+    if pb_any.Is(msg.DESCRIPTOR):
+        pb_any.Unpack(msg)
 
     return ErrorDetail(pb_any, msg)
 
@@ -65,19 +69,22 @@ class ConnectError(Exception):
 
     raw_message: str
     code: Code
-    metadata: MutableMapping[str, str]
+    metadata: Headers
     details: list[ErrorDetail]
+    wire_error: bool = False
 
     def __init__(
         self,
         message: str,
         code: Code = Code.UNKNOWN,
-        metadata: MutableMapping[str, str] | None = None,
+        metadata: Headers | None = None,
         details: list[ErrorDetail] | None = None,
+        wire_error: bool = False,
     ):
         """Initialize a Error."""
         super().__init__(create_message(message, code))
         self.raw_message = message
         self.code = code
-        self.metadata = metadata if metadata is not None else {}
+        self.metadata = metadata if metadata is not None else Headers()
         self.details = details if details is not None else []
+        self.wire_error = wire_error

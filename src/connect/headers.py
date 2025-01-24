@@ -134,6 +134,10 @@ class Headers(MutableMapping[str, str]):
     def encoding(self, value: str) -> None:
         self._encoding = value
 
+    def copy(self) -> "Headers":
+        """Return a copy of the Headers object."""
+        return Headers(self, encoding=self.encoding)
+
     def multi_items(self) -> list[tuple[str, str]]:
         """Return a list of tuples containing decoded key-value pairs from the internal list.
 

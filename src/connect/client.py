@@ -11,7 +11,7 @@ from yarl import URL
 
 from connect.code import Code
 from connect.codec import Codec, ProtoBinaryCodec
-from connect.compression import Compression, GZipCompression
+from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
 from connect.connect import ConnectRequest, ConnectResponse, Spec, StreamType, recieve_unary_response
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
@@ -105,6 +105,13 @@ class ClientConfig:
         self.codec = ProtoBinaryCodec()
         self.request_compression_name = options.request_compression_name
         self.compressions = [GZipCompression()]
+        if self.request_compression_name and self.request_compression_name != COMPRESSION_IDENTITY:
+            compression = get_compresion_from_name(self.request_compression_name, self.compressions)
+            if not compression:
+                raise ConnectError(
+                    f"unknown compression: {self.request_compression_name}",
+                    Code.UNKNOWN,
+                )
         self.descriptor = options.descriptor
         self.idempotency_level = options.idempotency_level
         self.compress_min_bytes = options.compress_min_bytes

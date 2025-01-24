@@ -105,3 +105,25 @@ class GZipCompression(Compression):
             data = f.read(read_max_bytes)
 
         return data
+
+
+def get_compresion_from_name(name: str | None, compressions: list[Compression]) -> Compression | None:
+    """Retrieve a Compression object from a list of compressions by its name.
+
+    Args:
+        name (str): The name of the compression to retrieve.
+        compressions (list[Compression]): A list of Compression objects to search through.
+
+    Returns:
+        Compression | None: The Compression object with the matching name, or None if not found.
+
+    """
+    compresoin = (
+        next(
+            (compression for compression in compressions if compression.name() == name),
+            None,
+        )
+        if name
+        else None
+    )
+    return compresoin

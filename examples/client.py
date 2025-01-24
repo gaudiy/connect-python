@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
+    """Interact with the ElizaServiceClient asynchronously."""
     client = ElizaServiceClient(
         base_url="http://localhost:8080/",
     )

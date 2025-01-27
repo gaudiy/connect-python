@@ -148,7 +148,7 @@ def request_response(func: Callable[[Request], Awaitable[Response] | Response]) 
     return app
 
 
-class AsyncByteStream:
+class AsyncByteStream(typing.AsyncIterable[bytes]):
     """An asynchronous byte stream for reading and writing byte chunks."""
 
     aiterator: typing.AsyncIterable[bytes] | None

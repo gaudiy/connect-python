@@ -192,8 +192,6 @@ class ConnectHandler(ProtocolHandler):
         required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
         connect_check_protocol_version(request, required)
 
-        request_stream: Callable[..., AsyncGenerator[bytes]]
-
         if HTTPMethod(request.method) == HTTPMethod.GET:
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
             message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
@@ -216,12 +214,11 @@ class ConnectHandler(ProtocolHandler):
             async def stream() -> AsyncGenerator[bytes]:
                 yield decoded
 
-            request_stream = stream
+            request_stream = AsyncByteStream(aiterator=stream())
             codec_name = encoding
             content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
-
         else:
-            request_stream = request.stream
+            request_stream = AsyncByteStream(aiterator=request.stream())
             content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
@@ -258,7 +255,7 @@ class ConnectHandler(ProtocolHandler):
                     headers=response_headers,
                 ),
                 unmarshaler=ConnectUnmarshaler(
-                    stream=request_stream(),
+                    stream=request_stream,
                     codec=codec,
                     compression=request_compression,
                     read_max_bytes=self.params.read_max_bytes,
@@ -328,14 +325,14 @@ class ConnectUnmarshaler:
     codec: Codec
     read_max_bytes: int
     compression: Compression | None
-    stream: AsyncGenerator[bytes] | AsyncByteStream | None
+    stream: AsyncByteStream | None
 
     def __init__(
         self,
         codec: Codec,
         read_max_bytes: int = -1,
         compression: Compression | None = None,
-        stream: AsyncGenerator[bytes] | AsyncByteStream | None = None,
+        stream: AsyncByteStream | None = None,
     ) -> None:
         """Initialize the ProtocolConnect object.
 

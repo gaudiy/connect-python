@@ -11,10 +11,11 @@ from typing import Any
 
 import google.protobuf.any_pb2 as any_pb2
 import httpcore
+from google.protobuf import json_format
 from yarl import URL
 
 from connect.code import Code
-from connect.codec import Codec, CodecNameType, ProtoJSONCodec, StableCodec
+from connect.codec import Codec, CodecNameType, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
 from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
@@ -1423,7 +1424,6 @@ def error_from_json(obj: dict[str, Any]) -> ConnectError:
     for detail in details:
         type_name = detail.get("type", None)
         value = detail.get("value", None)
-        debug = detail.get("debug", None)
 
         if type_name is None:
             raise Exception("missing required field: type")
@@ -1432,7 +1432,7 @@ def error_from_json(obj: dict[str, Any]) -> ConnectError:
 
         type_name = type_name if "/" in type_name else DEFAULT_ANY_RESOLVER_PREFIX + type_name
         try:
-            decoded = base64.b64decode(value)
+            decoded = base64.b64decode(value.encode() + b"=" * (4 - len(value) % 4))
         except Exception as e:
             message = str(e)
             raise Exception(f"failed to decode value: {message}") from e
@@ -1474,10 +1474,9 @@ def error_to_json(error: ConnectError) -> dict[str, Any]:
                 "value": base64.b64encode(detail.pb_any.value).decode("utf-8").rstrip("="),
             }
 
-            codec = ProtoJSONCodec(CodecNameType.JSON)
-
             with contextlib.suppress(Exception):
-                wire["debug"] = codec.marshal(wire)
+                meg = detail.get_inner()
+                wire["debug"] = json_format.MessageToDict(meg)
 
             wires.append(wire)
 

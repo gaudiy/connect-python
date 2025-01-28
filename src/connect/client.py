@@ -15,6 +15,7 @@ from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompressi
 from connect.connect import ConnectRequest, ConnectResponse, Spec, StreamType, recieve_unary_response
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
+from connect.interceptor import apply_interceptors
 from connect.options import ClientOptions
 from connect.protocol import ProtocolClient, ProtocolClientParams
 from connect.protocol_connect import ProtocolConnect
@@ -213,7 +214,7 @@ class Client[T_Request, T_Response]:
                 response = await recieve_unary_response(conn=conn, t=output)
                 return response
 
-        unary_func = _unary_func
+        unary_func = apply_interceptors(_unary_func, options.interceptors)
 
         async def call_unary(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
             request._spec = unary_spec

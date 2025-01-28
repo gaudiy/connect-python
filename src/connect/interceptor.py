@@ -18,7 +18,7 @@ class Interceptor(abc.ABC):
         raise NotImplementedError()
 
 
-def apply_interceptors(next: UnaryFunc, interceptors: list[Interceptor]) -> UnaryFunc:
+def apply_interceptors(next: UnaryFunc, interceptors: list[Interceptor] | None) -> UnaryFunc:
     """Apply a list of interceptors to a unary function.
 
     Args:

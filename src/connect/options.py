@@ -38,6 +38,11 @@ class ConnectOptions(BaseModel):
 class ClientOptions(BaseModel):
     """Options for the Connect client."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    interceptors: list[Interceptor] = Field(default=[])
+    """A list of interceptors to apply to the handler."""
+
     descriptor: Any = Field(default="")
     """The descriptor for the RPC method."""
 

@@ -14,7 +14,7 @@ import (
 func main() {
 	client := v1connect.NewElizaServiceClient(
 		http.DefaultClient,
-		"http://localhost:8000/",
+		"http://localhost:8080/",
 	)
 	req := connect.NewRequest(&elizav1.SayRequest{
 		Sentence: "Hi",

@@ -3,10 +3,10 @@
 import os
 from typing import Any
 
+import hypercorn.asyncio
 from connect.connect import ConnectRequest, ConnectResponse
 from connect.interceptor import Interceptor, UnaryFunc
 from connect.middleware import ConnectMiddleware
-from connect.options import ConnectOptions
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
@@ -53,10 +53,18 @@ class IPRestrictionInterceptor(Interceptor):
 middleware = [
     Middleware(
         ConnectMiddleware,
-        create_ElizaService_handlers(
-            service=ElizaService(), options=ConnectOptions(interceptors=[IPRestrictionInterceptor()])
-        ),
+        create_ElizaService_handlers(service=ElizaService()),
     )
 ]
 
 app = Starlette(middleware=middleware)
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    import hypercorn
+
+    config = hypercorn.Config()
+    config.bind = ["localhost:8080"]
+    asyncio.run(hypercorn.asyncio.serve(app, config))  # type: ignore

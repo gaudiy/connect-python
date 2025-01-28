@@ -4,7 +4,7 @@ import base64
 import contextlib
 import json
 import types
-from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from http import HTTPMethod, HTTPStatus
 from sys import version
 from typing import Any
@@ -886,6 +886,90 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
 
+def _load_httpcore_exceptions() -> dict[type[Exception], Code]:
+    return {
+        httpcore.TimeoutException: Code.DEADLINE_EXCEEDED,
+        httpcore.ConnectTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.ReadTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.WriteTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.PoolTimeout: Code.RESOURCE_EXHAUSTED,
+        httpcore.NetworkError: Code.UNAVAILABLE,
+        httpcore.ConnectError: Code.UNAVAILABLE,
+        httpcore.ReadError: Code.UNAVAILABLE,
+        httpcore.WriteError: Code.UNAVAILABLE,
+        httpcore.ProxyError: Code.UNAVAILABLE,
+        httpcore.UnsupportedProtocol: Code.INVALID_ARGUMENT,
+        httpcore.ProtocolError: Code.INVALID_ARGUMENT,
+        httpcore.LocalProtocolError: Code.INTERNAL,
+        httpcore.RemoteProtocolError: Code.INTERNAL,
+    }
+
+
+HTTPCORE_EXC_MAP: dict[type[Exception], Code] = {}
+
+
+@contextlib.contextmanager
+def map_httpcore_exceptions() -> Iterator[None]:
+    """Map exceptions raised by the HTTP core to custom exceptions.
+
+    This function uses a global exception map `HTTPCORE_EXC_MAP` to translate exceptions
+    raised within its context. If the map is empty, it loads the exceptions using the
+    `_load_httpcore_exceptions` function. When an exception is caught, it checks if the
+    exception matches any in the map and raises a `ConnectError` with the corresponding
+    error code. If no match is found, the original exception is re-raised.
+
+    Yields:
+        None: This function is a generator used as a context manager.
+
+    Raises:
+        ConnectError: If the caught exception matches an entry in `HTTPCORE_EXC_MAP`.
+        Exception: If no match is found in `HTTPCORE_EXC_MAP`, the original exception is re-raised.
+
+    """
+    global HTTPCORE_EXC_MAP
+    if len(HTTPCORE_EXC_MAP) == 0:
+        HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+    try:
+        yield
+    except Exception as exc:
+        for from_exc, to_code in HTTPCORE_EXC_MAP.items():
+            if isinstance(exc, from_exc):
+                raise ConnectError(str(exc), to_code) from exc
+
+        raise exc
+
+
+class ResponseAsyncByteStream(AsyncByteStream):
+    """An asynchronous byte stream for reading and writing byte chunks."""
+
+    aiterator: AsyncIterable[bytes] | None
+    aclose_func: Callable[..., Awaitable[None]] | None
+
+    def __init__(
+        self,
+        aiterator: AsyncIterable[bytes] | None = None,
+        aclose_func: Callable[..., Awaitable[None]] | None = None,
+    ) -> None:
+        """Initialize the protocol connect instance.
+
+        Args:
+            aiterator (AsyncIterable[bytes] | None): An optional asynchronous iterable of bytes.
+            aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous close function.
+
+        Returns:
+            None
+
+        """
+        super().__init__(aiterator=aiterator, aclose_func=aclose_func)
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        """Asynchronous iterator method to read byte chunks from the stream."""
+        if self.aiterator is not None:
+            with map_httpcore_exceptions():
+                async for chunk in self.aiterator:
+                    yield chunk
+
+
 EventHook = Callable[..., Any]
 
 
@@ -1072,7 +1156,8 @@ class ConnectUnaryClientConn(StreamingClientConn):
         for hook in self._event_hooks["request"]:
             hook(request)
 
-        response = await self._pool.handle_async_request(request=request)
+        with map_httpcore_exceptions():
+            response = await self._pool.handle_async_request(request=request)
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -1080,7 +1165,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         await self._validate_response(response)
 
         assert isinstance(response.stream, AsyncIterable)
-        self.unmarshaler.stream = AsyncByteStream(response.stream)
+        self.unmarshaler.stream = ResponseAsyncByteStream(response.stream)
 
         return data
 
@@ -1130,7 +1215,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
                 Code.INTERNAL,
             )
 
-        self.unmarshaler.compression = next((c for c in self.compressions if c.name() == compression), None)
+        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
         if response.status != HTTPStatus.OK:
             content = await response.aread()
             try:
@@ -1213,7 +1298,8 @@ class ConnectUnaryClientConn(StreamingClientConn):
             None
 
         """
-        await self._pool.__aexit__(exc_type, exc, tb)
+        with map_httpcore_exceptions():
+            await self._pool.__aexit__(exc_type, exc, tb)
 
 
 def connect_validate_unary_response_content_type(

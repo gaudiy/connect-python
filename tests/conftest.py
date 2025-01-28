@@ -220,7 +220,7 @@ async def _start_server(
     app: hypercorn.typing.ASGIFramework,
     shutdown_event: anyio.Event,
 ) -> None:
-    while not shutdown_event.is_set():
+    if not shutdown_event.is_set():
         await hypercorn.asyncio.serve(app, config, shutdown_trigger=shutdown_event.wait)
 
 
@@ -243,7 +243,7 @@ def run_hypercorn_in_thread(
         )
         try:
             start_time = time.time()
-            timeout = 10
+            timeout = 3
             while not logger.url:
                 if time.time() - start_time > timeout:
                     raise TimeoutError(f"Server did not start within {timeout} seconds")

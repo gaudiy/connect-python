@@ -14,7 +14,7 @@ from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import Interceptor, UnaryFunc
 from connect.options import ClientOptions
-from tests.conftest import ASGIRequest, Receive, Scope, Send, TestServer
+from tests.conftest import ASGIRequest, HypercornServer, Receive, Scope, Send, TestServer
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
 
@@ -41,6 +41,19 @@ async def test_client_call_unary(server: TestServer) -> None:
     ping_request = ConnectRequest(message=PingRequest(name="test"))
 
     await client.call_unary(ping_request)
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_proto)], indirect=["hypercorn_server"])
+async def test_client(hypercorn_server: HypercornServer) -> None:
+    base_url = hypercorn_server.url
+    url = base_url + PingServiceProcedures.Ping.value + "/proto"
+
+    client = Client(url=url, input=PingRequest, output=PingResponse)
+    ping_request = ConnectRequest(message=PingRequest(name="test"))
+
+    response = await client.call_unary(ping_request)
+    assert response.message.name == "test"
 
 
 async def ping_response_gzip(scope: Scope, receive: Receive, send: Send) -> None:

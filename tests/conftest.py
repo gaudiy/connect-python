@@ -2,12 +2,27 @@
 
 import asyncio
 import json
+import multiprocessing
+import platform
+import signal
 import socket
 import threading
 import time
 import typing
+from functools import partial
+from multiprocessing.connection import wait
+from multiprocessing.context import BaseContext
+from multiprocessing.process import BaseProcess
+from multiprocessing.synchronize import Event as EventType
+from pickle import PicklingError
 from urllib.parse import parse_qsl
 
+import hypercorn
+import hypercorn.app_wrappers
+import hypercorn.asyncio.run
+import hypercorn.trio
+import hypercorn.typing
+import hypercorn.utils
 import pytest
 from anyio import sleep
 from google.protobuf import json_format
@@ -175,3 +190,187 @@ def server(request: pytest.FixtureRequest) -> typing.Iterator[TestServer]:
     config = Config(app=app, lifespan="off", loop="asyncio")
     server = TestServer(config=config)
     yield from serve_in_thread(server)
+
+
+async def app(scope: typing.Any, receive: typing.Any, send: typing.Any) -> None:
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [[b"content-type", b"application/proto"]],
+    })
+
+    response = PingResponse(name="test").SerializeToString()
+
+    await send({"type": "http.response.body", "body": response})
+
+
+def app_worker(
+    app: hypercorn.typing.AppWrapper,
+    config: hypercorn.config.Config,
+    sockets: hypercorn.config.Sockets | None = None,
+    shutdown_event: EventType | None = None,
+) -> None:
+    shutdown_trigger = None
+    if shutdown_event is not None:
+        shutdown_trigger = partial(
+            hypercorn.utils.check_multiprocess_shutdown_event,
+            shutdown_event,
+            asyncio.sleep,
+        )
+
+    hypercorn.asyncio.run._run(
+        partial(hypercorn.asyncio.run.worker_serve, app, config, sockets=sockets),
+        debug=config.debug,
+        shutdown_trigger=shutdown_trigger,
+    )
+
+
+class HypercornServer:
+    active: bool
+    config: hypercorn.config.Config
+    ctx: BaseContext
+    shutdown_event: EventType
+    processes: list[BaseProcess]
+    sockets: hypercorn.config.Sockets
+    app_wrapper: hypercorn.typing.AppWrapper
+    exitcode: int
+
+    def __init__(self, config: hypercorn.config.Config, app: hypercorn.typing.Framework) -> None:
+        self.config = config
+        self.app = app
+        self.active = True
+        self.ctx = multiprocessing.get_context("spawn")
+        self.shutdown_event = self.ctx.Event()
+        self.processes = []
+        self.sockets = config.create_sockets()
+        self.app_wrapper = hypercorn.utils.wrap_app(app, config.wsgi_max_body_size, "asgi")
+        self.exitcode = 0
+
+    @property
+    def url(self) -> str:
+        protocol = "https" if self.config.ssl_enabled else "http"
+        return f"{protocol}://{self.config.bind[0]}"
+
+    def shutdown(self, *args: typing.Any) -> None:
+        self.shutdown_event.set()
+        self.active = False
+
+    def run(self) -> None:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+        _populate(
+            self.processes,
+            self.app_wrapper,
+            self.config,
+            app_worker,
+            self.sockets,
+            self.shutdown_event,
+            self.ctx,
+        )
+
+        for signal_name in {"SIGINT", "SIGTERM", "SIGBREAK"}:
+            if hasattr(signal, signal_name):
+                signal.signal(getattr(signal, signal_name), self.shutdown)
+
+    def serve_forever(self) -> None:
+        while self.active:
+            self.run()
+            self.wait_for_closing()
+
+        for process in self.processes:
+            process.terminate()
+
+        exitcode = _join_exited(self.processes) if self.exitcode != 0 else self.exitcode
+        self.exitcode = exitcode
+
+        for sock in self.sockets.secure_sockets:
+            sock.close()
+
+        for sock in self.sockets.insecure_sockets:
+            sock.close()
+
+    def wait_for_closing(self) -> None:
+        wait(process.sentinel for process in self.processes)
+
+        exitcode = _join_exited(self.processes)
+        if exitcode != 0:
+            self.shutdown_event.set()
+            self.active = False
+
+        self.exitcode = exitcode
+
+
+def serve_in_multiprocess(server: HypercornServer) -> typing.Iterator[HypercornServer]:
+    try:
+        server.run()
+        while not server.active and not all(process.is_alive() for process in server.processes):
+            time.sleep(1e-3)
+        yield server
+    finally:
+        server.shutdown()
+        server.wait_for_closing()
+
+        for process in server.processes:
+            process.terminate()
+
+        exitcode = _join_exited(server.processes) if server.exitcode != 0 else server.exitcode
+        server.exitcode = exitcode
+
+        for sock in server.sockets.secure_sockets:
+            sock.close()
+
+        for sock in server.sockets.insecure_sockets:
+            sock.close()
+
+
+@pytest.fixture(scope="session")
+def hypercorn_server(request: pytest.FixtureRequest) -> typing.Iterator[HypercornServer]:
+    config = hypercorn.config.Config()
+    app = request.param if callable(request.param) else DefaultApp
+
+    server = HypercornServer(config, typing.cast(hypercorn.typing.ASGIFramework, app))
+    yield from serve_in_multiprocess(server)
+
+
+def _populate(
+    processes: list[BaseProcess],
+    app_wrapper: hypercorn.typing.AppWrapper,
+    config: hypercorn.config.Config,
+    worker_func: typing.Callable[..., None],
+    sockets: hypercorn.config.Sockets,
+    shutdown_event: EventType,
+    ctx: BaseContext,
+) -> None:
+    for _ in range(config.workers - len(processes)):
+        process = ctx.Process(  # type: ignore
+            target=worker_func,
+            kwargs={
+                "app": app_wrapper,
+                "config": config,
+                "shutdown_event": shutdown_event,
+                "sockets": sockets,
+            },
+        )
+        process.daemon = True
+        try:
+            process.start()
+        except PicklingError as error:
+            raise RuntimeError(
+                "Cannot pickle the config, see https://docs.python.org/3/library/pickle.html#pickle-picklable"  # noqa: E501
+            ) from error
+        processes.append(process)
+        if platform.system() == "Windows":
+            time.sleep(0.1)
+
+
+def _join_exited(processes: list[BaseProcess]) -> int:
+    exitcode = 0
+    for index in reversed(range(len(processes))):
+        worker = processes[index]
+        if worker.exitcode is not None:
+            worker.join()
+            exitcode = worker.exitcode if exitcode == 0 else exitcode
+            del processes[index]
+
+    return exitcode

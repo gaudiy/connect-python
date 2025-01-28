@@ -14,7 +14,7 @@ from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import Interceptor, UnaryFunc
 from connect.options import ClientOptions
-from tests.conftest import ASGIRequest, HypercornServer, Receive, Scope, Send, TestServer
+from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
 
@@ -33,26 +33,15 @@ async def ping_proto(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_proto)], indirect=["server"])
-async def test_client_call_unary(server: TestServer) -> None:
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
-
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
-
-    await client.call_unary(ping_request)
-
-
-@pytest.mark.asyncio()
 @pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_proto)], indirect=["hypercorn_server"])
-async def test_client(hypercorn_server: HypercornServer) -> None:
-    base_url = hypercorn_server.url
-    url = base_url + PingServiceProcedures.Ping.value + "/proto"
+async def test_client_call_unary(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
     ping_request = ConnectRequest(message=PingRequest(name="test"))
 
     response = await client.call_unary(ping_request)
+
     assert response.message.name == "test"
 
 
@@ -71,9 +60,9 @@ async def ping_response_gzip(scope: Scope, receive: Receive, send: Send) -> None
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_response_gzip)], indirect=["server"])
-async def test_client_call_unary_with_response_gzip(server: TestServer) -> None:
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_response_gzip)], indirect=["hypercorn_server"])
+async def test_client_call_unary_with_response_gzip(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
     ping_request = ConnectRequest(message=PingRequest(name="test"))
@@ -104,9 +93,9 @@ async def ping_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_request_gzip)], indirect=["server"])
-async def test_client_call_unary_with_request_gzip(server: TestServer) -> None:
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_request_gzip)], indirect=["hypercorn_server"])
+async def test_client_call_unary_with_request_gzip(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(
         url=url, input=PingRequest, output=PingResponse, options=ClientOptions(request_compression_name="gzip")
@@ -162,9 +151,9 @@ async def ping_proto_get(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_proto_get)], indirect=["server"])
-async def test_client_call_unary_get(server: TestServer) -> None:
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_proto_get)], indirect=["hypercorn_server"])
+async def test_client_call_unary_get(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(
         url=url,
@@ -189,9 +178,11 @@ async def ping_proto_unimplemented_error(scope: Scope, receive: Receive, send: S
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_proto_unimplemented_error)], indirect=["server"])
-async def test_client_call_unary_unimplemented_error(server: TestServer) -> None:
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+@pytest.mark.parametrize(
+    ["hypercorn_server"], [pytest.param(ping_proto_unimplemented_error)], indirect=["hypercorn_server"]
+)
+async def test_client_call_unary_unimplemented_error(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
     ping_request = ConnectRequest(message=PingRequest(name="test"))
@@ -215,9 +206,11 @@ async def ping_proto_invalid_content_type_prefix_error(scope: Scope, receive: Re
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_proto_invalid_content_type_prefix_error)], indirect=["server"])
-async def test_client_call_unary_invalid_content_type_prefix_error(server: TestServer) -> None:
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+@pytest.mark.parametrize(
+    ["hypercorn_server"], [pytest.param(ping_proto_invalid_content_type_prefix_error)], indirect=["hypercorn_server"]
+)
+async def test_client_call_unary_invalid_content_type_prefix_error(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
     ping_request = ConnectRequest(message=PingRequest(name="test"))
@@ -259,11 +252,13 @@ async def ping_proto_json_error_with_details(scope: Scope, receive: Receive, sen
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_proto_json_error_with_details)], indirect=["server"])
-async def test_client_call_unary_json_error_with_details(server: TestServer) -> None:
+@pytest.mark.parametrize(
+    ["hypercorn_server"], [pytest.param(ping_proto_json_error_with_details)], indirect=["hypercorn_server"]
+)
+async def test_client_call_unary_json_error_with_details(hypercorn_server: ServerConfig) -> None:
     import google.protobuf.struct_pb2 as struct_pb2
 
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
     ping_request = ConnectRequest(message=PingRequest(name="test"))
@@ -313,11 +308,13 @@ async def ping_proto_json_compressed_error_with_details(scope: Scope, receive: R
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(ping_proto_json_compressed_error_with_details)], indirect=["server"])
-async def test_client_call_unary_json_compressed_error_with_details(server: TestServer) -> None:
+@pytest.mark.parametrize(
+    ["hypercorn_server"], [pytest.param(ping_proto_json_compressed_error_with_details)], indirect=["hypercorn_server"]
+)
+async def test_client_call_unary_json_compressed_error_with_details(hypercorn_server: ServerConfig) -> None:
     import google.protobuf.struct_pb2 as struct_pb2
 
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
     ping_request = ConnectRequest(message=PingRequest(name="test"))
@@ -338,12 +335,12 @@ async def test_client_call_unary_json_compressed_error_with_details(server: Test
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["server"], [pytest.param(None)], indirect=["server"])
-async def test_client_call_unary_with_interceptor(server: TestServer) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(None)], indirect=["hypercorn_server"])
+async def test_client_call_unary_with_interceptor(hypercorn_server: ServerConfig) -> None:
     import io
     import tempfile
 
-    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     ephemeral_files: list[io.BufferedRandom] = []
 

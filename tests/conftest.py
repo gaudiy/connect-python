@@ -1,21 +1,109 @@
-# ruff: noqa: D100 D101 D102 D103
+# ruff: noqa: ARG001 ARG002 D100 D101 D102 D103 D107
 
 import asyncio
+import json
 import socket
 import threading
 import time
 import typing
+from urllib.parse import parse_qsl
 
 import pytest
 from anyio import sleep
+from google.protobuf import json_format
 from uvicorn.config import Config
 from uvicorn.server import Server
 from yarl import URL
+
+from tests.testdata.ping.v1.ping_pb2 import PingResponse
 
 Message = typing.MutableMapping[str, typing.Any]
 Receive = typing.Callable[[], typing.Awaitable[Message]]
 Send = typing.Callable[[Message], typing.Coroutine[None, None, None]]
 Scope = dict[str, typing.Any]
+
+
+class ASGIRequest:
+    scope: Scope
+    receive: Receive
+
+    def __init__(self, scope: Scope, receive: Receive) -> None:
+        self.scope = scope
+        self.receive = receive
+
+    async def body(self) -> bytes:
+        body = b""
+        more_body = True
+
+        while more_body:
+            message = await self.receive()
+            body += message.get("body", b"")
+            more_body = message.get("more_body", False)
+
+        return body
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {key.decode("latin-1"): value.decode("latin-1") for key, value in self.scope["headers"]}
+
+    @property
+    def query_params(self) -> dict[str, str]:
+        query_string = self.scope.get("query_string", b"")
+        return dict(parse_qsl(query_string.decode("latin-1"), keep_blank_values=True))
+
+
+class DefaultApp:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+
+        if scope["path"].endswith("/json"):
+            await self.ping_json(scope, receive, send)
+        elif scope["path"].endswith("/proto"):
+            await self.ping_proto(scope, receive, send)
+        else:
+            await self.not_found(scope, receive, send)
+
+    async def ping_json(self, scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [[b"content-type", b"application/proto"]],
+        })
+
+        content = json_format.MessageToDict(PingResponse(name="test"))
+
+        await send({
+            "type": "http.response.body",
+            "body": json.dumps(
+                content,
+                ensure_ascii=False,
+                allow_nan=False,
+                indent=None,
+                separators=(",", ":"),
+            ).encode("utf-8"),
+        })
+
+    async def ping_proto(self, scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [[b"content-type", b"application/proto"]],
+        })
+
+        content = PingResponse(name="test").SerializeToString()
+
+        await send({"type": "http.response.body", "body": content})
+
+    async def not_found(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await send({
+            "type": "http.response.start",
+            "status": 404,
+            "headers": [[b"content-type", b"text/plain"]],
+        })
+
+        await send({"type": "http.response.body", "body": b"Not Found"})
 
 
 class TestServer(Server):
@@ -82,8 +170,7 @@ def serve_in_thread(server: TestServer) -> typing.Iterator[TestServer]:
 
 @pytest.fixture(scope="session")
 def server(request: pytest.FixtureRequest) -> typing.Iterator[TestServer]:
-    assert callable(request.param)
-    app = request.param
+    app = request.param if callable(request.param) else DefaultApp
 
     config = Config(app=app, lifespan="off", loop="asyncio")
     server = TestServer(config=config)

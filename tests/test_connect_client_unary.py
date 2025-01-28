@@ -3,18 +3,18 @@
 import base64
 import gzip
 import json
+from typing import Any
 
 import pytest
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse
 
 from connect.client import Client
 from connect.code import Code
-from connect.connect import ConnectRequest
+from connect.connect import ConnectRequest, ConnectResponse
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
+from connect.interceptor import Interceptor, UnaryFunc
 from connect.options import ClientOptions
-from tests.conftest import Receive, Scope, Send, TestServer
+from tests.conftest import ASGIRequest, Receive, Scope, Send, TestServer
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
 
@@ -34,7 +34,7 @@ async def ping_proto(scope: Scope, receive: Receive, send: Send) -> None:
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(["server"], [pytest.param(ping_proto)], indirect=["server"])
-async def test_client_call_unary(server: TestServer) -> None:  # noqa: D103
+async def test_client_call_unary(server: TestServer) -> None:
     url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
@@ -79,7 +79,7 @@ async def ping_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
     headers = dict(scope["headers"])
     assert headers.get(b"content-encoding") == b"gzip"
 
-    request = Request(scope, receive)
+    request = ASGIRequest(scope, receive)
     body = await request.body()
 
     decompressed_body = gzip.decompress(body)
@@ -113,7 +113,7 @@ async def ping_proto_get(scope: Scope, receive: Receive, send: Send) -> None:
 
     assert scope["method"] == "GET"
 
-    request = Request(scope, receive)
+    request = ASGIRequest(scope, receive)
 
     for k, v in request.headers.items():
         assert k not in [
@@ -165,8 +165,14 @@ async def test_client_call_unary_get(server: TestServer) -> None:
 
 
 async def ping_proto_unimplemented_error(scope: Scope, receive: Receive, send: Send) -> None:
-    response = PlainTextResponse("Not Found", status_code=404)
-    await response(scope, receive, send)
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 404,
+        "headers": [[b"content-type", b"text/plain"]],
+    })
+
+    await send({"type": "http.response.body", "body": b"Not Found"})
 
 
 @pytest.mark.asyncio()
@@ -185,8 +191,14 @@ async def test_client_call_unary_unimplemented_error(server: TestServer) -> None
 
 
 async def ping_proto_invalid_content_type_prefix_error(scope: Scope, receive: Receive, send: Send) -> None:
-    response = PlainTextResponse("Not Found", status_code=200)
-    await response(scope, receive, send)
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [[b"content-type", b"text/plain"]],
+    })
+
+    await send({"type": "http.response.body", "body": b"Not Found"})
 
 
 @pytest.mark.asyncio()
@@ -310,3 +322,61 @@ async def test_client_call_unary_json_compressed_error_with_details(server: Test
     assert isinstance(got_msg, struct_pb2.Struct)
     assert got_msg.fields["name"].string_value == "test"
     assert got_msg.fields["age"].number_value == 1
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(["server"], [pytest.param(None)], indirect=["server"])
+async def test_client_call_unary_with_interceptor(server: TestServer) -> None:
+    import io
+    import tempfile
+
+    url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
+
+    ephemeral_files: list[io.BufferedRandom] = []
+
+    class FileInterceptor1(Interceptor):
+        def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
+            """Wrap a unary function with the interceptor."""
+
+            async def _wrapped(request: ConnectRequest[Any]) -> ConnectResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 1")
+
+                return await next(request)
+
+            return _wrapped
+
+    class FileInterceptor2(Interceptor):
+        def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
+            """Wrap a unary function with the interceptor."""
+
+            async def _wrapped(request: ConnectRequest[Any]) -> ConnectResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 2")
+
+                return await next(request)
+
+            return _wrapped
+
+    client = Client(
+        url=url,
+        input=PingRequest,
+        output=PingResponse,
+        options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
+    )
+    ping_request = ConnectRequest(message=PingRequest(name="test"))
+
+    await client.call_unary(ping_request)
+
+    assert len(ephemeral_files) == 2
+    for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+        ephemeral_file.seek(0)
+        assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
+
+        ephemeral_file.close()

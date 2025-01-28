@@ -349,13 +349,36 @@ class ConnectUnmarshaler:
         self.stream = stream
 
     async def unmarshal(self, message: Any) -> Any:
-        """Unmarshals the given message using the codec.
+        """Asynchronously unmarshals a given message using the provided unmarshal function and codec.
 
         Args:
             message (Any): The message to be unmarshaled.
 
         Returns:
+            Any: The result of the unmarshaling process.
+
+        """
+        return await self.unmarshal_func(message, self.codec.unmarshal)
+
+    async def unmarshal_func(self, message: Any, func: Callable[[bytes, Any], Any]) -> Any:
+        """Asynchronously unmarshals a message using the provided function.
+
+        This function reads data from the stream in chunks, checks if the total
+        bytes read exceed the maximum allowed bytes, and optionally decompresses
+        the data. It then uses the provided function to unmarshal the data into
+        the desired format.
+
+        Args:
+            message (Any): The message to be unmarshaled.
+            func (Callable[[bytes, Any], Any]): A function that takes the raw bytes
+                and the message, and returns the unmarshaled object.
+
+        Returns:
             Any: The unmarshaled object.
+
+        Raises:
+            ConnectError: If the stream is not set, if the message size exceeds the
+                maximum allowed bytes, or if there is an error during unmarshaling.
 
         """
         if self.stream is None:
@@ -380,7 +403,7 @@ class ConnectUnmarshaler:
             data = self.compression.decompress(data, self.read_max_bytes)
 
         try:
-            obj = self.codec.unmarshal(data, message)
+            obj = func(data, message)
         except Exception as e:
             raise ConnectError(
                 f"unmarshal message: {str(e)}",
@@ -1162,10 +1185,10 @@ class ConnectUnaryClientConn(StreamingClientConn):
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        await self._validate_response(response)
-
         assert isinstance(response.stream, AsyncIterable)
         self.unmarshaler.stream = ResponseAsyncByteStream(response.stream)
+
+        await self._validate_response(response)
 
         return data
 
@@ -1190,8 +1213,9 @@ class ConnectUnaryClientConn(StreamingClientConn):
         return self._response_trailers
 
     async def _validate_response(self, response: httpcore.Response) -> None:
-        headers = Headers(response.headers)
-        for key, value in headers.items():
+        self._response_headers.merge(response.headers)
+
+        for key, value in self._response_headers.items():
             if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX):
                 self._response_headers[key] = value
                 continue
@@ -1201,10 +1225,10 @@ class ConnectUnaryClientConn(StreamingClientConn):
         connect_validate_unary_response_content_type(
             self.marshaler.connect_marshaler.codec.name(),
             response.status,
-            headers.get(HEADER_CONTENT_TYPE, ""),
+            self._response_headers.get(HEADER_CONTENT_TYPE, ""),
         )
 
-        compression = headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
+        compression = self._response_headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
         if (
             compression
             and compression != COMPRESSION_IDENTITY
@@ -1216,10 +1240,15 @@ class ConnectUnaryClientConn(StreamingClientConn):
             )
 
         self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+
         if response.status != HTTPStatus.OK:
-            content = await response.aread()
+
+            def json_ummarshal(data: bytes, _message: Any) -> Any:
+                return json.loads(data)
+
             try:
-                wire_error = error_from_json_bytes(content)
+                data = await self.unmarshaler.unmarshal_func(None, json_ummarshal)
+                wire_error = error_from_json(data)
             except Exception as e:
                 raise ConnectError(
                     f"HTTP {response.status}",

@@ -10,9 +10,9 @@ from uvicorn.config import Config
 from uvicorn.server import Server
 from yarl import URL
 
-Message = dict[str, typing.Any]
+Message = typing.MutableMapping[str, typing.Any]
 Receive = typing.Callable[[], typing.Awaitable[Message]]
-Send = typing.Callable[[dict[str, typing.Any]], typing.Coroutine[None, None, None]]
+Send = typing.Callable[[Message], typing.Coroutine[None, None, None]]
 Scope = dict[str, typing.Any]
 
 

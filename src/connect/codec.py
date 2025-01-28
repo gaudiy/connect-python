@@ -204,11 +204,11 @@ class ProtoJSONCodec(StableCodec):
     """A codec for encoding and decoding Protocol Buffers messages to and from JSON format.
 
     Attributes:
-        __name (str): The name of the codec.
+        _name (str): The name of the codec.
 
     """
 
-    __name: str
+    _name: str
 
     def __init__(self, name: str) -> None:
         """Initialize the codec with a given name.
@@ -217,7 +217,7 @@ class ProtoJSONCodec(StableCodec):
             name (str): The name to initialize the codec with.
 
         """
-        self.__name = name
+        self._name = name
 
     def name(self) -> str:
         """Return the name of the codec.
@@ -226,7 +226,7 @@ class ProtoJSONCodec(StableCodec):
             str: The name of the codec.
 
         """
-        return self.__name
+        return self._name
 
     def marshal(self, message: Any) -> bytes:
         """Serialize a protobuf message to a JSON string encoded as UTF-8 bytes.

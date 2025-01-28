@@ -29,6 +29,7 @@ from connect.protocol import (
     HEADER_CONTENT_TYPE,
     ProtocolHandler,
     ProtocolHandlerParams,
+    exclude_protocol_headers,
     mapped_method_handlers,
     sorted_accept_post_value,
     sorted_allow_method_value,
@@ -196,8 +197,8 @@ class UnaryHandler[T_Request, T_Response]:
                     Code.INTERNAL,
                 )
 
-            conn.response_headers.update(response.headers)
-            conn.response_trailers.update(response.trailers)
+            conn.response_headers.update(exclude_protocol_headers(response.headers))
+            conn.response_trailers.update(exclude_protocol_headers(response.trailers))
             return conn.send(response.any())
 
         self.procedure = procedure
@@ -285,7 +286,8 @@ class UnaryHandler[T_Request, T_Response]:
             status_code = connect_code_to_http(error.code)
 
             response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
-            response_headers.update(error.metadata)
+            if not error.wire_error:
+                response_headers.update(error.metadata)
 
             body = error_to_json_bytes(error)
 

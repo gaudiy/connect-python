@@ -138,23 +138,6 @@ class Headers(MutableMapping[str, str]):
         """Return a copy of the Headers object."""
         return Headers(self, encoding=self.encoding)
 
-    def merge(self, headers: HeaderTypes | None) -> None:
-        """Merge the provided headers into the current headers.
-
-        If a header key from the provided headers already exists in the current headers,
-        it will be removed before merging.
-
-        Args:
-            headers (HeaderTypes | None): The headers to merge into the current headers.
-
-        """
-        headers = Headers(headers)
-        for key in headers:
-            if key in self:
-                self.pop(key)
-
-        self._list.extend(headers._list)
-
     def multi_items(self) -> list[tuple[str, str]]:
         """Return a list of tuples containing decoded key-value pairs from the internal list.
 

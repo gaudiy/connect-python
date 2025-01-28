@@ -11,33 +11,14 @@ from connect.code import Code
 from connect.headers import Headers
 
 DEFAULT_ANY_RESOLVER_PREFIX = "type.googleapis.com/"
-TYPE_URL_PREFIX = "type.googleapis.com/"
-
-
-class ProtobufTypeNotFoundError(Exception):
-    """Exception raised when a specified Protobuf type is not found.
-
-    Attributes:
-        message (str): Explanation of the error.
-
-    """
-
-    def __init__(self, message: str):
-        """Initialize the error with a given message.
-
-        Args:
-            message (str): The error message to be displayed.
-
-        """
-        super().__init__(message)
 
 
 def type_url_to_message(type_url: str) -> Message:
     """Return a message instance corresponding to a given type URL."""
-    if not type_url.startswith(TYPE_URL_PREFIX):
-        raise ValueError(f"Type URL has to start with a prefix {TYPE_URL_PREFIX}: {type_url}")
+    if not type_url.startswith(DEFAULT_ANY_RESOLVER_PREFIX):
+        raise ValueError(f"Type URL has to start with a prefix {DEFAULT_ANY_RESOLVER_PREFIX}: {type_url}")
 
-    full_name = type_url[len(TYPE_URL_PREFIX) :]
+    full_name = type_url[len(DEFAULT_ANY_RESOLVER_PREFIX) :]
     # In open-source, proto files used not to have a package specified. Because
     # the API can be used with some legacy flows and hunts as well, we need to
     # make sure that we are still able to work with the old data.
@@ -46,7 +27,7 @@ def type_url_to_message(type_url: str) -> Message:
     try:
         return symbol_database.Default().GetSymbol(full_name)()
     except KeyError as e:
-        raise ProtobufTypeNotFoundError(str(e)) from e
+        raise KeyError(f"Message not found for type URL: {type_url}") from e
 
 
 class ErrorDetail:

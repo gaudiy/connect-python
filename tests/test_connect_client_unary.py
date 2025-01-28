@@ -1,3 +1,5 @@
+# ruff: noqa: ARG001 D103 D100
+
 import base64
 import gzip
 import json
@@ -32,7 +34,7 @@ async def ping_proto(scope: Scope, receive: Receive, send: Send) -> None:
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(["server"], [pytest.param(ping_proto)], indirect=["server"])
-async def test_client_call_unary(server: TestServer) -> None:
+async def test_client_call_unary(server: TestServer) -> None:  # noqa: D103
     url = server.make_url(PingServiceProcedures.Ping.value + "/proto")
 
     client = Client(url=url, input=PingRequest, output=PingResponse)

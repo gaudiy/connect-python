@@ -1,4 +1,4 @@
-"""Test the connect module."""
+# ruff: noqa: ARG001 D103 D100
 
 import base64
 import json
@@ -13,7 +13,6 @@ client = TestClient(app)
 
 
 def test_application_proto_ping() -> None:
-    """Test the ping function."""
     content = PingRequest(name="test").SerializeToString()
     response = client.post(
         "/tests.testdata.ping.v1.PingService/Ping",
@@ -26,7 +25,6 @@ def test_application_proto_ping() -> None:
 
 
 def test_application_json_ping() -> None:
-    """Test the ping function."""
     response = client.post(
         "/tests.testdata.ping.v1.PingService/Ping",
         json={"name": "test"},
@@ -37,7 +35,6 @@ def test_application_json_ping() -> None:
 
 
 def test_application_proto_ping_with_compression() -> None:
-    """Test the ping function."""
     content = PingRequest(name="test").SerializeToString()
     response = client.post(
         "/tests.testdata.ping.v1.PingService/Ping",
@@ -50,7 +47,6 @@ def test_application_proto_ping_with_compression() -> None:
 
 
 def test_get_application_json_ping() -> None:
-    """Test the ping function."""
     encoded_message = urllib.parse.quote(json.dumps({"name": "test"}))
     response = client.get(
         f"/tests.testdata.ping.v1.PingService/Ping?encoding=json&message={encoded_message}",
@@ -61,7 +57,6 @@ def test_get_application_json_ping() -> None:
 
 
 def test_get_application_json_ping_with_base64() -> None:
-    """Test the ping function."""
     encoded_message = base64.b64encode(json.dumps({"name": "test"}).encode()).decode()
     response = client.get(
         f"/tests.testdata.ping.v1.PingService/Ping?encoding=json&message={encoded_message}&base64=1",

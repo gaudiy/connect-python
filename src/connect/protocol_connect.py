@@ -4,19 +4,21 @@ import base64
 import contextlib
 import json
 import types
-from collections.abc import AsyncGenerator, AsyncIterable, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from http import HTTPMethod, HTTPStatus
 from sys import version
 from typing import Any
 
+import google.protobuf.any_pb2 as any_pb2
 import httpcore
+from google.protobuf import json_format
 from yarl import URL
 
 from connect.code import Code
-from connect.codec import Codec, CodecNameType, ProtoJSONCodec, StableCodec
-from connect.compression import COMPRESSION_IDENTITY, Compression
+from connect.codec import Codec, CodecNameType, StableCodec
+from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
 from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
-from connect.error import ConnectError
+from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.protocol import (
@@ -190,8 +192,6 @@ class ConnectHandler(ProtocolHandler):
         required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
         connect_check_protocol_version(request, required)
 
-        request_stream: Callable[..., AsyncGenerator[bytes]]
-
         if HTTPMethod(request.method) == HTTPMethod.GET:
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
             message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
@@ -214,12 +214,11 @@ class ConnectHandler(ProtocolHandler):
             async def stream() -> AsyncGenerator[bytes]:
                 yield decoded
 
-            request_stream = stream
+            request_stream = AsyncByteStream(aiterator=stream())
             codec_name = encoding
             content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
-
         else:
-            request_stream = request.stream
+            request_stream = AsyncByteStream(aiterator=request.stream())
             content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
@@ -256,7 +255,7 @@ class ConnectHandler(ProtocolHandler):
                     headers=response_headers,
                 ),
                 unmarshaler=ConnectUnmarshaler(
-                    stream=request_stream(),
+                    stream=request_stream,
                     codec=codec,
                     compression=request_compression,
                     read_max_bytes=self.params.read_max_bytes,
@@ -326,14 +325,14 @@ class ConnectUnmarshaler:
     codec: Codec
     read_max_bytes: int
     compression: Compression | None
-    stream: AsyncGenerator[bytes] | AsyncByteStream | None
+    stream: AsyncByteStream | None
 
     def __init__(
         self,
         codec: Codec,
-        read_max_bytes: int,
+        read_max_bytes: int = -1,
         compression: Compression | None = None,
-        stream: AsyncGenerator[bytes] | AsyncByteStream | None = None,
+        stream: AsyncByteStream | None = None,
     ) -> None:
         """Initialize the ProtocolConnect object.
 
@@ -350,13 +349,36 @@ class ConnectUnmarshaler:
         self.stream = stream
 
     async def unmarshal(self, message: Any) -> Any:
-        """Unmarshals the given message using the codec.
+        """Asynchronously unmarshals a given message using the provided unmarshal function and codec.
 
         Args:
             message (Any): The message to be unmarshaled.
 
         Returns:
+            Any: The result of the unmarshaling process.
+
+        """
+        return await self.unmarshal_func(message, self.codec.unmarshal)
+
+    async def unmarshal_func(self, message: Any, func: Callable[[bytes, Any], Any]) -> Any:
+        """Asynchronously unmarshals a message using the provided function.
+
+        This function reads data from the stream in chunks, checks if the total
+        bytes read exceed the maximum allowed bytes, and optionally decompresses
+        the data. It then uses the provided function to unmarshal the data into
+        the desired format.
+
+        Args:
+            message (Any): The message to be unmarshaled.
+            func (Callable[[bytes, Any], Any]): A function that takes the raw bytes
+                and the message, and returns the unmarshaled object.
+
+        Returns:
             Any: The unmarshaled object.
+
+        Raises:
+            ConnectError: If the stream is not set, if the message size exceeds the
+                maximum allowed bytes, or if there is an error during unmarshaling.
 
         """
         if self.stream is None:
@@ -381,7 +403,7 @@ class ConnectUnmarshaler:
             data = self.compression.decompress(data, self.read_max_bytes)
 
         try:
-            obj = self.codec.unmarshal(data, message)
+            obj = func(data, message)
         except Exception as e:
             raise ConnectError(
                 f"unmarshal message: {str(e)}",
@@ -688,18 +710,7 @@ class ConnectClient(ProtocolClient):
         """
         conn: StreamingClientConn
         if spec.stream_type == StreamType.Unary:
-            compression = (
-                next(
-                    (
-                        compression
-                        for compression in self.params.compressions
-                        if compression.name() == self.params.compression_name
-                    ),
-                    None,
-                )
-                if self.params.compression_name
-                else None
-            )
+            compression = get_compresion_from_name(self.params.compression_name, self.params.compressions)
 
             unary_conn = ConnectUnaryClientConn(
                 spec=spec,
@@ -898,6 +909,90 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
 
+def _load_httpcore_exceptions() -> dict[type[Exception], Code]:
+    return {
+        httpcore.TimeoutException: Code.DEADLINE_EXCEEDED,
+        httpcore.ConnectTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.ReadTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.WriteTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.PoolTimeout: Code.RESOURCE_EXHAUSTED,
+        httpcore.NetworkError: Code.UNAVAILABLE,
+        httpcore.ConnectError: Code.UNAVAILABLE,
+        httpcore.ReadError: Code.UNAVAILABLE,
+        httpcore.WriteError: Code.UNAVAILABLE,
+        httpcore.ProxyError: Code.UNAVAILABLE,
+        httpcore.UnsupportedProtocol: Code.INVALID_ARGUMENT,
+        httpcore.ProtocolError: Code.INVALID_ARGUMENT,
+        httpcore.LocalProtocolError: Code.INTERNAL,
+        httpcore.RemoteProtocolError: Code.INTERNAL,
+    }
+
+
+HTTPCORE_EXC_MAP: dict[type[Exception], Code] = {}
+
+
+@contextlib.contextmanager
+def map_httpcore_exceptions() -> Iterator[None]:
+    """Map exceptions raised by the HTTP core to custom exceptions.
+
+    This function uses a global exception map `HTTPCORE_EXC_MAP` to translate exceptions
+    raised within its context. If the map is empty, it loads the exceptions using the
+    `_load_httpcore_exceptions` function. When an exception is caught, it checks if the
+    exception matches any in the map and raises a `ConnectError` with the corresponding
+    error code. If no match is found, the original exception is re-raised.
+
+    Yields:
+        None: This function is a generator used as a context manager.
+
+    Raises:
+        ConnectError: If the caught exception matches an entry in `HTTPCORE_EXC_MAP`.
+        Exception: If no match is found in `HTTPCORE_EXC_MAP`, the original exception is re-raised.
+
+    """
+    global HTTPCORE_EXC_MAP
+    if len(HTTPCORE_EXC_MAP) == 0:
+        HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+    try:
+        yield
+    except Exception as exc:
+        for from_exc, to_code in HTTPCORE_EXC_MAP.items():
+            if isinstance(exc, from_exc):
+                raise ConnectError(str(exc), to_code) from exc
+
+        raise exc
+
+
+class ResponseAsyncByteStream(AsyncByteStream):
+    """An asynchronous byte stream for reading and writing byte chunks."""
+
+    aiterator: AsyncIterable[bytes] | None
+    aclose_func: Callable[..., Awaitable[None]] | None
+
+    def __init__(
+        self,
+        aiterator: AsyncIterable[bytes] | None = None,
+        aclose_func: Callable[..., Awaitable[None]] | None = None,
+    ) -> None:
+        """Initialize the protocol connect instance.
+
+        Args:
+            aiterator (AsyncIterable[bytes] | None): An optional asynchronous iterable of bytes.
+            aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous close function.
+
+        Returns:
+            None
+
+        """
+        super().__init__(aiterator=aiterator, aclose_func=aclose_func)
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        """Asynchronous iterator method to read byte chunks from the stream."""
+        if self.aiterator is not None:
+            with map_httpcore_exceptions():
+                async for chunk in self.aiterator:
+                    yield chunk
+
+
 EventHook = Callable[..., Any]
 
 
@@ -1084,15 +1179,16 @@ class ConnectUnaryClientConn(StreamingClientConn):
         for hook in self._event_hooks["request"]:
             hook(request)
 
-        response = await self._pool.handle_async_request(request=request)
+        with map_httpcore_exceptions():
+            response = await self._pool.handle_async_request(request=request)
 
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        self._validate_response(response)
-
         assert isinstance(response.stream, AsyncIterable)
-        self.unmarshaler.stream = AsyncByteStream(response.stream)
+        self.unmarshaler.stream = ResponseAsyncByteStream(response.stream)
+
+        await self._validate_response(response)
 
         return data
 
@@ -1116,24 +1212,23 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """
         return self._response_trailers
 
-    def _validate_response(self, response: httpcore.Response) -> None:
-        headers = Headers(response.headers)
-        for key, value in headers.items():
+    async def _validate_response(self, response: httpcore.Response) -> None:
+        self._response_headers.merge(response.headers)
+
+        for key, value in self._response_headers.items():
             if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX):
                 self._response_headers[key] = value
                 continue
 
             self._response_trailers[key[len(CONNECT_UNARY_TRAILER_PREFIX) :]] = value
 
-        # TOTO(tsubakiky): Error handling.
         connect_validate_unary_response_content_type(
             self.marshaler.connect_marshaler.codec.name(),
-            HTTPMethod.POST,
             response.status,
-            headers.get(HEADER_CONTENT_TYPE, ""),
+            self._response_headers.get(HEADER_CONTENT_TYPE, ""),
         )
 
-        compression = headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
+        compression = self._response_headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
         if (
             compression
             and compression != COMPRESSION_IDENTITY
@@ -1144,7 +1239,28 @@ class ConnectUnaryClientConn(StreamingClientConn):
                 Code.INTERNAL,
             )
 
-        self.unmarshaler.compression = next((c for c in self.compressions if c.name() == compression), None)
+        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+
+        if response.status != HTTPStatus.OK:
+
+            def json_ummarshal(data: bytes, _message: Any) -> Any:
+                return json.loads(data)
+
+            try:
+                data = await self.unmarshaler.unmarshal_func(None, json_ummarshal)
+                wire_error = error_from_json(data)
+            except Exception as e:
+                raise ConnectError(
+                    f"HTTP {response.status}",
+                    code_from_http_status(response.status),
+                ) from e
+
+            if wire_error.code == 0:
+                wire_error.code = code_from_http_status(response.status)
+
+            wire_error.metadata = self._response_headers.copy()
+            wire_error.metadata.update(self._response_trailers)
+            raise wire_error
 
         return
 
@@ -1211,12 +1327,12 @@ class ConnectUnaryClientConn(StreamingClientConn):
             None
 
         """
-        await self._pool.__aexit__(exc_type, exc, tb)
+        with map_httpcore_exceptions():
+            await self._pool.__aexit__(exc_type, exc, tb)
 
 
 def connect_validate_unary_response_content_type(
-    request_codec_name: str,  # noqa: ARG001
-    http_method: HTTPMethod,
+    request_codec_name: str,
     status_code: int,
     response_content_type: str,
 ) -> None:
@@ -1233,24 +1349,37 @@ def connect_validate_unary_response_content_type(
 
     """
     if status_code != HTTPStatus.OK:
-        if status_code == HTTPStatus.NOT_MODIFIED and http_method == HTTPMethod.GET:
-            # TODO(tsubakiky): Change to wire error.
-            raise ConnectError(
-                f"HTTP {status_code}",
-                Code.UNKNOWN,
-            )
+        # Error response must be JSON-encoded.
         if (
             response_content_type == CONNECT_UNARY_CONTENT_TYPE_PREFIX + CodecNameType.JSON
             or response_content_type == CONNECT_UNARY_CONTENT_TYPE_PREFIX + CodecNameType.JSON_CHARSET_UTF8
         ):
-            # Error response must be JSON-encoded.
             return
+
         raise ConnectError(
             f"HTTP {status_code}",
             code_from_http_status(status_code),
         )
 
-    return
+    if not response_content_type.startswith(CONNECT_UNARY_CONTENT_TYPE_PREFIX):
+        raise ConnectError(
+            f"invalid content-type: {response_content_type}; expecting {CONNECT_UNARY_CONTENT_TYPE_PREFIX}",
+            Code.UNKNOWN,
+        )
+
+    response_codec_name = connect_codec_from_content_type(StreamType.Unary, response_content_type)
+    if response_codec_name == request_codec_name:
+        return
+
+    if (response_codec_name == CodecNameType.JSON and request_codec_name == CodecNameType.JSON_CHARSET_UTF8) or (
+        response_codec_name == CodecNameType.JSON_CHARSET_UTF8 and request_codec_name == CodecNameType.JSON
+    ):
+        return
+
+    raise ConnectError(
+        f"invalid content-type: {response_content_type}; expecting {CONNECT_UNARY_CONTENT_TYPE_PREFIX}{request_codec_name}",
+        Code.INTERNAL,
+    )
 
 
 def connect_check_protocol_version(request: Request, required: bool) -> None:
@@ -1359,6 +1488,74 @@ def connect_code_to_http(code: Code) -> int:
             return 500
 
 
+def error_from_json_bytes(data: bytes) -> ConnectError:
+    """Deserialize a ConnectError object from a JSON-encoded byte string.
+
+    Args:
+        data (bytes): The JSON-encoded byte string to deserialize.
+
+    Returns:
+        ConnectError: The deserialized ConnectError object.
+
+    Raises:
+        ConnectError: If deserialization fails, a ConnectError is raised with an
+                      appropriate error message and code.
+
+    """
+    try:
+        obj = json.loads(data)
+    except Exception as e:
+        raise Exception(f"failed to parse JSON: {str(e)}") from e
+
+    return error_from_json(obj)
+
+
+def error_from_json(obj: dict[str, Any]) -> ConnectError:
+    """Convert a JSON-serializable dictionary to a ConnectError object.
+
+    Args:
+        obj (dict[str, Any]): The dictionary representing the error in JSON format.
+
+    Returns:
+        ConnectError: The ConnectError object converted from the dictionary.
+
+    Raises:
+        ConnectError: If the dictionary is missing required fields or contains invalid values,
+                      a ConnectError is raised with an appropriate error message and code.
+
+    """
+    code = obj.get("code")
+    if code is None:
+        raise Exception("missing required field: code")
+
+    message = obj.get("message", "")
+    details = obj.get("details", [])
+
+    error = ConnectError(message, Code.from_string(code), wire_error=True)
+
+    for detail in details:
+        type_name = detail.get("type", None)
+        value = detail.get("value", None)
+
+        if type_name is None:
+            raise Exception("missing required field: type")
+        if value is None:
+            raise Exception("missing required field: value")
+
+        type_name = type_name if "/" in type_name else DEFAULT_ANY_RESOLVER_PREFIX + type_name
+        try:
+            decoded = base64.b64decode(value.encode() + b"=" * (4 - len(value) % 4))
+        except Exception as e:
+            message = str(e)
+            raise Exception(f"failed to decode value: {message}") from e
+
+        error.details.append(
+            ErrorDetail(pb_any=any_pb2.Any(type_url=type_name, value=decoded), wire_json=json.dumps(detail))
+        )
+
+    return error
+
+
 def error_to_json(error: ConnectError) -> dict[str, Any]:
     """Convert a ConnectError object to a JSON-serializable dictionary.
 
@@ -1389,10 +1586,9 @@ def error_to_json(error: ConnectError) -> dict[str, Any]:
                 "value": base64.b64encode(detail.pb_any.value).decode("utf-8").rstrip("="),
             }
 
-            codec = ProtoJSONCodec(CodecNameType.JSON)
-
             with contextlib.suppress(Exception):
-                wire["debug"] = codec.marshal(wire)
+                meg = detail.get_inner()
+                wire["debug"] = json_format.MessageToDict(meg)
 
             wires.append(wire)
 

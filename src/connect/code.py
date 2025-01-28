@@ -127,3 +127,54 @@ class Code(enum.IntEnum):
                 return "unauthenticated"
             case _:
                 return f"code_{self}"
+
+    @staticmethod
+    def from_string(s: str) -> "Code":
+        """Return the Code enum value corresponding to the given string.
+
+        This method takes a string and returns the corresponding Code enum value if
+        it matches one of the known values. If no match is found, the method will
+        return Code.UNKNOWN.
+
+        Args:
+            s (str): The string to convert to a Code enum value.
+
+        Returns:
+            Code: The Code enum value corresponding to the given string.
+
+        """
+        match s:
+            case "canceled":
+                return Code.CANCELED
+            case "unknown":
+                return Code.UNKNOWN
+            case "invalid_argument":
+                return Code.INVALID_ARGUMENT
+            case "deadline_exceeded":
+                return Code.DEADLINE_EXCEEDED
+            case "not_found":
+                return Code.NOT_FOUND
+            case "already_exists":
+                return Code.ALREADY_EXISTS
+            case "permission_denied":
+                return Code.PERMISSION_DENIED
+            case "resource_exhausted":
+                return Code.RESOURCE_EXHAUSTED
+            case "failed_precondition":
+                return Code.FAILED_PRECONDITION
+            case "aborted":
+                return Code.ABORTED
+            case "out_of_range":
+                return Code.OUT_OF_RANGE
+            case "unimplemented":
+                return Code.UNIMPLEMENTED
+            case "internal":
+                return Code.INTERNAL
+            case "unavailable":
+                return Code.UNAVAILABLE
+            case "data_loss":
+                return Code.DATA_LOSS
+            case "unauthenticated":
+                return Code.UNAUTHENTICATED
+            case _:
+                return Code.UNKNOWN

@@ -8,8 +8,12 @@ import time
 import typing
 from urllib.parse import parse_qsl
 
+import anyio
+import hypercorn.asyncio.run
+import hypercorn.logging
+import hypercorn.typing
 import pytest
-from anyio import sleep
+from anyio import from_thread, sleep
 from google.protobuf import json_format
 from uvicorn.config import Config
 from uvicorn.server import Server
@@ -170,8 +174,97 @@ def serve_in_thread(server: TestServer) -> typing.Iterator[TestServer]:
 
 @pytest.fixture(scope="session")
 def server(request: pytest.FixtureRequest) -> typing.Iterator[TestServer]:
-    app = request.param if callable(request.param) else DefaultApp
+    app = request.param if callable(request.param) else DefaultApp()
 
     config = Config(app=app, lifespan="off", loop="asyncio")
     server = TestServer(config=config)
     yield from serve_in_thread(server)
+
+
+class ServerConfig(typing.NamedTuple):
+    scheme: str
+    host: str
+    port: int
+
+    @property
+    def base_url(self) -> str:
+        host = self.host
+        if ":" in host:
+            host = f"[{host}]"
+        return f"{self.scheme}://{host}:{self.port}"
+
+
+class ExtractURLLogger(hypercorn.logging.Logger):
+    url: URL | None
+
+    def __init__(self, config: hypercorn.config.Config) -> None:
+        super().__init__(config)
+        self.url = None
+
+    async def info(self, message: str, *args: typing.Any, **kwargs: typing.Any) -> None:
+        import re
+
+        if self.error_logger is not None:
+            self.error_logger.info(message, *args, **kwargs)
+
+        # Extract the URL from the log message. This is a bit of a hack, but it works.
+        # e.g. "[INFO] Running on http://127.0.0.1:52282 (CTRL + C to quit)"
+        match = re.search(r"(https?://[\w|\.]+:\d{2,5})", message)
+        if match:
+            url = match.group(0)
+            self.url = URL(url)
+
+
+async def _start_server(
+    config: hypercorn.config.Config,
+    app: hypercorn.typing.ASGIFramework,
+    shutdown_event: anyio.Event,
+) -> None:
+    while not shutdown_event.is_set():
+        await hypercorn.asyncio.serve(app, config, shutdown_trigger=shutdown_event.wait)
+
+
+def run_hypercorn_in_thread(
+    app: hypercorn.typing.ASGIFramework, config: hypercorn.config.Config
+) -> typing.Iterator[ServerConfig]:
+    config.bind = ["localhost:0"]
+
+    logger = ExtractURLLogger(config)
+    config._log = logger
+
+    shutdown_event = anyio.Event()
+
+    with from_thread.start_blocking_portal() as portal:
+        future = portal.start_task_soon(
+            _start_server,
+            config,
+            app,
+            shutdown_event,
+        )
+        try:
+            start_time = time.time()
+            timeout = 10
+            while not logger.url:
+                if time.time() - start_time > timeout:
+                    raise TimeoutError(f"Server did not start within {timeout} seconds")
+
+                time.sleep(1e-3)
+
+            cfg = ServerConfig(
+                scheme=logger.url.scheme,
+                host=logger.url.host or "localhost",
+                port=logger.url.port or 80,
+            )
+            yield cfg
+        finally:
+            portal.call(shutdown_event.set)
+            future.result()
+
+
+@pytest.fixture(scope="session")
+def hypercorn_server(request: pytest.FixtureRequest) -> typing.Iterator[ServerConfig]:
+    app = request.param if callable(request.param) else DefaultApp()
+
+    config = hypercorn.config.Config()
+
+    yield from run_hypercorn_in_thread(typing.cast(hypercorn.typing.ASGIFramework, app), config)

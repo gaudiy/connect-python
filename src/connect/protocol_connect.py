@@ -1213,7 +1213,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         return self._response_trailers
 
     async def _validate_response(self, response: httpcore.Response) -> None:
-        self._response_headers.merge(response.headers)
+        self._response_headers.update(Headers(response.headers))
 
         for key, value in self._response_headers.items():
             if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX):

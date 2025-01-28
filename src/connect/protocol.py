@@ -22,6 +22,8 @@ HEADER_CONTENT_ENCODING = "Content-Encoding"
 HEADER_CONTENT_LENGTH = "Content-Length"
 HEADER_HOST = "Host"
 HEADER_USER_AGENT = "User-Agent"
+HEADER_TRAILER = "Trailer"
+HEADER_DATE = "Date"
 
 
 class ProtocolHandlerParams(BaseModel):
@@ -294,3 +296,41 @@ def code_from_http_status(status: int) -> Code:
             return Code.UNAVAILABLE
         case _:  # 200 is UNKNOWN because there should be a grpc-status in case of truly OK response.
             return Code.UNKNOWN
+
+
+def exclude_protocol_headers(headers: Headers) -> Headers:
+    """Exclude protocol-specific headers from the given Headers object.
+
+    This function filters out headers that are either standard HTTP headers
+    or specific to the Connect protocol, and returns a new Headers object
+    containing only the non-protocol headers.
+
+    Args:
+        headers (Headers): The original Headers object containing all headers.
+
+    Returns:
+        Headers: A new Headers object containing only the non-protocol headers.
+
+    """
+    non_protocol_headers = Headers(encoding=headers.encoding)
+    for key, value in headers.items():
+        if key.lower() not in [
+            # HTTP headers.
+            "content-type",
+            "content-length",
+            "content-encoding",
+            "host",
+            "user-agent",
+            "trailer",
+            "date",
+            # Connect headers.
+            "accept-encoding",
+            "trailer-",
+            "connect-content-encoding",
+            "connect-accept-encoding",
+            "connect-timeout-ms",
+            "connect-protocol-version",
+        ]:
+            non_protocol_headers[key] = value
+
+    return non_protocol_headers

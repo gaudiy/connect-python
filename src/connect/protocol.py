@@ -229,7 +229,7 @@ def negotiate_compression(
             request = found
         else:
             raise ConnectError(
-                f"unknown compression {sent}: supported encodings are {available}",
+                f"unknown compression {sent}: supported encodings are {', '.join(c.name for c in available)}",
                 Code.UNIMPLEMENTED,
             )
 

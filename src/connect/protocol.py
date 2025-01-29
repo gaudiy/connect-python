@@ -73,6 +73,7 @@ class ProtocolClientParams(BaseModel):
 class ProtocolClient(abc.ABC):
     """Abstract base class for defining a protocol client."""
 
+    @property
     @abc.abstractmethod
     def peer(self) -> Peer:
         """Retern the peer for the client."""
@@ -92,6 +93,7 @@ class ProtocolClient(abc.ABC):
 class ProtocolHandler(abc.ABC):
     """Abstract base class for handling different protocols."""
 
+    @property
     @abc.abstractmethod
     def methods(self) -> list[HTTPMethod]:
         """Retrieve a list of HTTP methods.
@@ -193,7 +195,7 @@ def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HTTPMethod, 
     """
     method_handlers: dict[HTTPMethod, list[ProtocolHandler]] = {}
     for handler in handlers:
-        for method in handler.methods():
+        for method in handler.methods:
             method_handlers.setdefault(method, []).append(handler)
 
     return method_handlers
@@ -222,7 +224,7 @@ def negotiate_compression(
     response = None
 
     if sent is not None and sent != COMPRESSION_IDENTITY:
-        found = next((c for c in available if c.name() == sent), None)
+        found = next((c for c in available if c.name == sent), None)
         if found:
             request = found
         else:
@@ -236,7 +238,7 @@ def negotiate_compression(
     else:
         accept_names = [name.strip() for name in accept.split(",")]
         for name in accept_names:
-            found = next((c for c in available if c.name() == name), None)
+            found = next((c for c in available if c.name == name), None)
             if found:
                 response = found
                 break
@@ -254,7 +256,7 @@ def sorted_allow_method_value(handlers: list[ProtocolHandler]) -> str:
         str: A comma-separated string of the allowed methods.
 
     """
-    methods = {method for handler in handlers for method in handler.methods()}
+    methods = {method for handler in handlers for method in handler.methods}
     return ", ".join(sorted(method.value for method in methods))
 
 

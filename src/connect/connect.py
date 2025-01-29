@@ -105,18 +105,32 @@ class ConnectRequest[T]:
         """Return the request message."""
         return self.message
 
+    @property
     def spec(self) -> Spec:
         """Return the request specification."""
         return self._spec
 
+    @spec.setter
+    def spec(self, value: Spec) -> None:
+        """Set the request specification."""
+        self._spec = value
+
+    @property
     def peer(self) -> Peer:
         """Return the request peer."""
         return self._peer
 
+    @peer.setter
+    def peer(self, value: Peer) -> None:
+        """Set the request peer."""
+        self._peer = value
+
+    @property
     def headers(self) -> Headers:
         """Return the request headers."""
         return self._headers
 
+    @property
     def method(self) -> str:
         """Return the request method."""
         return self._method
@@ -158,6 +172,7 @@ class StreamingHandlerConn(abc.ABC):
 
     """
 
+    @property
     @abc.abstractmethod
     def spec(self) -> Spec:
         """Return the specification details.
@@ -168,8 +183,9 @@ class StreamingHandlerConn(abc.ABC):
         """
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
-    def peer(self) -> Any:
+    def peer(self) -> Peer:
         """Establish a connection to a peer in the network.
 
         Returns:
@@ -192,8 +208,9 @@ class StreamingHandlerConn(abc.ABC):
         """
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
-    def request_headers(self) -> Any:
+    def request_headers(self) -> Headers:
         """Generate and return the request headers.
 
         Returns:
@@ -262,11 +279,13 @@ class AbstractAsyncContextManager(abc.ABC):
 class StreamingClientConn(AbstractAsyncContextManager):
     """Abstract base class for a streaming client connection."""
 
+    @property
     @abc.abstractmethod
     def spec(self) -> Spec:
         """Return the specification details."""
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def peer(self) -> Peer:
         """Return the peer information."""
@@ -277,6 +296,7 @@ class StreamingClientConn(AbstractAsyncContextManager):
         """Receives a message and processes it."""
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def request_headers(self) -> Headers:
         """Return the request headers."""
@@ -287,11 +307,13 @@ class StreamingClientConn(AbstractAsyncContextManager):
         """Send a message."""
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def response_headers(self) -> Headers:
         """Return the response headers."""
         raise NotImplementedError()
 
+    @property
     @abc.abstractmethod
     def response_trailers(self) -> Headers:
         """Return response trailers."""
@@ -306,6 +328,7 @@ class StreamingClientConn(AbstractAsyncContextManager):
 class ReceiveConn(Protocol):
     """A protocol that defines the methods required for receiving connections."""
 
+    @property
     @abc.abstractmethod
     def spec(self) -> Spec:
         """Retrieve the specification for the current object.
@@ -359,9 +382,9 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Co
 
     return ConnectRequest(
         message=message,
-        spec=conn.spec(),
-        peer=conn.peer(),
-        headers=conn.request_headers(),
+        spec=conn.spec,
+        peer=conn.peer,
+        headers=conn.request_headers,
         method=method.value,
     )
 
@@ -379,7 +402,7 @@ async def recieve_unary_response[T](conn: StreamingClientConn, t: type[T]) -> Co
     """
     message = await receive_unary_message(conn, t)
 
-    return ConnectResponse(message, conn.response_headers(), conn.response_trailers())
+    return ConnectResponse(message, conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

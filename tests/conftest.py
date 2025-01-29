@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import socket
 import threading
 import time
@@ -228,6 +229,7 @@ def run_hypercorn_in_thread(
     app: hypercorn.typing.ASGIFramework, config: hypercorn.config.Config
 ) -> typing.Iterator[ServerConfig]:
     config.bind = ["localhost:0"]
+    logging.disable(logging.WARNING)
 
     logger = ExtractURLLogger(config)
     config._log = logger

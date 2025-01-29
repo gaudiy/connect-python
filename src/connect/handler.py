@@ -78,14 +78,12 @@ class HandlerConfig:
         """
         self.procedure = procedure
         self.stream_type = stream_type
-        self.codecs = {
-            codec.name(): codec
-            for codec in [
-                ProtoBinaryCodec(),
-                ProtoJSONCodec(CodecNameType.JSON),
-                ProtoJSONCodec(CodecNameType.JSON_CHARSET_UTF8),
-            ]
-        }
+        codecs: list[Codec] = [
+            ProtoBinaryCodec(),
+            ProtoJSONCodec(CodecNameType.JSON),
+            ProtoJSONCodec(CodecNameType.JSON_CHARSET_UTF8),
+        ]
+        self.codecs = {codec.name: codec for codec in codecs}
         self.compressions = [GZipCompression()]
         self.descriptor = options.descriptor
         self.compress_min_bytes = options.compress_min_bytes

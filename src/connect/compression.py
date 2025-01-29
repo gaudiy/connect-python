@@ -16,6 +16,7 @@ class Compression(abc.ABC):
 
     """
 
+    @property
     @abc.abstractmethod
     def name(self) -> str:
         """Return the name of the compression algorithm.
@@ -57,10 +58,13 @@ class Compression(abc.ABC):
 class GZipCompression(Compression):
     """A class to handle GZip compression and decompression."""
 
+    _name: str
+
     def __init__(self) -> None:
         """Initialize the compression object with the default compression method."""
-        self.__name = COMPRESSION_GZIP
+        self._name = COMPRESSION_GZIP
 
+    @property
     def name(self) -> str:
         """Return the name attribute of the object.
 
@@ -68,7 +72,7 @@ class GZipCompression(Compression):
             str: The name attribute.
 
         """
-        return self.__name
+        return self._name
 
     def compress(self, data: bytes) -> bytes:
         """Compresse the given data using gzip compression.
@@ -120,7 +124,7 @@ def get_compresion_from_name(name: str | None, compressions: list[Compression]) 
     """
     compresoin = (
         next(
-            (compression for compression in compressions if compression.name() == name),
+            (compression for compression in compressions if compression.name == name),
             None,
         )
         if name

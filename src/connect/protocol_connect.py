@@ -122,6 +122,7 @@ class ConnectHandler(ProtocolHandler):
         self._methods = methods
         self.accept = accept
 
+    @property
     def methods(self) -> list[HTTPMethod]:
         """Return the list of HTTP methods.
 
@@ -234,7 +235,7 @@ class ConnectHandler(ProtocolHandler):
         if self.params.spec.stream_type != StreamType.Unary:
             # TODO(tsubakiky): Add streaming support
             pass
-        response_headers[accept_compression_header] = f"{', '.join(c.name() for c in self.params.compressions)}"
+        response_headers[accept_compression_header] = f"{', '.join(c.name for c in self.params.compressions)}"
 
         peer = Peer(
             address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
@@ -260,6 +261,7 @@ class ConnectHandler(ProtocolHandler):
                     compression=request_compression,
                     read_max_bytes=self.params.read_max_bytes,
                 ),
+                request_headers=Headers(request.headers, encoding="latin-1"),
                 response_headers=response_headers,
                 response_trailers=response_trailers,
             )
@@ -492,7 +494,7 @@ class ConnectMarshaler:
                 Code.RESOURCE_EXHAUSTED,
             )
 
-        self.headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name()
+        self.headers[CONNECT_UNARY_HEADER_COMPRESSION] = self.compression.name
 
         return data
 
@@ -513,6 +515,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     _spec: Spec
     marshaler: ConnectMarshaler
     unmarshaler: ConnectUnmarshaler
+    _request_headers: Headers
     _response_headers: Headers
     _response_trailers: Headers
 
@@ -523,6 +526,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         spec: Spec,
         marshaler: ConnectMarshaler,
         unmarshaler: ConnectUnmarshaler,
+        request_headers: Headers,
         response_headers: Headers,
         response_trailers: Headers | None = None,
     ) -> None:
@@ -534,6 +538,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             spec (Spec): The specification object.
             marshaler (ConnectMarshaler): The marshaler to serialize data.
             unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
+            request_headers (Headers): The headers for the request.
             response_headers (Headers): The headers for the response.
             response_trailers (Headers, optional): The trailers for the response.
 
@@ -543,9 +548,11 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         self._spec = spec
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
+        self._request_headers = request_headers
         self._response_headers = response_headers
         self._response_trailers = response_trailers or Headers()
 
+    @property
     def spec(self) -> Spec:
         """Return the specification object.
 
@@ -555,6 +562,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         return self._spec
 
+    @property
     def peer(self) -> Peer:
         """Return the peer associated with this instance.
 
@@ -576,14 +584,15 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         obj = await self.unmarshaler.unmarshal(message)
         return obj
 
-    def request_headers(self) -> Mapping[str, str]:
+    @property
+    def request_headers(self) -> Headers:
         """Retrieve the headers from the request.
 
         Returns:
             Mapping[str, str]: A dictionary-like object containing the request headers.
 
         """
-        return self.request.headers
+        return self._request_headers
 
     def send(self, message: Any) -> bytes:
         """Send a message by marshaling it into bytes.
@@ -657,6 +666,7 @@ class ConnectClient(ProtocolClient):
             query={},
         )
 
+    @property
     def peer(self) -> Peer:
         """Return the peer associated with this instance.
 
@@ -684,7 +694,7 @@ class ConnectClient(ProtocolClient):
             headers[HEADER_USER_AGENT] = DEFAULT_CONNECT_USER_AGENT
 
         headers[CONNECT_HEADER_PROTOCOL_VERSION] = CONNECT_PROTOCOL_VERSION
-        headers[HEADER_CONTENT_TYPE] = connect_content_type_from_codec_name(stream_type, self.params.codec.name())
+        headers[HEADER_CONTENT_TYPE] = connect_content_type_from_codec_name(stream_type, self.params.codec.name)
 
         accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
         if stream_type != StreamType.Unary:
@@ -692,7 +702,7 @@ class ConnectClient(ProtocolClient):
             pass
 
         if self.params.compressions:
-            headers[accept_compression_header] = ", ".join(c.name() for c in self.params.compressions)
+            headers[accept_compression_header] = ", ".join(c.name for c in self.params.compressions)
 
     def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
         """Establish a connection based on the provided specification and headers.
@@ -714,7 +724,7 @@ class ConnectClient(ProtocolClient):
 
             unary_conn = ConnectUnaryClientConn(
                 spec=spec,
-                peer=self.peer(),
+                peer=self.peer,
                 url=self.params.url,
                 compressions=self.params.compressions,
                 request_headers=headers,
@@ -803,7 +813,7 @@ class ConnectUnaryRequestMarshaler:
         if self.enable_get:
             if self.stable_codec is None:
                 raise ConnectError(
-                    f"codec {self.connect_marshaler.codec.name()} doesn't support stable marshal; can't use get",
+                    f"codec {self.connect_marshaler.codec.name} doesn't support stable marshal; can't use get",
                     Code.INTERNAL,
                 )
             else:
@@ -874,7 +884,7 @@ class ConnectUnaryRequestMarshaler:
         url = self.url
         url = url.update_query({
             CONNECT_UNARY_CONNECT_QUERY_PARAMETER: CONNECT_UNARY_CONNECT_QUERY_VALUE,
-            CONNECT_UNARY_ENCODING_QUERY_PARAMETER: self.connect_marshaler.codec.name(),
+            CONNECT_UNARY_ENCODING_QUERY_PARAMETER: self.connect_marshaler.codec.name,
         })
         if self.stable_codec.is_binary() or compressed:
             url = url.update_query({
@@ -893,9 +903,7 @@ class ConnectUnaryRequestMarshaler:
                     Code.INTERNAL,
                 )
 
-            url = url.update_query({
-                CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER: self.connect_marshaler.compression.name()
-            })
+            url = url.update_query({CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER: self.connect_marshaler.compression.name})
 
         return url
 
@@ -1083,6 +1091,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
         return headers
 
+    @property
     def spec(self) -> Spec:
         """Return the specification of the protocol.
 
@@ -1092,6 +1101,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """
         return self._spec
 
+    @property
     def peer(self) -> Peer:
         """Return the peer object associated with this instance.
 
@@ -1113,6 +1123,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         obj = await self.unmarshaler.unmarshal(message)
         return obj
 
+    @property
     def request_headers(self) -> Headers:
         """Retrieve the request headers.
 
@@ -1192,6 +1203,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
         return data
 
+    @property
     def response_headers(self) -> Headers:
         """Return the response headers.
 
@@ -1201,6 +1213,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """
         return self._response_headers
 
+    @property
     def response_trailers(self) -> Headers:
         """Return the response trailers.
 
@@ -1223,7 +1236,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
             self._response_trailers[key[len(CONNECT_UNARY_TRAILER_PREFIX) :]] = value
 
         connect_validate_unary_response_content_type(
-            self.marshaler.connect_marshaler.codec.name(),
+            self.marshaler.connect_marshaler.codec.name,
             response.status,
             self._response_headers.get(HEADER_CONTENT_TYPE, ""),
         )
@@ -1232,10 +1245,10 @@ class ConnectUnaryClientConn(StreamingClientConn):
         if (
             compression
             and compression != COMPRESSION_IDENTITY
-            and not any(c.name() == compression for c in self.compressions)
+            and not any(c.name == compression for c in self.compressions)
         ):
             raise ConnectError(
-                f"unknown encoding {compression}: accepted encodings are {', '.join(c.name() for c in self.compressions)}",
+                f"unknown encoding {compression}: accepted encodings are {', '.join(c.name for c in self.compressions)}",
                 Code.INTERNAL,
             )
 

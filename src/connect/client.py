@@ -198,7 +198,7 @@ class Client[T_Request, T_Response]:
         unary_spec = config.spec(StreamType.Unary)
 
         async def _unary_func(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
-            async with protocol_client.conn(unary_spec, request.headers()) as conn:
+            async with protocol_client.conn(unary_spec, request.headers) as conn:
 
                 def on_request_send(r: httpcore.Request) -> None:
                     method = r.method
@@ -217,9 +217,9 @@ class Client[T_Request, T_Response]:
         unary_func = apply_interceptors(_unary_func, options.interceptors)
 
         async def call_unary(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
-            request._spec = unary_spec
-            request._peer = protocol_client.peer()
-            protocol_client.write_request_headers(StreamType.Unary, request.headers())
+            request.spec = unary_spec
+            request.peer = protocol_client.peer
+            protocol_client.write_request_headers(StreamType.Unary, request.headers)
 
             if not isinstance(request.any(), input):
                 raise ConnectError(

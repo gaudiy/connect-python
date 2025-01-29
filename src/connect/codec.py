@@ -31,6 +31,7 @@ class Codec(abc.ABC):
 
     """
 
+    @property
     @abc.abstractmethod
     def name(self) -> str:
         """Return the name of the codec.
@@ -117,6 +118,7 @@ class StableCodec(Codec):
 class ProtoBinaryCodec(StableCodec):
     """ProtoBinaryCodec is a codec for serializing and deserializing protobuf messages."""
 
+    @property
     def name(self) -> str:
         """Return the name of the codec.
 
@@ -219,6 +221,7 @@ class ProtoJSONCodec(StableCodec):
         """
         self._name = name
 
+    @property
     def name(self) -> str:
         """Return the name of the codec.
 

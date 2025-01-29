@@ -19,22 +19,9 @@ from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
 
 
-async def ping_proto(scope: Scope, receive: Receive, send: Send) -> None:
-    assert scope["type"] == "http"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [[b"content-type", b"application/proto"]],
-    })
-
-    response = PingResponse(name="test").SerializeToString()
-
-    await send({"type": "http.response.body", "body": response})
-
-
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_proto)], indirect=["hypercorn_server"])
-async def test_client_call_unary(hypercorn_server: ServerConfig) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(None)], indirect=["hypercorn_server"])
+async def test_post_application_proto(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
@@ -45,7 +32,7 @@ async def test_client_call_unary(hypercorn_server: ServerConfig) -> None:
     assert response.message.name == "test"
 
 
-async def ping_response_gzip(scope: Scope, receive: Receive, send: Send) -> None:
+async def post_response_gzip(scope: Scope, receive: Receive, send: Send) -> None:
     assert scope["type"] == "http"
     await send({
         "type": "http.response.start",
@@ -60,8 +47,8 @@ async def ping_response_gzip(scope: Scope, receive: Receive, send: Send) -> None
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_response_gzip)], indirect=["hypercorn_server"])
-async def test_client_call_unary_with_response_gzip(hypercorn_server: ServerConfig) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(post_response_gzip)], indirect=["hypercorn_server"])
+async def test_post_response_gzip(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
@@ -70,7 +57,7 @@ async def test_client_call_unary_with_response_gzip(hypercorn_server: ServerConf
     await client.call_unary(ping_request)
 
 
-async def ping_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
+async def post_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
     assert scope["type"] == "http"
     await send({
         "type": "http.response.start",
@@ -93,8 +80,8 @@ async def ping_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_request_gzip)], indirect=["hypercorn_server"])
-async def test_client_call_unary_with_request_gzip(hypercorn_server: ServerConfig) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(post_request_gzip)], indirect=["hypercorn_server"])
+async def test_post_request_gzip(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(
@@ -105,7 +92,7 @@ async def test_client_call_unary_with_request_gzip(hypercorn_server: ServerConfi
     await client.call_unary(ping_request)
 
 
-async def ping_proto_get(scope: Scope, receive: Receive, send: Send) -> None:
+async def get_application_proto(scope: Scope, receive: Receive, send: Send) -> None:
     assert scope["type"] == "http"
     await send({
         "type": "http.response.start",
@@ -151,8 +138,8 @@ async def ping_proto_get(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(ping_proto_get)], indirect=["hypercorn_server"])
-async def test_client_call_unary_get(hypercorn_server: ServerConfig) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(get_application_proto)], indirect=["hypercorn_server"])
+async def test_get_application_proto(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(
@@ -166,7 +153,7 @@ async def test_client_call_unary_get(hypercorn_server: ServerConfig) -> None:
     await client.call_unary(ping_request)
 
 
-async def ping_proto_unimplemented_error(scope: Scope, receive: Receive, send: Send) -> None:
+async def post_not_found(scope: Scope, receive: Receive, send: Send) -> None:
     assert scope["type"] == "http"
     await send({
         "type": "http.response.start",
@@ -178,10 +165,8 @@ async def ping_proto_unimplemented_error(scope: Scope, receive: Receive, send: S
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(
-    ["hypercorn_server"], [pytest.param(ping_proto_unimplemented_error)], indirect=["hypercorn_server"]
-)
-async def test_client_call_unary_unimplemented_error(hypercorn_server: ServerConfig) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(post_not_found)], indirect=["hypercorn_server"])
+async def test_post_not_found(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
@@ -194,7 +179,7 @@ async def test_client_call_unary_unimplemented_error(hypercorn_server: ServerCon
     assert excinfo.value.code == Code.UNIMPLEMENTED
 
 
-async def ping_proto_invalid_content_type_prefix_error(scope: Scope, receive: Receive, send: Send) -> None:
+async def post_invalid_content_type_prefix(scope: Scope, receive: Receive, send: Send) -> None:
     assert scope["type"] == "http"
     await send({
         "type": "http.response.start",
@@ -207,9 +192,9 @@ async def ping_proto_invalid_content_type_prefix_error(scope: Scope, receive: Re
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    ["hypercorn_server"], [pytest.param(ping_proto_invalid_content_type_prefix_error)], indirect=["hypercorn_server"]
+    ["hypercorn_server"], [pytest.param(post_invalid_content_type_prefix)], indirect=["hypercorn_server"]
 )
-async def test_client_call_unary_invalid_content_type_prefix_error(hypercorn_server: ServerConfig) -> None:
+async def test_post_invalid_content_type_prefix(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
@@ -221,7 +206,7 @@ async def test_client_call_unary_invalid_content_type_prefix_error(hypercorn_ser
     assert excinfo.value.code == Code.UNKNOWN
 
 
-async def ping_proto_json_error_with_details(scope: Scope, receive: Receive, send: Send) -> None:
+async def post_error_details(scope: Scope, receive: Receive, send: Send) -> None:
     import google.protobuf.json_format
     import google.protobuf.struct_pb2 as struct_pb2
 
@@ -252,10 +237,8 @@ async def ping_proto_json_error_with_details(scope: Scope, receive: Receive, sen
 
 
 @pytest.mark.asyncio()
-@pytest.mark.parametrize(
-    ["hypercorn_server"], [pytest.param(ping_proto_json_error_with_details)], indirect=["hypercorn_server"]
-)
-async def test_client_call_unary_json_error_with_details(hypercorn_server: ServerConfig) -> None:
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(post_error_details)], indirect=["hypercorn_server"])
+async def test_post_error_details(hypercorn_server: ServerConfig) -> None:
     import google.protobuf.struct_pb2 as struct_pb2
 
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
@@ -275,7 +258,7 @@ async def test_client_call_unary_json_error_with_details(hypercorn_server: Serve
     assert got_msg.fields["age"].number_value == 1
 
 
-async def ping_proto_json_compressed_error_with_details(scope: Scope, receive: Receive, send: Send) -> None:
+async def post_compressed_error_details(scope: Scope, receive: Receive, send: Send) -> None:
     import google.protobuf.json_format
     import google.protobuf.struct_pb2 as struct_pb2
 
@@ -309,9 +292,9 @@ async def ping_proto_json_compressed_error_with_details(scope: Scope, receive: R
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(
-    ["hypercorn_server"], [pytest.param(ping_proto_json_compressed_error_with_details)], indirect=["hypercorn_server"]
+    ["hypercorn_server"], [pytest.param(post_compressed_error_details)], indirect=["hypercorn_server"]
 )
-async def test_client_call_unary_json_compressed_error_with_details(hypercorn_server: ServerConfig) -> None:
+async def test_post_compressed_error_details(hypercorn_server: ServerConfig) -> None:
     import google.protobuf.struct_pb2 as struct_pb2
 
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
@@ -336,7 +319,7 @@ async def test_client_call_unary_json_compressed_error_with_details(hypercorn_se
 
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(["hypercorn_server"], [pytest.param(None)], indirect=["hypercorn_server"])
-async def test_client_call_unary_with_interceptor(hypercorn_server: ServerConfig) -> None:
+async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
     import io
     import tempfile
 

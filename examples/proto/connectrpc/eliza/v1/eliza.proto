@@ -29,6 +29,16 @@ service ElizaService {
   rpc Say(SayRequest) returns (SayResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+  // Converse is a bidirectional RPC. The caller may exchange multiple
+  // back-and-forth messages with Eliza over a long-lived connection. Eliza
+  // responds to each ConverseRequest with a ConverseResponse.
+  rpc Converse(stream ConverseRequest) returns (stream ConverseResponse) {}
+  // IntroduceServer is a server streaming RPC. Given the caller's name, Eliza
+  // returns a stream of sentences to introduce itself.
+  rpc IntroduceServer(IntroduceRequest) returns (stream IntroduceResponse) {}
+  // IntroduceClient is a client streaming RPC. Given the caller's name, Eliza
+  // returns a stream of sentences to introduce itself.
+  rpc IntroduceClient(stream IntroduceRequest) returns (IntroduceResponse) {}
 }
 
 // SayRequest is a single-sentence request.
@@ -38,5 +48,27 @@ message SayRequest {
 
 // SayResponse is a single-sentence response.
 message SayResponse {
+  string sentence = 1;
+}
+
+// ConverseRequest is a single sentence request sent as part of a
+// back-and-forth conversation.
+message ConverseRequest {
+  string sentence = 1;
+}
+
+// ConverseResponse is a single sentence response sent in answer to a
+// ConverseRequest.
+message ConverseResponse {
+  string sentence = 1;
+}
+
+// IntroduceRequest asks Eliza to introduce itself to the named user.
+message IntroduceRequest {
+  string name = 1;
+}
+
+// IntroduceResponse is one sentence of Eliza's introductory monologue.
+message IntroduceResponse {
   string sentence = 1;
 }

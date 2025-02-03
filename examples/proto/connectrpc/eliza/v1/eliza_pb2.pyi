@@ -56,3 +56,75 @@ class SayResponse(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
 
 global___SayResponse = SayResponse
+
+@typing.final
+class ConverseRequest(google.protobuf.message.Message):
+    """ConverseRequest is a single sentence request sent as part of a
+    back-and-forth conversation.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SENTENCE_FIELD_NUMBER: builtins.int
+    sentence: builtins.str
+    def __init__(
+        self,
+        *,
+        sentence: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
+
+global___ConverseRequest = ConverseRequest
+
+@typing.final
+class ConverseResponse(google.protobuf.message.Message):
+    """ConverseResponse is a single sentence response sent in answer to a
+    ConverseRequest.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SENTENCE_FIELD_NUMBER: builtins.int
+    sentence: builtins.str
+    def __init__(
+        self,
+        *,
+        sentence: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
+
+global___ConverseResponse = ConverseResponse
+
+@typing.final
+class IntroduceRequest(google.protobuf.message.Message):
+    """IntroduceRequest asks Eliza to introduce itself to the named user."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NAME_FIELD_NUMBER: builtins.int
+    name: builtins.str
+    def __init__(
+        self,
+        *,
+        name: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["name", b"name"]) -> None: ...
+
+global___IntroduceRequest = IntroduceRequest
+
+@typing.final
+class IntroduceResponse(google.protobuf.message.Message):
+    """IntroduceResponse is one sentence of Eliza's introductory monologue."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SENTENCE_FIELD_NUMBER: builtins.int
+    sentence: builtins.str
+    def __init__(
+        self,
+        *,
+        sentence: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
+
+global___IntroduceResponse = IntroduceResponse

@@ -43,6 +43,8 @@ from connect.version import __version__
 CONNECT_UNARY_HEADER_COMPRESSION = "Content-Encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "Accept-Encoding"
 CONNECT_UNARY_TRAILER_PREFIX = "Trailer-"
+CONNECT_STREAMING_HEADER_COMPRESSION = "Connect-Content-Encoding"
+CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION = "Connect-Accept-Encoding"
 CONNECT_HEADER_TIMEOUT = "Connect-Timeout-Ms"
 CONNECT_HEADER_PROTOCOL_VERSION = "Connect-Protocol-Version"
 CONNECT_PROTOCOL_VERSION = "1"
@@ -182,9 +184,8 @@ class ConnectHandler(ProtocolHandler):
 
             accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
         else:
-            # Streaming support is not yet implemented
-            content_encoding = None
-            accept_encoding = None
+            content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+            accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
 
         request_compression, response_compression = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
@@ -233,8 +234,10 @@ class ConnectHandler(ProtocolHandler):
         response_headers[HEADER_CONTENT_TYPE] = content_type
         accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
         if self.params.spec.stream_type != StreamType.Unary:
-            # TODO(tsubakiky): Add streaming support
-            pass
+            accept_compression_header = CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION
+            if response_compression and response_compression.name != COMPRESSION_IDENTITY:
+                response_headers[CONNECT_STREAMING_HEADER_COMPRESSION] = response_compression.name
+
         response_headers[accept_compression_header] = f"{', '.join(c.name for c in self.params.compressions)}"
 
         peer = Peer(
@@ -413,6 +416,16 @@ class ConnectUnmarshaler:
             ) from e
 
         return obj
+
+
+class ConnectStreamingUnmarshaler:
+    stream: AsyncByteStream | None
+
+    def __init__(self, stream: AsyncByteStream | None) -> None:
+        self.stream = stream
+
+    def unmarshal(self, message: Any) -> Any:
+        pass
 
 
 class ConnectMarshaler:
@@ -638,6 +651,37 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         return HTTPMethod(self.request.method)
+
+
+class ConnectStreamingHandlerConn(StreamingHandlerConn):
+    request: Request
+    _peer: Peer
+    _spec: Spec
+    marshaler: ConnectMarshaler
+    unmarshaler: ConnectUnmarshaler
+    _request_headers: Headers
+    _response_headers: Headers
+    _response_trailers: Headers
+
+    def __init__(
+        self,
+        request: Request,
+        peer: Peer,
+        spec: Spec,
+        marshaler: ConnectMarshaler,
+        unmarshaler: ConnectUnmarshaler,
+        request_headers: Headers,
+        response_headers: Headers,
+        response_trailers: Headers | None = None,
+    ) -> None:
+        self.request = request
+        self._peer = peer
+        self._spec = spec
+        self.marshaler = marshaler
+        self.unmarshaler = unmarshaler
+        self._request_headers = request_headers
+        self._response_headers = response_headers
+        self._response_trailers = response_trailers or Headers()
 
 
 class ConnectClient(ProtocolClient):

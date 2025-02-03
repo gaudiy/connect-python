@@ -1,7 +1,7 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
 import http
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from http import HTTPMethod
 from typing import Any
 
@@ -44,6 +44,7 @@ from connect.protocol_connect import (
 )
 from connect.request import Request
 from connect.response import Response
+from connect.utils import is_async_callable, is_async_generator
 
 
 class HandlerConfig:
@@ -142,24 +143,13 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-type UnaryFunc[T_Request, T_Response] = Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
+UnaryFuncType = Callable[[StreamingHandlerConn], Awaitable[bytes]]
+ServerStreamFuncType = Callable[[StreamingHandlerConn], AsyncGenerator[bytes]]
 
 
-class UnaryHandler[T_Request, T_Response]:
-    """A handler for unary RPC (Remote Procedure Call) operations.
-
-    Attributes:
-        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
-        procedure (str): The name of the procedure being handled.
-        unary (UnaryFunc[Req, Res]): The unary function to be executed.
-        input (type[Req]): The type of the request input.
-        output (type[Res]): The type of the response output.
-        options (ConnectOptions | None): Optional configuration options for the handler.
-
-    """
-
+class Hander:
     procedure: str
-    implementation: Callable[[StreamingHandlerConn], Awaitable[bytes]]
+    implementation: UnaryFuncType | ServerStreamFuncType
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
@@ -167,43 +157,16 @@ class UnaryHandler[T_Request, T_Response]:
     def __init__(
         self,
         procedure: str,
-        unary: UnaryFunc[T_Request, T_Response],
-        input: type[T_Request],
-        output: type[T_Response],
-        options: ConnectOptions | None = None,
+        implementation: UnaryFuncType | ServerStreamFuncType,
+        protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]],
+        allow_methods: str,
+        accept_post: str,
     ):
-        """Initialize the unary handler."""
-        options = options if options is not None else ConnectOptions()
-
-        config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
-        protocol_handlers = create_protocol_handlers(config)
-
-        async def _untyped(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
-            response = await unary(request)
-
-            return response
-
-        untyped = apply_interceptors(_untyped, options.interceptors)
-
-        async def implementation(conn: StreamingHandlerConn) -> bytes:
-            request = await receive_unary_request(conn, input)
-            response = await untyped(request)
-
-            if not isinstance(response.any(), output):
-                raise ConnectError(
-                    f"expected response of type: {output.__name__}",
-                    Code.INTERNAL,
-                )
-
-            conn.response_headers.update(exclude_protocol_headers(response.headers))
-            conn.response_trailers.update(exclude_protocol_headers(response.trailers))
-            return conn.send(response.any())
-
         self.procedure = procedure
         self.implementation = implementation
-        self.protocol_handlers = mapped_method_handlers(protocol_handlers)
-        self.allow_methods = sorted_allow_method_value(protocol_handlers)
-        self.accept_post = sorted_accept_post_value(protocol_handlers)
+        self.protocol_handlers = protocol_handlers
+        self.allow_methods = allow_methods
+        self.accept_post = accept_post
 
     async def handle(self, request: Request) -> Response:
         """Handle an incoming HTTP request and return an HTTP response.
@@ -273,7 +236,13 @@ class UnaryHandler[T_Request, T_Response]:
 
             with anyio.fail_after(timeout_sec):
                 conn = await protocol_handler.conn(request, response_headers, response_trailers)
-                body = await self.implementation(conn)
+                if is_async_generator(self.implementation):
+                    # TODO(tsubakiky): implement stream handler
+                    pass
+                elif is_async_callable(self.implementation):
+                    body = await self.implementation(conn)
+                else:
+                    raise NotImplementedError("handler implementation must be a coroutine or async generator")
 
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
@@ -295,3 +264,104 @@ class UnaryHandler[T_Request, T_Response]:
         response = Response(content=body, headers=response_headers, status_code=status_code)
 
         return response
+
+
+type UnaryFunc[T_Request, T_Response] = Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
+
+
+class UnaryHandler[T_Request, T_Response](Hander):
+    """A handler for unary RPC (Remote Procedure Call) operations.
+
+    Attributes:
+        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
+        procedure (str): The name of the procedure being handled.
+        unary (UnaryFunc[Req, Res]): The unary function to be executed.
+        input (type[Req]): The type of the request input.
+        output (type[Res]): The type of the response output.
+        options (ConnectOptions | None): Optional configuration options for the handler.
+
+    """
+
+    procedure: str
+    implementation: Callable[[StreamingHandlerConn], Awaitable[bytes]]
+    protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
+    allow_methods: str
+    accept_post: str
+
+    def __init__(
+        self,
+        procedure: str,
+        unary: UnaryFunc[T_Request, T_Response],
+        input: type[T_Request],
+        output: type[T_Response],
+        options: ConnectOptions | None = None,
+    ):
+        """Initialize the unary handler."""
+        options = options if options is not None else ConnectOptions()
+
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
+        protocol_handlers = create_protocol_handlers(config)
+
+        async def _untyped(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
+            response = await unary(request)
+
+            return response
+
+        untyped = apply_interceptors(_untyped, options.interceptors)
+
+        async def implementation(conn: StreamingHandlerConn) -> bytes:
+            request = await receive_unary_request(conn, input)
+            response = await untyped(request)
+
+            if not isinstance(response.any(), output):
+                raise ConnectError(
+                    f"expected response of type: {output.__name__}",
+                    Code.INTERNAL,
+                )
+
+            conn.response_headers.update(exclude_protocol_headers(response.headers))
+            conn.response_trailers.update(exclude_protocol_headers(response.trailers))
+            return conn.send(response.any())
+
+        super().__init__(
+            procedure=procedure,
+            implementation=implementation,
+            protocol_handlers=mapped_method_handlers(protocol_handlers),
+            allow_methods=sorted_allow_method_value(protocol_handlers),
+            accept_post=sorted_accept_post_value(protocol_handlers),
+        )
+
+
+class ServerStreamHander[T_Request, T_Response](Hander):
+    def __init__(
+        self,
+        procedure: str,
+        stream: Callable[[T_Request], AsyncGenerator[T_Response]],
+        input: type[T_Request],
+        output: type[T_Response],
+        options: ConnectOptions | None = None,
+    ):
+        options = options if options is not None else ConnectOptions()
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
+        protocol_handlers = create_protocol_handlers(config)
+
+        async def implementation(conn: StreamingHandlerConn) -> AsyncGenerator[bytes]:
+            request = await receive_unary_request(conn, input)
+
+            # return streaming(request.any())
+            async for response in stream(request.any()):
+                if not isinstance(response, output):
+                    raise ConnectError(
+                        f"expected response of type: {output.__name__}",
+                        Code.INTERNAL,
+                    )
+
+                yield b""
+
+        super().__init__(
+            procedure=procedure,
+            implementation=implementation,
+            protocol_handlers=mapped_method_handlers(protocol_handlers),
+            allow_methods=sorted_allow_method_value(protocol_handlers),
+            accept_post=sorted_accept_post_value(protocol_handlers),
+        )

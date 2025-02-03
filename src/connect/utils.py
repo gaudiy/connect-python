@@ -2,6 +2,7 @@
 
 import asyncio
 import functools
+import inspect
 import typing
 from collections.abc import Awaitable, Callable
 
@@ -9,6 +10,23 @@ import anyio.to_thread
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+
+def is_async_generator(
+    func: typing.Any,
+) -> typing.TypeGuard[Callable[..., typing.AsyncIterator[typing.Any]]]:
+    """Check if a function is an async generator.
+
+    Args:
+        func: The function to check.
+
+    Returns:
+        TypeGuard[Callable[..., AsyncIterator]: True if the function is
+            an async generator, False otherwise.
+
+    """
+    return inspect.isasyncgenfunction(func) or callable(func) and inspect.isasyncgenfunction(func.__call__)
+
 
 type AwaitableCallable[T] = typing.Callable[..., typing.Awaitable[T]]
 

@@ -1,7 +1,7 @@
 """Defines the streaming handler connection interfaces and related utilities."""
 
 import abc
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
 from types import TracebackType
@@ -196,7 +196,7 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def receive(self, message: Any) -> Any:
+    async def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and processes it.
 
         Args:
@@ -276,6 +276,55 @@ class AbstractAsyncContextManager(abc.ABC):
         return None
 
 
+class UnaryClientConn(AbstractAsyncContextManager):
+    """Abstract base class for a streaming client connection."""
+
+    @property
+    @abc.abstractmethod
+    def spec(self) -> Spec:
+        """Return the specification details."""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def peer(self) -> Peer:
+        """Return the peer information."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def receive(self, message: Any) -> Any:
+        """Receives a message and processes it."""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def request_headers(self) -> Headers:
+        """Return the request headers."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def send(self, message: Any) -> bytes:
+        """Send a message."""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_headers(self) -> Headers:
+        """Return the response headers."""
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_trailers(self) -> Headers:
+        """Return response trailers."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def on_request_send(self, fn: Callable[..., Any]) -> None:
+        """Handle the request send event."""
+        raise NotImplementedError()
+
+
 class StreamingClientConn(AbstractAsyncContextManager):
     """Abstract base class for a streaming client connection."""
 
@@ -292,7 +341,7 @@ class StreamingClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def receive(self, message: Any) -> None:
+    def receive(self, message: Any) -> AsyncGenerator[Any]:
         """Receives a message and processes it."""
         raise NotImplementedError()
 
@@ -389,7 +438,7 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Co
     )
 
 
-async def recieve_unary_response[T](conn: StreamingClientConn, t: type[T]) -> ConnectResponse[T]:
+async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> ConnectResponse[T]:
     """Receive a unary response from a streaming client connection.
 
     Args:
@@ -405,6 +454,11 @@ async def recieve_unary_response[T](conn: StreamingClientConn, t: type[T]) -> Co
     return ConnectResponse(message, conn.response_headers, conn.response_trailers)
 
 
+async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncGenerator[ConnectResponse[T]]:
+    async for message in receive_stream_message(conn, t):
+        yield ConnectResponse(message, conn.response_headers, conn.response_trailers)
+
+
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
     """Receives a unary message from the given connection.
 
@@ -418,3 +472,8 @@ async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
     """
     message = await conn.receive(t)
     return message
+
+
+async def receive_stream_message[T](conn: StreamingClientConn, t: type[T]) -> AsyncGenerator[T]:
+    async for message in conn.receive(t):
+        yield message

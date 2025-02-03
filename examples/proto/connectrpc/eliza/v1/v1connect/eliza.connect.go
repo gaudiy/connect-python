@@ -22,7 +22,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "examples/proto/connectrpc/eliza/v1"
+	v1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
 	http "net/http"
 	strings "strings"
 )

@@ -2,9 +2,20 @@
 
 import base64
 import contextlib
+import http
 import json
+import struct
 import types
-from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterable,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterator,
+    Mapping,
+)
+from enum import Flag
 from http import HTTPMethod, HTTPStatus
 from sys import version
 from typing import Any
@@ -17,9 +28,9 @@ from yarl import URL
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
-from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
+from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType, UnaryClientConn
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
-from connect.headers import Headers
+from connect.headers import Headers, include_request_headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.protocol import (
     HEADER_CONTENT_ENCODING,
@@ -43,6 +54,8 @@ from connect.version import __version__
 CONNECT_UNARY_HEADER_COMPRESSION = "Content-Encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "Accept-Encoding"
 CONNECT_UNARY_TRAILER_PREFIX = "Trailer-"
+CONNECT_STREAMING_HEADER_COMPRESSION = "Connect-Content-Encoding"
+CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION = "Connect-Accept-Encoding"
 CONNECT_HEADER_TIMEOUT = "Connect-Timeout-Ms"
 CONNECT_HEADER_PROTOCOL_VERSION = "Connect-Protocol-Version"
 CONNECT_PROTOCOL_VERSION = "1"
@@ -698,13 +711,15 @@ class ConnectClient(ProtocolClient):
 
         accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
         if stream_type != StreamType.Unary:
-            # TODO(tsubakiky): Add streaming support
-            pass
+            headers[CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION] = COMPRESSION_IDENTITY
+            accept_compression_header = CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION
+            if self.params.compression_name and self.params.compression_name != COMPRESSION_IDENTITY:
+                headers[CONNECT_STREAMING_HEADER_COMPRESSION] = self.params.compression_name
 
         if self.params.compressions:
             headers[accept_compression_header] = ", ".join(c.name for c in self.params.compressions)
 
-    def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+    def conn(self, spec: Spec, headers: Headers) -> UnaryClientConn:
         """Establish a connection based on the provided specification and headers.
 
         Args:
@@ -718,7 +733,7 @@ class ConnectClient(ProtocolClient):
             NotImplementedError: If the stream type is not supported.
 
         """
-        conn: StreamingClientConn
+        conn: UnaryClientConn
         if spec.stream_type == StreamType.Unary:
             compression = get_compresion_from_name(self.params.compression_name, self.params.compressions)
 
@@ -752,6 +767,24 @@ class ConnectClient(ProtocolClient):
         else:
             # TODO(tsubakiky): Add streaming support
             pass
+
+        return conn
+
+    def stream_conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+        conn = ConnectStreamingClientConn(
+            spec=spec,
+            peer=self.peer,
+            url=self.params.url,
+            compressions=self.params.compressions,
+            request_headers=headers,
+            marshaler=ConnectStreamingMarshaler(
+                codec=self.params.codec,
+                compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+            ),
+            unmarshaler=ConnectStreamingUnmarshaler(
+                codec=self.params.codec,
+            ),
+        )
 
         return conn
 
@@ -1000,11 +1033,318 @@ class ResponseAsyncByteStream(AsyncByteStream):
                 async for chunk in self.aiterator:
                     yield chunk
 
+    async def aclose(self) -> None:
+        """Asynchronously close the stream."""
+        if self.aclose_func is not None:
+            with map_httpcore_exceptions():
+                await self.aclose_func()
+
+
+class EnvelopeFlags(Flag):
+    compressed = 0b00000001
+    end_stream = 0b00000010
+
+
+class Envelope:
+    data: bytes
+    flags: EnvelopeFlags
+
+    def __init__(self, data: bytes, flags: EnvelopeFlags) -> None:
+        self.data = data
+        self.flags = flags
+
+    def encode(self) -> bytes:
+        return self.encode_header(self.flags.value, self.data) + self.data
+
+    def encode_header(self, flags: int, data: bytes) -> bytes:
+        return struct.pack(envelope_header_pack, flags, len(data))
+
+    @classmethod
+    def decode_header(self, header: bytes) -> tuple[EnvelopeFlags, int]:
+        flags, data_len = struct.unpack(envelope_header_pack, header)
+        return EnvelopeFlags(flags), data_len
+
+
+envelope_header_length = 5
+envelope_header_pack = ">BI"
+
+
+class ConnectStreamingMarshaler:
+    codec: Codec
+    compression: Compression | None
+    envelope: Envelope
+
+    def __init__(self, codec: Codec, compression: Compression | None) -> None:
+        self.codec = codec
+        self.compression = compression
+        self.envelope = Envelope(data=b"", flags=EnvelopeFlags(0))
+
+    def marshal(self, message: Any) -> bytes:
+        try:
+            data = self.codec.marshal(message)
+        except Exception as e:
+            raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
+
+        if self.compression is None:
+            return self.envelope.encode()
+
+        data = self.compression.compress(data)
+        self.envelope.flags |= EnvelopeFlags.compressed
+
+        return self.envelope.encode()
+
+
+class ConnectStreamingUnmarshaler:
+    codec: Codec
+    compression: Compression | None
+    stream: AsyncByteStream | None
+    buffer: bytes
+    _header: tuple[EnvelopeFlags, int] | None
+
+    def __init__(
+        self, codec: Codec, stream: AsyncByteStream | None = None, compression: Compression | None = None
+    ) -> None:
+        self.codec = codec
+        self.compression = compression
+        self.stream = stream
+        self.buffer = b""
+        self._header = None
+
+    def shift_buffer(self, size: int) -> bytes:
+        buffer = self.buffer[:size]
+        self.buffer = self.buffer[size:]
+        return buffer
+
+    async def unmarshal(self, message: Any) -> AsyncGenerator[Any]:
+        if self.stream is None:
+            raise ConnectError("stream is not set", Code.INTERNAL)
+
+        try:
+            async for chunk in self.stream:
+                self.buffer += chunk
+
+                while len(self.buffer) >= envelope_header_length:
+                    if self._header:
+                        flags, data_len = self._header
+                    else:
+                        header_data = self.shift_buffer(envelope_header_length)
+                        flags, data_len = Envelope.decode_header(header_data)
+                        self._header = (flags, data_len)
+
+                    if data_len > len(self.buffer):
+                        break
+
+                    data = self.shift_buffer(data_len)
+                    if EnvelopeFlags.end_stream in flags:
+                        err_data = json.loads(data)
+
+                        if "error" in err_data:
+                            raise ConnectError(err_data["error"], Code.UNKNOWN)
+
+                        return
+
+                    if EnvelopeFlags.compressed in flags and self.compression:
+                        data = self.compression.decompress(data, -1)
+
+                    try:
+                        obj = self.codec.unmarshal(data, message)
+                    except Exception as e:
+                        raise ConnectError(
+                            f"unmarshal message: {str(e)}",
+                            Code.INVALID_ARGUMENT,
+                        ) from e
+
+                    yield obj
+                    self._header = None
+        finally:
+            if self.stream:
+                await self.stream.aclose()
+
 
 EventHook = Callable[..., Any]
 
 
-class ConnectUnaryClientConn(StreamingClientConn):
+class ConnectStreamingClientConn(StreamingClientConn):
+    _spec: Spec
+    _peer: Peer
+    url: URL
+    compressions: list[Compression]
+    marshaler: ConnectStreamingMarshaler
+    unmarshaler: ConnectStreamingUnmarshaler
+    response_content: bytes | None
+    _response_headers: Headers
+    _response_trailers: Headers
+    _request_headers: Headers
+
+    _pool: httpcore.AsyncConnectionPool
+
+    def __init__(
+        self,
+        spec: Spec,
+        peer: Peer,
+        url: URL,
+        compressions: list[Compression],
+        request_headers: Headers,
+        marshaler: ConnectStreamingMarshaler,
+        unmarshaler: ConnectStreamingUnmarshaler,
+    ) -> None:
+        self._spec = spec
+        self._peer = peer
+        self.url = url
+        self.compressions = compressions
+        self.marshaler = marshaler
+        self.unmarshaler = unmarshaler
+        self.response_content = None
+        self._response_headers = Headers()
+        self._response_trailers = Headers()
+        self._pool = self._connection_pool()
+        self._request_headers = request_headers
+
+    @property
+    def spec(self) -> Spec:
+        """Return the specification of the protocol.
+
+        Returns:
+            Spec: The specification object of the protocol.
+
+        """
+        return self._spec
+
+    @property
+    def peer(self) -> Peer:
+        """Return the peer object associated with this instance.
+
+        :return: The peer object.
+        :rtype: Peer
+        """
+        return self._peer
+
+    @property
+    def request_headers(self) -> Headers:
+        """Retrieve the request headers.
+
+        Returns:
+            Headers: A dictionary-like object containing the request headers.
+
+        """
+        return self._request_headers
+
+    @property
+    def response_headers(self) -> Headers:
+        """Return the response headers.
+
+        Returns:
+            Headers: A dictionary-like object containing the response headers.
+
+        """
+        return self._response_headers
+
+    @property
+    def response_trailers(self) -> Headers:
+        """Return the response trailers.
+
+        Response trailers are additional headers sent after the response body.
+
+        Returns:
+            Headers: A dictionary containing the response trailers.
+
+        """
+        return self._response_trailers
+
+    def on_request_send(self, fn: EventHook) -> None:
+        """Register a callback function to be called when a request is sent.
+
+        Args:
+            fn (EventHook): The callback function to be registered. This function
+                            will be called with the request details when a request
+                            is sent.
+
+        """
+        pass
+
+    def _connection_pool(self, http2: bool = False) -> httpcore.AsyncConnectionPool:
+        return httpcore.AsyncConnectionPool(
+            http2=http2,
+        )
+
+    async def receive(self, message: Any) -> AsyncGenerator[Any]:
+        async for obj in self.unmarshaler.unmarshal(message):
+            yield obj
+
+    async def send(self, message: Any) -> bytes:
+        data = self.marshaler.marshal(message)
+
+        headers = include_request_headers(headers=self._request_headers, url=self.url, content=data)
+        request = httpcore.Request(
+            method=HTTPMethod.POST,
+            url=httpcore.URL(
+                scheme=self.url.scheme,
+                host=self.url.host or "",
+                port=self.url.port,
+                target=self.url.raw_path,
+            ),
+            headers=list(headers.items()),
+            content=data,
+        )
+        with map_httpcore_exceptions():
+            response = await self._pool.handle_async_request(request)
+
+        if response.status != http.HTTPStatus.OK:
+            await response.aread()
+
+        self.unmarshaler.stream = ResponseAsyncByteStream(
+            aiterator=response.aiter_stream(), aclose_func=response.aclose
+        )
+
+        return data
+
+    async def _validate_response(self, response: httpcore.Response) -> None:
+        compression = self._response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+        if (
+            compression
+            and compression != COMPRESSION_IDENTITY
+            and not any(c.name == compression for c in self.compressions)
+        ):
+            raise ConnectError(
+                f"unknown encoding {compression}: accepted encodings are {', '.join(c.name for c in self.compressions)}",
+                Code.INTERNAL,
+            )
+
+        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+        self.response_headers.update(Headers(response.headers))
+
+    async def aclose(self) -> None:
+        await self._pool.aclose()
+
+    async def __aenter__(self) -> "ConnectStreamingClientConn":
+        await self._pool.__aenter__()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        exc: BaseException | None = None,
+        tb: types.TracebackType | None = None,
+    ) -> None:
+        """Exit the runtime context related to this object.
+
+        This method is called when the execution of the block inside the `async with` statement is finished.
+        It delegates the exit process to the underlying pool's `__aexit__` method.
+
+        Args:
+            exc_type (type[BaseException] | None): The exception type if an exception was raised, otherwise None.
+            exc (BaseException | None): The exception instance if an exception was raised, otherwise None.
+            tb (types.TracebackType | None): The traceback object if an exception was raised, otherwise None.
+
+        Returns:
+            None
+
+        """
+        with map_httpcore_exceptions():
+            await self._pool.__aexit__(exc_type, exc, tb)
+
+
+class ConnectUnaryClientConn(UnaryClientConn):
     """A client connection for unary RPCs using the Connect protocol.
 
     Attributes:
@@ -1110,7 +1450,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """
         return self._peer
 
-    async def receive(self, message: Any) -> None:
+    async def receive(self, message: Any) -> Any:
         """Asynchronously receives a message, unmarshals it, and returns the resulting object.
 
         Args:

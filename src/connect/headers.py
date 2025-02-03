@@ -1,7 +1,9 @@
 """Provides a Headers class for managing HTTP headers."""
 
-from collections.abc import Iterator, KeysView, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterable, Iterable, Iterator, KeysView, Mapping, MutableMapping, Sequence
 from typing import Any, Union
+
+from yarl import URL
 
 HeaderTypes = Union[
     "Headers",
@@ -241,3 +243,37 @@ class Headers(MutableMapping[str, str]):
 
         """
         return len(self._list)
+
+
+DEFAULT_PORTS = {
+    b"ftp": 21,
+    b"http": 80,
+    b"https": 443,
+    b"ws": 80,
+    b"wss": 443,
+}
+
+
+def include_request_headers(
+    headers: Headers,
+    url: URL,
+    content: None | bytes | Iterable[bytes] | AsyncIterable[bytes],
+) -> Headers:
+    headers_set = {k.lower() for k, v in headers.items()}
+
+    if "host" not in headers_set:
+        default_port = DEFAULT_PORTS.get(url.scheme.encode())
+        if url.host is None:
+            header_value = "localhost"
+        else:
+            header_value = url.host if url.port is None or url.port == default_port else f"{url.host}:{url.port}"
+        headers["Host"] = header_value
+
+    if content is not None and "content-length" not in headers_set and "transfer-encoding" not in headers_set:
+        if isinstance(content, bytes):
+            content_length = str(len(content))
+            headers["Content-Length"] = content_length
+        else:
+            headers["Transfer-Encoding"] = "chunked"
+
+    return headers

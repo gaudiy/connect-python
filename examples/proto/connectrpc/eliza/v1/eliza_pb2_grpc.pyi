@@ -46,6 +46,31 @@ class ElizaServiceStub:
     ]
     """Say is a unary RPC. Eliza responds to the prompt with a single sentence."""
 
+    Converse: grpc.StreamStreamMultiCallable[
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseRequest,
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseResponse,
+    ]
+    """Converse is a bidirectional RPC. The caller may exchange multiple
+    back-and-forth messages with Eliza over a long-lived connection. Eliza
+    responds to each ConverseRequest with a ConverseResponse.
+    """
+
+    IntroduceServer: grpc.UnaryStreamMultiCallable[
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceRequest,
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse,
+    ]
+    """IntroduceServer is a server streaming RPC. Given the caller's name, Eliza
+    returns a stream of sentences to introduce itself.
+    """
+
+    IntroduceClient: grpc.StreamUnaryMultiCallable[
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceRequest,
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse,
+    ]
+    """IntroduceClient is a client streaming RPC. Given the caller's name, Eliza
+    returns a stream of sentences to introduce itself.
+    """
+
 class ElizaServiceAsyncStub:
     """ElizaService provides a way to talk to Eliza, a port of the DOCTOR script
     for Joseph Weizenbaum's original ELIZA program. Created in the mid-1960s at
@@ -60,6 +85,31 @@ class ElizaServiceAsyncStub:
         examples.proto.connectrpc.eliza.v1.eliza_pb2.SayResponse,
     ]
     """Say is a unary RPC. Eliza responds to the prompt with a single sentence."""
+
+    Converse: grpc.aio.StreamStreamMultiCallable[
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseRequest,
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseResponse,
+    ]
+    """Converse is a bidirectional RPC. The caller may exchange multiple
+    back-and-forth messages with Eliza over a long-lived connection. Eliza
+    responds to each ConverseRequest with a ConverseResponse.
+    """
+
+    IntroduceServer: grpc.aio.UnaryStreamMultiCallable[
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceRequest,
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse,
+    ]
+    """IntroduceServer is a server streaming RPC. Given the caller's name, Eliza
+    returns a stream of sentences to introduce itself.
+    """
+
+    IntroduceClient: grpc.aio.StreamUnaryMultiCallable[
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceRequest,
+        examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse,
+    ]
+    """IntroduceClient is a client streaming RPC. Given the caller's name, Eliza
+    returns a stream of sentences to introduce itself.
+    """
 
 class ElizaServiceServicer(metaclass=abc.ABCMeta):
     """ElizaService provides a way to talk to Eliza, a port of the DOCTOR script
@@ -77,5 +127,36 @@ class ElizaServiceServicer(metaclass=abc.ABCMeta):
         context: _ServicerContext,
     ) -> typing.Union[examples.proto.connectrpc.eliza.v1.eliza_pb2.SayResponse, collections.abc.Awaitable[examples.proto.connectrpc.eliza.v1.eliza_pb2.SayResponse]]:
         """Say is a unary RPC. Eliza responds to the prompt with a single sentence."""
+
+    @abc.abstractmethod
+    def Converse(
+        self,
+        request_iterator: _MaybeAsyncIterator[examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseRequest],
+        context: _ServicerContext,
+    ) -> typing.Union[collections.abc.Iterator[examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseResponse], collections.abc.AsyncIterator[examples.proto.connectrpc.eliza.v1.eliza_pb2.ConverseResponse]]:
+        """Converse is a bidirectional RPC. The caller may exchange multiple
+        back-and-forth messages with Eliza over a long-lived connection. Eliza
+        responds to each ConverseRequest with a ConverseResponse.
+        """
+
+    @abc.abstractmethod
+    def IntroduceServer(
+        self,
+        request: examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceRequest,
+        context: _ServicerContext,
+    ) -> typing.Union[collections.abc.Iterator[examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse], collections.abc.AsyncIterator[examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse]]:
+        """IntroduceServer is a server streaming RPC. Given the caller's name, Eliza
+        returns a stream of sentences to introduce itself.
+        """
+
+    @abc.abstractmethod
+    def IntroduceClient(
+        self,
+        request_iterator: _MaybeAsyncIterator[examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceRequest],
+        context: _ServicerContext,
+    ) -> typing.Union[examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse, collections.abc.Awaitable[examples.proto.connectrpc.eliza.v1.eliza_pb2.IntroduceResponse]]:
+        """IntroduceClient is a client streaming RPC. Given the caller's name, Eliza
+        returns a stream of sentences to introduce itself.
+        """
 
 def add_ElizaServiceServicer_to_server(servicer: ElizaServiceServicer, server: typing.Union[grpc.Server, grpc.aio.Server]) -> None: ...

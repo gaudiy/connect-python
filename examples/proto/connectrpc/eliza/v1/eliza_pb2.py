@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n.examples/proto/connectrpc/eliza/v1/eliza.proto\x12\x13\x63onnectrpc.eliza.v1\"\x1e\n\nSayRequest\x12\x10\n\x08sentence\x18\x01 \x01(\t\"\x1f\n\x0bSayResponse\x12\x10\n\x08sentence\x18\x01 \x01(\t2]\n\x0c\x45lizaService\x12M\n\x03Say\x12\x1f.connectrpc.eliza.v1.SayRequest\x1a .connectrpc.eliza.v1.SayResponse\"\x03\x90\x02\x01\x42$Z\"examples/proto/connectrpc/eliza/v1b\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n.examples/proto/connectrpc/eliza/v1/eliza.proto\x12\x13\x63onnectrpc.eliza.v1\"\x1e\n\nSayRequest\x12\x10\n\x08sentence\x18\x01 \x01(\t\"\x1f\n\x0bSayResponse\x12\x10\n\x08sentence\x18\x01 \x01(\t\"#\n\x0f\x43onverseRequest\x12\x10\n\x08sentence\x18\x01 \x01(\t\"$\n\x10\x43onverseResponse\x12\x10\n\x08sentence\x18\x01 \x01(\t\" \n\x10IntroduceRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\"%\n\x11IntroduceResponse\x12\x10\n\x08sentence\x18\x01 \x01(\t2\x88\x03\n\x0c\x45lizaService\x12M\n\x03Say\x12\x1f.connectrpc.eliza.v1.SayRequest\x1a .connectrpc.eliza.v1.SayResponse\"\x03\x90\x02\x01\x12]\n\x08\x43onverse\x12$.connectrpc.eliza.v1.ConverseRequest\x1a%.connectrpc.eliza.v1.ConverseResponse\"\x00(\x01\x30\x01\x12\x64\n\x0fIntroduceServer\x12%.connectrpc.eliza.v1.IntroduceRequest\x1a&.connectrpc.eliza.v1.IntroduceResponse\"\x00\x30\x01\x12\x64\n\x0fIntroduceClient\x12%.connectrpc.eliza.v1.IntroduceRequest\x1a&.connectrpc.eliza.v1.IntroduceResponse\"\x00(\x01\x42$Z\"examples/proto/connectrpc/eliza/v1b\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -38,6 +38,14 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SAYREQUEST']._serialized_end=101
   _globals['_SAYRESPONSE']._serialized_start=103
   _globals['_SAYRESPONSE']._serialized_end=134
-  _globals['_ELIZASERVICE']._serialized_start=136
-  _globals['_ELIZASERVICE']._serialized_end=229
+  _globals['_CONVERSEREQUEST']._serialized_start=136
+  _globals['_CONVERSEREQUEST']._serialized_end=171
+  _globals['_CONVERSERESPONSE']._serialized_start=173
+  _globals['_CONVERSERESPONSE']._serialized_end=209
+  _globals['_INTRODUCEREQUEST']._serialized_start=211
+  _globals['_INTRODUCEREQUEST']._serialized_end=243
+  _globals['_INTRODUCERESPONSE']._serialized_start=245
+  _globals['_INTRODUCERESPONSE']._serialized_end=282
+  _globals['_ELIZASERVICE']._serialized_start=285
+  _globals['_ELIZASERVICE']._serialized_end=677
 # @@protoc_insertion_point(module_scope)

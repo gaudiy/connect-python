@@ -720,57 +720,55 @@ class ConnectClient(ProtocolClient):
             headers[accept_compression_header] = ", ".join(c.name for c in self.params.compressions)
 
     def conn(self, spec: Spec, headers: Headers) -> UnaryClientConn:
-        """Establish a connection based on the provided specification and headers.
+        """Establish a unary client connection with the given specifications and headers.
 
         Args:
-            spec (Spec): The specification for the connection, including stream type.
-            headers (Headers): The headers to be included in the connection request.
+            spec (Spec): The specification for the connection.
+            headers (Headers): The headers to be included in the request.
 
         Returns:
-            StreamingClientConn: The established connection object.
-
-        Raises:
-            NotImplementedError: If the stream type is not supported.
+            UnaryClientConn: The established unary client connection.
 
         """
-        conn: UnaryClientConn
-        if spec.stream_type == StreamType.Unary:
-            compression = get_compresion_from_name(self.params.compression_name, self.params.compressions)
-
-            unary_conn = ConnectUnaryClientConn(
-                spec=spec,
-                peer=self.peer,
-                url=self.params.url,
-                compressions=self.params.compressions,
-                request_headers=headers,
-                marshaler=ConnectUnaryRequestMarshaler(
-                    connect_marshaler=ConnectMarshaler(
-                        codec=self.params.codec,
-                        compression=compression,
-                        compress_min_bytes=self.params.compress_min_bytes,
-                        send_max_bytes=self.params.send_max_bytes,
-                        headers=headers,
-                    )
-                ),
-                unmarshaler=ConnectUnmarshaler(
+        conn = ConnectUnaryClientConn(
+            spec=spec,
+            peer=self.peer,
+            url=self.params.url,
+            compressions=self.params.compressions,
+            request_headers=headers,
+            marshaler=ConnectUnaryRequestMarshaler(
+                connect_marshaler=ConnectMarshaler(
                     codec=self.params.codec,
-                    read_max_bytes=self.params.read_max_bytes,
-                ),
-            )
-            if spec.idempotency_level == IdempotencyLevel.NO_SIDE_EFFECTS:
-                unary_conn.marshaler.enable_get = self.params.enable_get
-                unary_conn.marshaler.url = self.params.url
-                if isinstance(self.params.codec, StableCodec):
-                    unary_conn.marshaler.stable_codec = self.params.codec
-
-            conn = unary_conn
-        else:
-            # TODO(tsubakiky): Add streaming support
-            pass
+                    compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                    compress_min_bytes=self.params.compress_min_bytes,
+                    send_max_bytes=self.params.send_max_bytes,
+                    headers=headers,
+                )
+            ),
+            unmarshaler=ConnectUnmarshaler(
+                codec=self.params.codec,
+                read_max_bytes=self.params.read_max_bytes,
+            ),
+        )
+        if spec.idempotency_level == IdempotencyLevel.NO_SIDE_EFFECTS:
+            conn.marshaler.enable_get = self.params.enable_get
+            conn.marshaler.url = self.params.url
+            if isinstance(self.params.codec, StableCodec):
+                conn.marshaler.stable_codec = self.params.codec
 
         return conn
 
     def stream_conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+        """Establish a streaming connection using the provided specification and headers.
+
+        Args:
+            spec (Spec): The specification for the streaming connection.
+            headers (Headers): The headers to be included in the connection request.
+
+        Returns:
+            StreamingClientConn: An instance of the streaming client connection.
+
+        """
         conn = ConnectStreamingClientConn(
             spec=spec,
             peer=self.peer,
@@ -1041,27 +1039,77 @@ class ResponseAsyncByteStream(AsyncByteStream):
 
 
 class EnvelopeFlags(Flag):
+    """EnvelopeFlags is an enumeration that defines flags for an envelope.
+
+    Attributes:
+        compressed (int): Flag indicating that the envelope is compressed.
+        end_stream (int): Flag indicating that the envelope marks the end of a stream.
+
+    """
+
     compressed = 0b00000001
     end_stream = 0b00000010
 
 
 class Envelope:
+    """A class to represent an Envelope which contains data and flags.
+
+    Attributes:
+        data (bytes): The data contained in the envelope.
+        flags (EnvelopeFlags): The flags associated with the envelope.
+        _format (str): The format string used for struct packing and unpacking.
+
+    """
+
     data: bytes
     flags: EnvelopeFlags
     _format: str = ">BI"
 
     def __init__(self, data: bytes, flags: EnvelopeFlags) -> None:
+        """Initialize a new instance of the class.
+
+        Args:
+            data (bytes): The data to be processed.
+            flags (EnvelopeFlags): The flags associated with the envelope.
+
+        """
         self.data = data
         self.flags = flags
 
     def encode(self) -> bytes:
+        """Encode the header and data into a byte sequence.
+
+        Returns:
+            bytes: The encoded byte sequence consisting of the header and data.
+
+        """
         return self.encode_header(self.flags.value, self.data) + self.data
 
     def encode_header(self, flags: int, data: bytes) -> bytes:
+        """Encode the header for a protocol message.
+
+        Args:
+            flags (int): The flags to include in the header.
+            data (bytes): The data to be sent, used to determine the length.
+
+        Returns:
+            bytes: The encoded header as a byte string.
+
+        """
         return struct.pack(self._format, flags, len(data))
 
     @staticmethod
     def decode_header(data: bytes) -> tuple[EnvelopeFlags, int] | None:
+        """Decode the header from the given byte data.
+
+        Args:
+            data (bytes): The byte data containing the header to decode.
+
+        Returns:
+            tuple[EnvelopeFlags, int] | None: A tuple containing the decoded EnvelopeFlags and data length if the data is valid,
+                                              otherwise None if the data length is less than 5 bytes.
+
+        """
         if len(data) < 5:
             return None
 
@@ -1070,6 +1118,16 @@ class Envelope:
 
     @staticmethod
     def decode(data: bytes) -> "tuple[Envelope | None, int]":
+        """Decode the given byte data into an Envelope object and its length.
+
+        Args:
+            data (bytes): The byte data to decode.
+
+        Returns:
+            tuple[Envelope | None, int]: A tuple containing the decoded Envelope object (or None if decoding fails)
+            and the length of the data. If the data is insufficient to decode, returns (None, data_len).
+
+        """
         header = Envelope.decode_header(data)
         if header is None:
             return None, 0
@@ -1081,18 +1139,58 @@ class Envelope:
         return Envelope(data[5 : 5 + data_len], flags), data_len
 
     def is_set(self, flag: EnvelopeFlags) -> bool:
+        """Check if a specific flag is set in the envelope.
+
+        Args:
+            flag (EnvelopeFlags): The flag to check.
+
+        Returns:
+            bool: True if the flag is set, False otherwise.
+
+        """
         return flag in self.flags
 
 
 class ConnectStreamingMarshaler:
+    """A class responsible for marshaling messages with optional compression.
+
+    Attributes:
+        codec (Codec): The codec used for marshaling messages.
+        compression (Compression | None): The compression method used for compressing messages, if any.
+
+    """
+
     codec: Codec
     compression: Compression | None
 
     def __init__(self, codec: Codec, compression: Compression | None) -> None:
+        """Initialize the ProtocolConnect instance.
+
+        Args:
+            codec (Codec): The codec to be used for encoding and decoding data.
+            compression (Compression | None): The compression method to be used, or None if no compression is to be applied.
+
+        """
         self.codec = codec
         self.compression = compression
 
     def marshal(self, message: Any) -> bytes:
+        """Marshals a message into a bytes object.
+
+        This method serializes the given message using the codec's marshal method.
+        If compression is enabled, the serialized data is compressed before being
+        encoded into an Envelope object.
+
+        Args:
+            message (Any): The message to be marshaled.
+
+        Returns:
+            bytes: The marshaled message as a bytes object.
+
+        Raises:
+            ConnectError: If an error occurs during the marshaling process.
+
+        """
         try:
             data = self.codec.marshal(message)
         except Exception as e:
@@ -1110,6 +1208,16 @@ class ConnectStreamingMarshaler:
 
 
 class ConnectStreamingUnmarshaler:
+    """A class to handle the unmarshaling of streaming data.
+
+    Attributes:
+        codec (Codec): The codec used for unmarshaling data.
+        compression (Compression | None): The compression method used, if any.
+        stream (AsyncByteStream | None): The asynchronous byte stream to read data from.
+        buffer (bytes): The buffer to store incoming data chunks.
+
+    """
+
     codec: Codec
     compression: Compression | None
     stream: AsyncByteStream | None
@@ -1118,12 +1226,33 @@ class ConnectStreamingUnmarshaler:
     def __init__(
         self, codec: Codec, stream: AsyncByteStream | None = None, compression: Compression | None = None
     ) -> None:
+        """Initialize the ProtocolConnect object.
+
+        Args:
+            codec (Codec): The codec to be used for encoding and decoding data.
+            stream (AsyncByteStream, optional): The asynchronous byte stream for data transmission. Defaults to None.
+            compression (Compression, optional): The compression method to be used. Defaults to None.
+
+        """
         self.codec = codec
         self.compression = compression
         self.stream = stream
         self.buffer = b""
 
     async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
+        """Asynchronously unmarshals messages from the stream.
+
+        Args:
+            message (Any): The message type to unmarshal.
+
+        Yields:
+            Any: The unmarshaled message object.
+
+        Raises:
+            ConnectError: If the stream is not set, if there is an error in the
+                          unmarshaling process, or if there is a protocol error.
+
+        """
         if self.stream is None:
             raise ConnectError("stream is not set", Code.INTERNAL)
 
@@ -1173,6 +1302,8 @@ EventHook = Callable[..., Any]
 
 
 class ConnectStreamingClientConn(StreamingClientConn):
+    """ConnectStreamingClientConn is a class that manages a streaming client connection using the Connect protocol."""
+
     _spec: Spec
     _peer: Peer
     url: URL
@@ -1197,6 +1328,22 @@ class ConnectStreamingClientConn(StreamingClientConn):
         unmarshaler: ConnectStreamingUnmarshaler,
         event_hooks: None | (Mapping[str, list[EventHook]]) = None,
     ) -> None:
+        """Initialize a new instance of the class.
+
+        Args:
+            spec (Spec): The specification object.
+            peer (Peer): The peer object.
+            url (URL): The URL for the connection.
+            compressions (list[Compression]): List of compression methods.
+            request_headers (Headers): The headers for the request.
+            marshaler (ConnectStreamingMarshaler): The marshaler for streaming.
+            unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler for streaming.
+            event_hooks (None | Mapping[str, list[EventHook]], optional): Event hooks for request and response. Defaults to None.
+
+        Returns:
+            None
+
+        """
         event_hooks = {} if event_hooks is None else event_hooks
 
         self._spec = spec
@@ -1283,10 +1430,33 @@ class ConnectStreamingClientConn(StreamingClientConn):
         )
 
     async def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Asynchronously receives and processes a message.
+
+        Args:
+            message (Any): The message to be processed.
+
+        Yields:
+            Any: Objects obtained from unmarshaling the message.
+
+        """
         async for obj in self.unmarshaler.unmarshal(message):
             yield obj
 
     async def send(self, message: Any) -> bytes:
+        """Asynchronously sends a message and returns the marshaled data.
+
+        Args:
+            message (Any): The message to be sent.
+
+        Returns:
+            bytes: The marshaled data of the message.
+
+        Raises:
+            httpcore.RequestError: If there is an error with the request.
+            httpcore.ResponseError: If there is an error with the response.
+            http.HTTPStatus: If the response status is not OK.
+
+        """
         data = self.marshaler.marshal(message)
 
         headers = include_request_headers(headers=self._request_headers, url=self.url, content=data)
@@ -1336,9 +1506,22 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self.response_headers.update(Headers(response.headers))
 
     async def aclose(self) -> None:
+        """Asynchronously close the connection pool.
+
+        This method will close all connections in the pool asynchronously.
+        """
         await self._pool.aclose()
 
     async def __aenter__(self) -> "ConnectStreamingClientConn":
+        """Asynchronous context manager entry method.
+
+        This method is called when entering the asynchronous context using the `async with` statement.
+        It awaits the entry of the connection pool and returns the current instance of `ConnectStreamingClientConn`.
+
+        Returns:
+            ConnectStreamingClientConn: The current instance of the connection.
+
+        """
         await self._pool.__aenter__()
         return self
 

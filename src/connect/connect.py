@@ -455,6 +455,19 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> Connec
 
 
 async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncIterator[ConnectResponse[T]]:
+    """Asynchronously receives a stream of responses from a streaming client connection.
+
+    Args:
+        conn (StreamingClientConn): The streaming client connection to receive messages from.
+        t (type[T]): The type of the messages to be received.
+
+    Yields:
+        ConnectResponse[T]: An asynchronous iterator of ConnectResponse objects containing the received messages, response headers, and response trailers.
+
+    Type Parameters:
+        T: The type of the messages to be received.
+
+    """
     async for message in conn.receive(t):
         yield ConnectResponse(message, conn.response_headers, conn.response_trailers)
 

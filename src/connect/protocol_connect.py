@@ -1123,7 +1123,7 @@ class ConnectStreamingUnmarshaler:
         self.stream = stream
         self.buffer = b""
 
-    async def unmarshal(self, message: Any) -> AsyncGenerator[Any]:
+    async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
         if self.stream is None:
             raise ConnectError("stream is not set", Code.INTERNAL)
 
@@ -1159,10 +1159,8 @@ class ConnectStreamingUnmarshaler:
                         ) from e
 
                     yield obj
-
         finally:
-            if self.stream:
-                await self.stream.aclose()
+            await self.stream.aclose()
 
             if len(self.buffer) > 0:
                 header = Envelope.decode_header(self.buffer)
@@ -1277,7 +1275,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             http2=http2,
         )
 
-    async def receive(self, message: Any) -> AsyncGenerator[Any]:
+    async def receive(self, message: Any) -> AsyncIterator[Any]:
         async for obj in self.unmarshaler.unmarshal(message):
             yield obj
 

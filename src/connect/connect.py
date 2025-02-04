@@ -1,7 +1,7 @@
 """Defines the streaming handler connection interfaces and related utilities."""
 
 import abc
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
 from types import TracebackType
@@ -341,7 +341,7 @@ class StreamingClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> AsyncGenerator[Any]:
+    def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and processes it."""
         raise NotImplementedError()
 
@@ -454,8 +454,8 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> Connec
     return ConnectResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncGenerator[ConnectResponse[T]]:
-    async for message in receive_stream_message(conn, t):
+async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncIterator[ConnectResponse[T]]:
+    async for message in conn.receive(t):
         yield ConnectResponse(message, conn.response_headers, conn.response_trailers)
 
 
@@ -472,8 +472,3 @@ async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
     """
     message = await conn.receive(t)
     return message
-
-
-async def receive_stream_message[T](conn: StreamingClientConn, t: type[T]) -> AsyncGenerator[T]:
-    async for message in conn.receive(t):
-        yield message

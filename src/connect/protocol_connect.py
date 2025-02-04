@@ -261,14 +261,14 @@ class ConnectHandler(ProtocolHandler):
                 request=request,
                 peer=peer,
                 spec=self.params.spec,
-                marshaler=ConnectMarshaler(
+                marshaler=ConnectUnaryMarshaler(
                     codec=codec,
                     compress_min_bytes=self.params.compress_min_bytes,
                     send_max_bytes=self.params.send_max_bytes,
                     compression=response_compression,
                     headers=response_headers,
                 ),
-                unmarshaler=ConnectUnmarshaler(
+                unmarshaler=ConnectUnaryUnmarshaler(
                     stream=request_stream,
                     codec=codec,
                     compression=request_compression,
@@ -326,7 +326,7 @@ class ProtocolConnect(Protocol):
         return ConnectClient(params)
 
 
-class ConnectUnmarshaler:
+class ConnectUnaryUnmarshaler:
     """A class to handle the unmarshaling of data using a specified codec.
 
     Attributes:
@@ -428,8 +428,8 @@ class ConnectUnmarshaler:
         return obj
 
 
-class ConnectMarshaler:
-    """ConnectMarshaler is responsible for serializing and optionally compressing messages.
+class ConnectUnaryMarshaler:
+    """ConnectUnaryMarshaler is responsible for serializing and optionally compressing messages.
 
     Attributes:
         codec (Codec): The codec used for serializing messages.
@@ -517,8 +517,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
     Attributes:
         request (Request): The incoming request object.
-        marshaler (ConnectMarshaler): An instance of ConnectMarshaler used to marshal messages.
-        unmarshaler (ConnectUnmarshaler): An instance of ConnectUnmarshaler used to unmarshal messages.
+        marshaler (ConnectUnaryMarshaler): An instance of ConnectUnaryMarshaler used to marshal messages.
+        unmarshaler (ConnectUnaryUnmarshaler): An instance of ConnectUnaryUnmarshaler used to unmarshal messages.
         headers (Headers): The headers for the response.
 
     """
@@ -526,8 +526,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
     request: Request
     _peer: Peer
     _spec: Spec
-    marshaler: ConnectMarshaler
-    unmarshaler: ConnectUnmarshaler
+    marshaler: ConnectUnaryMarshaler
+    unmarshaler: ConnectUnaryUnmarshaler
     _request_headers: Headers
     _response_headers: Headers
     _response_trailers: Headers
@@ -537,8 +537,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         request: Request,
         peer: Peer,
         spec: Spec,
-        marshaler: ConnectMarshaler,
-        unmarshaler: ConnectUnmarshaler,
+        marshaler: ConnectUnaryMarshaler,
+        unmarshaler: ConnectUnaryUnmarshaler,
         request_headers: Headers,
         response_headers: Headers,
         response_trailers: Headers | None = None,
@@ -549,8 +549,8 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             request (Request): The incoming request object.
             peer (Peer): The peer information.
             spec (Spec): The specification object.
-            marshaler (ConnectMarshaler): The marshaler to serialize data.
-            unmarshaler (ConnectUnmarshaler): The unmarshaler to deserialize data.
+            marshaler (ConnectUnaryMarshaler): The marshaler to serialize data.
+            unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler to deserialize data.
             request_headers (Headers): The headers for the request.
             response_headers (Headers): The headers for the response.
             response_trailers (Headers, optional): The trailers for the response.
@@ -737,7 +737,7 @@ class ConnectClient(ProtocolClient):
             compressions=self.params.compressions,
             request_headers=headers,
             marshaler=ConnectUnaryRequestMarshaler(
-                connect_marshaler=ConnectMarshaler(
+                connect_marshaler=ConnectUnaryMarshaler(
                     codec=self.params.codec,
                     compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
                     compress_min_bytes=self.params.compress_min_bytes,
@@ -745,7 +745,7 @@ class ConnectClient(ProtocolClient):
                     headers=headers,
                 )
             ),
-            unmarshaler=ConnectUnmarshaler(
+            unmarshaler=ConnectUnaryUnmarshaler(
                 codec=self.params.codec,
                 read_max_bytes=self.params.read_max_bytes,
             ),
@@ -788,21 +788,21 @@ class ConnectClient(ProtocolClient):
 
 
 class ConnectUnaryRequestMarshaler:
-    """A class responsible for marshaling unary requests using a provided ConnectMarshaler.
+    """A class responsible for marshaling unary requests using a provided ConnectUnaryMarshaler.
 
     Attributes:
-        connect_marshaler (ConnectMarshaler): An instance of ConnectMarshaler used to marshal messages.
+        connect_marshaler (ConnectUnaryMarshaler): An instance of ConnectUnaryMarshaler used to marshal messages.
 
     """
 
-    connect_marshaler: ConnectMarshaler
+    connect_marshaler: ConnectUnaryMarshaler
     enable_get: bool
     stable_codec: StableCodec | None
     url: URL | None
 
     def __init__(
         self,
-        connect_marshaler: ConnectMarshaler,
+        connect_marshaler: ConnectUnaryMarshaler,
         enable_get: bool = False,
         stable_codec: StableCodec | None = None,
         url: URL | None = None,
@@ -810,7 +810,7 @@ class ConnectUnaryRequestMarshaler:
         """Initialize the ProtocolConnect instance.
 
         Args:
-            connect_marshaler (ConnectMarshaler): The marshaler used for connecting.
+            connect_marshaler (ConnectUnaryMarshaler): The marshaler used for connecting.
             enable_get (bool, optional): Flag to enable GET requests. Defaults to False.
             stable_codec (StableCodec | None, optional): The codec to use for stable connections. Defaults to None.
             url (URL | None, optional): The URL for the connection. Defaults to None.
@@ -1558,7 +1558,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         url (URL): The URL for the connection.
         compressions (list[Compression]): List of supported compressions.
         marshaler (ConnectUnaryRequestMarshaler): The marshaler for requests.
-        unmarshaler (ConnectUnmarshaler): The unmarshaler for responses.
+        unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler for responses.
         response_content (bytes | None): The content of the response.
         _response_headers (Headers): The headers of the response.
         _response_trailers (Headers): The trailers of the response.
@@ -1573,7 +1573,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
     url: URL
     compressions: list[Compression]
     marshaler: ConnectUnaryRequestMarshaler
-    unmarshaler: ConnectUnmarshaler
+    unmarshaler: ConnectUnaryUnmarshaler
     response_content: bytes | None
     _response_headers: Headers
     _response_trailers: Headers
@@ -1589,7 +1589,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         compressions: list[Compression],
         request_headers: Headers,
         marshaler: ConnectUnaryRequestMarshaler,
-        unmarshaler: ConnectUnmarshaler,
+        unmarshaler: ConnectUnaryUnmarshaler,
         event_hooks: None | (Mapping[str, list[EventHook]]) = None,
     ) -> None:
         """Initialize the ConnectProtocol instance.
@@ -1601,7 +1601,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
             compressions (list[Compression]): List of compression methods.
             request_headers (Headers): The headers for the request.
             marshaler (ConnectUnaryRequestMarshaler): The marshaler for the request.
-            unmarshaler (ConnectUnmarshaler): The unmarshaler for the response.
+            unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler for the response.
             event_hooks (None | Mapping[str, list[EventHook]], optional): Event hooks for request and response. Defaults to None.
 
         Returns:

@@ -3,6 +3,17 @@
 from collections.abc import Iterator, KeysView, Mapping, MutableMapping, Sequence
 from typing import Any, Union
 
+from yarl import URL
+
+DEFAULT_PORTS = {
+    b"ftp": 21,
+    b"http": 80,
+    b"https": 443,
+    b"ws": 80,
+    b"wss": 443,
+}
+
+
 HeaderTypes = Union[
     "Headers",
     Mapping[str, str],
@@ -241,3 +252,35 @@ class Headers(MutableMapping[str, str]):
 
         """
         return len(self._list)
+
+
+def include_request_headers(headers: Headers, url: URL, content: bytes | None) -> Headers:
+    """Include necessary request headers if they are not already present.
+
+    This function ensures that the "Host" and "Content-Length" headers are included in the request headers.
+    If the "Host" header is missing, it will be set based on the URL's host and port.
+    If the "Content-Length" header is missing and content is provided, it will be set to the length of the content.
+
+    Args:
+        headers (Headers): The original request headers.
+        url (URL): The URL object containing the scheme, host, and port.
+        content (bytes | None): The request content, if any.
+
+    Returns:
+        Headers: The updated request headers with the necessary headers included.
+
+    """
+    if headers.get("Host") is None:
+        default_port = DEFAULT_PORTS.get(url.scheme.encode())
+        if url.host is None:
+            host = "localhost"
+        else:
+            host = url.host if url.port is None or url.port == default_port else f"{url.host}:{url.port}"
+
+        headers["Host"] = host
+
+    if content is not None and headers.get("Content-Length") is None and isinstance(content, bytes):
+        content_length = str(len(content))
+        headers["Content-Length"] = content_length
+
+    return headers

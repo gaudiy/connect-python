@@ -1,9 +1,24 @@
+// Copyright 2022-2023 The Connect Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -21,6 +36,7 @@ import (
 
 	eliza "github.com/gaudiy/connect-python/examples/cmd/examples-go/internal/eliza"
 	elizav1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
+	v1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
 	elizav1connect "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1/v1connect"
 )
 
@@ -42,6 +58,64 @@ func (e *elizaServer) Say(
 	return connect.NewResponse(&elizav1.SayResponse{
 		Sentence: reply,
 	}), nil
+}
+
+func (e *elizaServer) Converse(
+	ctx context.Context,
+	stream *connect.BidiStream[elizav1.ConverseRequest, elizav1.ConverseResponse],
+) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		request, err := stream.Receive()
+		if err != nil && errors.Is(err, io.EOF) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("receive request: %w", err)
+		}
+		reply, endSession := eliza.Reply(request.GetSentence())
+		if err := stream.Send(&elizav1.ConverseResponse{Sentence: reply}); err != nil {
+			return fmt.Errorf("send response: %w", err)
+		}
+		if endSession {
+			return nil
+		}
+	}
+}
+
+func (e *elizaServer) IntroduceServer(
+	ctx context.Context,
+	req *connect.Request[elizav1.IntroduceRequest],
+	stream *connect.ServerStream[elizav1.IntroduceResponse],
+) error {
+	name := req.Msg.GetName()
+	if name == "" {
+		name = "Anonymous User"
+	}
+	intros := eliza.GetIntroResponses(name)
+	var ticker *time.Ticker
+	if e.streamDelay > 0 {
+		ticker = time.NewTicker(e.streamDelay)
+		defer ticker.Stop()
+	}
+	for _, resp := range intros {
+		if ticker != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
+		}
+		if err := stream.Send(&elizav1.IntroduceResponse{Sentence: resp}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (e *elizaServer) IntroduceClient(context.Context, *connect.ClientStream[v1.IntroduceRequest]) (*connect.Response[v1.IntroduceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("connectrpc.eliza.v1.ElizaService.IntroduceClient is not implemented"))
 }
 
 func newCORS() *cors.Cors {
@@ -147,7 +221,6 @@ func main() {
 			log.Fatalf("HTTP listen and serve: %v", err)
 		}
 	}()
-	fmt.Printf("Listening on %s\n", srv.Addr)
 
 	<-signals
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -155,5 +228,4 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Fatalf("HTTP shutdown: %v", err) //nolint:gocritic
 	}
-	fmt.Println("Server shutdown")
 }

@@ -5,6 +5,7 @@
 """Generated connect code."""
 
 import abc
+from collections.abc import AsyncIterator
 from enum import Enum
 
 from connect.client import Client
@@ -14,18 +15,22 @@ from connect.options import ClientOptions, ConnectOptions
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2
-from ..eliza_pb2 import SayRequest, SayResponse
+from ..eliza_pb2 import IntroduceRequest, IntroduceResponse, SayRequest, SayResponse
 
 
 class ElizaServiceProcedures(Enum):
     """Procedures for the eliza service."""
 
     Say = "/connectrpc.eliza.v1.ElizaService/Say"
+    IntroduceServer = "/connectrpc.eliza.v1.ElizaService/IntroduceServer"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]
 
 ElizaService_Say_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
+ElizaService_IntroduceServer_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
+    "IntroduceServer"
+]
 
 
 class ElizaServiceClient:
@@ -35,6 +40,9 @@ class ElizaServiceClient:
         self.Say = Client[SayRequest, SayResponse](
             base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
         ).call_unary
+        self.IntroduceServer = Client[IntroduceRequest, IntroduceResponse](
+            base_url + ElizaServiceProcedures.IntroduceServer.value, IntroduceRequest, IntroduceResponse, options
+        ).call_server_stream
 
 
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
@@ -42,6 +50,10 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     async def Say(self, request: ConnectRequest[SayRequest]) -> ConnectResponse[SayResponse]: ...
+    @abc.abstractmethod
+    async def IntroduceServer(
+        self, request: ConnectRequest[IntroduceRequest]
+    ) -> AsyncIterator[ConnectResponse[IntroduceResponse]]: ...
 
 
 def create_ElizaService_handlers(

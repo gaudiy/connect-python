@@ -3,7 +3,7 @@
 These classes allow making unary calls to a specified URL with given request and response types.
 """
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import httpcore
@@ -12,8 +12,16 @@ from yarl import URL
 from connect.code import Code
 from connect.codec import Codec, ProtoBinaryCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
-from connect.connect import ConnectRequest, ConnectResponse, Spec, StreamType, recieve_unary_response
+from connect.connect import (
+    ConnectRequest,
+    ConnectResponse,
+    Spec,
+    StreamType,
+    recieve_stream_response,
+    recieve_unary_response,
+)
 from connect.error import ConnectError
+from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
 from connect.options import ClientOptions
@@ -160,6 +168,8 @@ class Client[T_Request, T_Response]:
     config: ClientConfig
     protocol_client: ProtocolClient
     _call_unary: Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
+    _call_client_stream: Callable[[AsyncIterator[ConnectRequest[T_Request]]], Awaitable[ConnectResponse[T_Response]]]
+    _call_server_stream: Callable[[ConnectRequest[T_Request]], AsyncIterator[ConnectResponse[T_Response]]]
 
     def __init__(
         self, url: str, input: type[T_Request], output: type[T_Response], options: ClientOptions | None = None
@@ -237,7 +247,31 @@ class Client[T_Request, T_Response]:
 
             return response
 
+        async def _call_server_stream(request: ConnectRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
+            headers = Headers()
+            request.spec = config.spec(StreamType.ServerStream)
+            request.peer = protocol_client.peer
+            protocol_client.write_request_headers(StreamType.ServerStream, headers)
+
+            async with protocol_client.stream_conn(config.spec(StreamType.ServerStream), headers) as conn:
+                conn.request_headers.update(request.headers)
+
+                def on_request_send(r: httpcore.Request) -> None:
+                    method = r.method
+                    try:
+                        request.set_request_method(method.decode("ascii"))
+                    except UnicodeDecodeError as e:
+                        raise TypeError(f"method must be ascii encoded: {method!r}") from e
+
+                conn.on_request_send(on_request_send)
+
+                await conn.send(request.any())
+
+                async for response in recieve_stream_response(conn=conn, t=output):
+                    yield response
+
         self._call_unary = call_unary
+        self._call_server_stream = _call_server_stream
 
     async def call_unary(self, request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
         """Asynchronously calls a unary RPC (Remote Procedure Call) with the given request.
@@ -250,3 +284,18 @@ class Client[T_Request, T_Response]:
 
         """
         return await self._call_unary(request)
+
+    async def call_server_stream(
+        self, request: ConnectRequest[T_Request]
+    ) -> AsyncIterator[ConnectResponse[T_Response]]:
+        """Asynchronously calls a server streaming RPC (Remote Procedure Call) with the given request.
+
+        Args:
+            request (ConnectRequest[T_Request]): The request object containing the data to be sent to the server.
+
+        Returns:
+            ConnectResponse[T_Response]: The response object containing the data received from the server.
+
+        """
+        async for response in self._call_server_stream(request):
+            yield response

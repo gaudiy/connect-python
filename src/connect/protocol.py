@@ -9,7 +9,7 @@ from yarl import URL
 from connect.code import Code
 from connect.codec import Codec, ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType
+from connect.connect import Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType, UnaryClientConn
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
@@ -85,8 +85,13 @@ class ProtocolClient(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+    def conn(self, spec: Spec, headers: Headers) -> UnaryClientConn:
         """Return the connection for the client."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def stream_conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+        """Return the streaming connection for the client."""
         raise NotImplementedError()
 
 

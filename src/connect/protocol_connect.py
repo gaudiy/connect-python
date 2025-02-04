@@ -1061,17 +1061,27 @@ class Envelope:
         return struct.pack(self._format, flags, len(data))
 
     @staticmethod
-    def decode_header(data: bytes, size: int) -> tuple[EnvelopeFlags, int]:
-        flags, data_len = struct.unpack(Envelope._format, data[:size])
+    def decode_header(data: bytes) -> tuple[EnvelopeFlags, int] | None:
+        if len(data) < 5:
+            return None
+
+        flags, data_len = struct.unpack(Envelope._format, data[:5])
         return EnvelopeFlags(flags), data_len
 
-    @classmethod
-    def decode(cls, data: bytes, size: int) -> "Envelope":
-        flags, data_len = Envelope.decode_header(data, size)
-        if len(data) < size + data_len:
-            raise ValueError(f"promised {data_len} bytes in enveloped message, got {len(data) - size} bytes")
+    @staticmethod
+    def decode(data: bytes) -> "tuple[Envelope | None, int]":
+        header = Envelope.decode_header(data)
+        if header is None:
+            return None, 0
 
-        return cls(data[size : size + data_len], flags)
+        flags, data_len = header
+        if len(data) < 5 + data_len:
+            return None, data_len
+
+        return Envelope(data[5 : 5 + data_len], flags), data_len
+
+    def is_set(self, flag: EnvelopeFlags) -> bool:
+        return flag in self.flags
 
 
 class ConnectStreamingMarshaler:
@@ -1113,21 +1123,6 @@ class ConnectStreamingUnmarshaler:
         self.stream = stream
         self.buffer = b""
 
-    def _peek_header(self, buffer: bytes) -> tuple[EnvelopeFlags, int] | None:
-        if len(buffer) < 5:
-            return None
-
-        return Envelope.decode_header(buffer, 5)
-
-    def _shift_envelope(self, buffer: bytes, header: tuple[EnvelopeFlags, int]) -> Envelope | None:
-        data_len = header[1]
-        if len(buffer) < 5 + data_len:
-            return None
-
-        data = buffer[5 : 5 + data_len]
-        self.buffer = buffer[5 + data_len :]
-        return Envelope(data, header[0])
-
     async def unmarshal(self, message: Any) -> AsyncGenerator[Any]:
         if self.stream is None:
             raise ConnectError("stream is not set", Code.INTERNAL)
@@ -1137,17 +1132,13 @@ class ConnectStreamingUnmarshaler:
                 self.buffer += chunk
 
                 while True:
-                    header = self._peek_header(self.buffer)
-                    if header is None:
-                        break
-
-                    flags, data_len = header
-                    assert data_len >= 0
-                    env = self._shift_envelope(self.buffer, header)
+                    env, data_len = Envelope.decode(self.buffer)
                     if env is None:
                         break
 
-                    if EnvelopeFlags.end_stream in flags:
+                    self.buffer = self.buffer[5 + data_len :]
+
+                    if env.is_set(EnvelopeFlags.end_stream):
                         err_data = json.loads(env.data)
 
                         if "error" in err_data:
@@ -1155,7 +1146,7 @@ class ConnectStreamingUnmarshaler:
 
                         return
 
-                    if EnvelopeFlags.compressed in flags and self.compression:
+                    if env.is_set(EnvelopeFlags.compressed) and self.compression:
                         data = self.compression.decompress(env.data, -1)
                         env.data = data
 
@@ -1174,7 +1165,7 @@ class ConnectStreamingUnmarshaler:
                 await self.stream.aclose()
 
             if len(self.buffer) > 0:
-                header = self._peek_header(self.buffer)
+                header = Envelope.decode_header(self.buffer)
                 if header:
                     message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
                     raise ConnectError(message, Code.INVALID_ARGUMENT)

@@ -1490,9 +1490,13 @@ class ConnectStreamingClientConn(StreamingClientConn):
             aiterator=response.aiter_stream(), aclose_func=response.aclose
         )
 
+        await self._validate_response(response)
+
         return data
 
     async def _validate_response(self, response: httpcore.Response) -> None:
+        self._response_headers.update(Headers(response.headers))
+
         compression = self._response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
         if (
             compression

@@ -1048,6 +1048,7 @@ class EnvelopeFlags(Flag):
 class Envelope:
     data: bytes
     flags: EnvelopeFlags
+    _format: str = ">BI"
 
     def __init__(self, data: bytes, flags: EnvelopeFlags) -> None:
         self.data = data
@@ -1057,27 +1058,29 @@ class Envelope:
         return self.encode_header(self.flags.value, self.data) + self.data
 
     def encode_header(self, flags: int, data: bytes) -> bytes:
-        return struct.pack(envelope_header_pack, flags, len(data))
+        return struct.pack(self._format, flags, len(data))
 
-    @classmethod
-    def decode_header(self, header: bytes) -> tuple[EnvelopeFlags, int]:
-        flags, data_len = struct.unpack(envelope_header_pack, header)
+    @staticmethod
+    def decode_header(data: bytes, size: int) -> tuple[EnvelopeFlags, int]:
+        flags, data_len = struct.unpack(Envelope._format, data[:size])
         return EnvelopeFlags(flags), data_len
 
+    @classmethod
+    def decode(cls, data: bytes, size: int) -> "Envelope":
+        flags, data_len = Envelope.decode_header(data, size)
+        if len(data) < size + data_len:
+            raise ValueError(f"promised {data_len} bytes in enveloped message, got {len(data) - size} bytes")
 
-envelope_header_length = 5
-envelope_header_pack = ">BI"
+        return cls(data[size : size + data_len], flags)
 
 
 class ConnectStreamingMarshaler:
     codec: Codec
     compression: Compression | None
-    envelope: Envelope
 
     def __init__(self, codec: Codec, compression: Compression | None) -> None:
         self.codec = codec
         self.compression = compression
-        self.envelope = Envelope(data=b"", flags=EnvelopeFlags(0))
 
     def marshal(self, message: Any) -> bytes:
         try:
@@ -1085,13 +1088,15 @@ class ConnectStreamingMarshaler:
         except Exception as e:
             raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
 
+        env = Envelope(data, EnvelopeFlags(0))
+
         if self.compression is None:
-            return self.envelope.encode()
+            return env.encode()
 
         data = self.compression.compress(data)
-        self.envelope.flags |= EnvelopeFlags.compressed
+        env.flags |= EnvelopeFlags.compressed
 
-        return self.envelope.encode()
+        return env.encode()
 
 
 class ConnectStreamingUnmarshaler:
@@ -1099,7 +1104,6 @@ class ConnectStreamingUnmarshaler:
     compression: Compression | None
     stream: AsyncByteStream | None
     buffer: bytes
-    _header: tuple[EnvelopeFlags, int] | None
 
     def __init__(
         self, codec: Codec, stream: AsyncByteStream | None = None, compression: Compression | None = None
@@ -1108,12 +1112,21 @@ class ConnectStreamingUnmarshaler:
         self.compression = compression
         self.stream = stream
         self.buffer = b""
-        self._header = None
 
-    def shift_buffer(self, size: int) -> bytes:
-        buffer = self.buffer[:size]
-        self.buffer = self.buffer[size:]
-        return buffer
+    def _peek_header(self, buffer: bytes) -> tuple[EnvelopeFlags, int] | None:
+        if len(buffer) < 5:
+            return None
+
+        return Envelope.decode_header(buffer, 5)
+
+    def _shift_envelope(self, buffer: bytes, header: tuple[EnvelopeFlags, int]) -> Envelope | None:
+        data_len = header[1]
+        if len(buffer) < 5 + data_len:
+            return None
+
+        data = buffer[5 : 5 + data_len]
+        self.buffer = buffer[5 + data_len :]
+        return Envelope(data, header[0])
 
     async def unmarshal(self, message: Any) -> AsyncGenerator[Any]:
         if self.stream is None:
@@ -1123,20 +1136,19 @@ class ConnectStreamingUnmarshaler:
             async for chunk in self.stream:
                 self.buffer += chunk
 
-                while len(self.buffer) >= envelope_header_length:
-                    if self._header:
-                        flags, data_len = self._header
-                    else:
-                        header_data = self.shift_buffer(envelope_header_length)
-                        flags, data_len = Envelope.decode_header(header_data)
-                        self._header = (flags, data_len)
-
-                    if data_len > len(self.buffer):
+                while True:
+                    header = self._peek_header(self.buffer)
+                    if header is None:
                         break
 
-                    data = self.shift_buffer(data_len)
+                    flags, data_len = header
+                    assert data_len >= 0
+                    env = self._shift_envelope(self.buffer, header)
+                    if env is None:
+                        break
+
                     if EnvelopeFlags.end_stream in flags:
-                        err_data = json.loads(data)
+                        err_data = json.loads(env.data)
 
                         if "error" in err_data:
                             raise ConnectError(err_data["error"], Code.UNKNOWN)
@@ -1144,10 +1156,11 @@ class ConnectStreamingUnmarshaler:
                         return
 
                     if EnvelopeFlags.compressed in flags and self.compression:
-                        data = self.compression.decompress(data, -1)
+                        data = self.compression.decompress(env.data, -1)
+                        env.data = data
 
                     try:
-                        obj = self.codec.unmarshal(data, message)
+                        obj = self.codec.unmarshal(env.data, message)
                     except Exception as e:
                         raise ConnectError(
                             f"unmarshal message: {str(e)}",
@@ -1155,10 +1168,16 @@ class ConnectStreamingUnmarshaler:
                         ) from e
 
                     yield obj
-                    self._header = None
+
         finally:
             if self.stream:
                 await self.stream.aclose()
+
+            if len(self.buffer) > 0:
+                header = self._peek_header(self.buffer)
+                if header:
+                    message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
+                    raise ConnectError(message, Code.INVALID_ARGUMENT)
 
 
 EventHook = Callable[..., Any]

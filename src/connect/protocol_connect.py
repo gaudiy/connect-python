@@ -1139,10 +1139,10 @@ class ConnectStreamingUnmarshaler:
                     self.buffer = self.buffer[5 + data_len :]
 
                     if env.is_set(EnvelopeFlags.end_stream):
-                        err_data = json.loads(env.data)
+                        data = json.loads(env.data)
 
-                        if "error" in err_data:
-                            raise ConnectError(err_data["error"], Code.UNKNOWN)
+                        if "error" in data:
+                            raise ConnectError(data["error"], Code.UNKNOWN)
 
                         return
 
@@ -1195,7 +1195,10 @@ class ConnectStreamingClientConn(StreamingClientConn):
         request_headers: Headers,
         marshaler: ConnectStreamingMarshaler,
         unmarshaler: ConnectStreamingUnmarshaler,
+        event_hooks: None | (Mapping[str, list[EventHook]]) = None,
     ) -> None:
+        event_hooks = {} if event_hooks is None else event_hooks
+
         self._spec = spec
         self._peer = peer
         self.url = url
@@ -1207,6 +1210,10 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self._response_trailers = Headers()
         self._pool = self._connection_pool()
         self._request_headers = request_headers
+        self._event_hooks = {
+            "request": list(event_hooks.get("request", [])),
+            "response": list(event_hooks.get("response", [])),
+        }
 
     @property
     def spec(self) -> Spec:
@@ -1268,7 +1275,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
                             is sent.
 
         """
-        pass
+        self._event_hooks["request"].append(fn)
 
     def _connection_pool(self, http2: bool = False) -> httpcore.AsyncConnectionPool:
         return httpcore.AsyncConnectionPool(
@@ -1294,8 +1301,15 @@ class ConnectStreamingClientConn(StreamingClientConn):
             headers=list(headers.items()),
             content=data,
         )
+
+        for hook in self._event_hooks["request"]:
+            hook(request)
+
         with map_httpcore_exceptions():
             response = await self._pool.handle_async_request(request)
+
+        for hook in self._event_hooks["response"]:
+            hook(response)
 
         if response.status != http.HTTPStatus.OK:
             await response.aread()

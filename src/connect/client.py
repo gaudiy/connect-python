@@ -247,8 +247,6 @@ class Client[T_Request, T_Response]:
 
             return response
 
-        self._call_unary = call_unary
-
         async def _call_server_stream(request: ConnectRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
             headers = Headers()
             request.spec = config.spec(StreamType.ServerStream)
@@ -256,11 +254,23 @@ class Client[T_Request, T_Response]:
             protocol_client.write_request_headers(StreamType.ServerStream, headers)
 
             async with protocol_client.stream_conn(config.spec(StreamType.ServerStream), headers) as conn:
+                conn.request_headers.update(request.headers)
+
+                def on_request_send(r: httpcore.Request) -> None:
+                    method = r.method
+                    try:
+                        request.set_request_method(method.decode("ascii"))
+                    except UnicodeDecodeError as e:
+                        raise TypeError(f"method must be ascii encoded: {method!r}") from e
+
+                conn.on_request_send(on_request_send)
+
                 await conn.send(request.any())
 
                 async for response in recieve_stream_response(conn=conn, t=output):
                     yield response
 
+        self._call_unary = call_unary
         self._call_server_stream = _call_server_stream
 
     async def call_unary(self, request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:

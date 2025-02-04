@@ -254,7 +254,7 @@ class Headers(MutableMapping[str, str]):
         return len(self._list)
 
 
-def include_request_headers(headers: Headers, url: URL, content: bytes | None) -> Headers:
+def include_request_headers(headers: Headers, url: URL, content: bytes | None, method: str) -> Headers:
     """Include necessary request headers if they are not already present.
 
     This function ensures that the "Host" and "Content-Length" headers are included in the request headers.
@@ -265,6 +265,7 @@ def include_request_headers(headers: Headers, url: URL, content: bytes | None) -
         headers (Headers): The original request headers.
         url (URL): The URL object containing the scheme, host, and port.
         content (bytes | None): The request content, if any.
+        method (str): The HTTP method of the request.
 
     Returns:
         Headers: The updated request headers with the necessary headers included.
@@ -279,7 +280,7 @@ def include_request_headers(headers: Headers, url: URL, content: bytes | None) -
 
         headers["Host"] = host
 
-    if content is not None and headers.get("Content-Length") is None and isinstance(content, bytes):
+    if content is not None and headers.get("Content-Length") is None and isinstance(content, bytes) and method != "GET":
         content_length = str(len(content))
         headers["Content-Length"] = content_length
 

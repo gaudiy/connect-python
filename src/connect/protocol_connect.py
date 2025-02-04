@@ -36,7 +36,6 @@ from connect.protocol import (
     HEADER_CONTENT_ENCODING,
     HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
-    HEADER_HOST,
     HEADER_USER_AGENT,
     PROTOCOL_CONNECT,
     Protocol,
@@ -1459,7 +1458,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         data = self.marshaler.marshal(message)
 
-        headers = include_request_headers(headers=self._request_headers, url=self.url, content=data)
         request = httpcore.Request(
             method=HTTPMethod.POST,
             url=httpcore.URL(
@@ -1468,7 +1466,11 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 port=self.url.port,
                 target=self.url.raw_path,
             ),
-            headers=list(headers.items()),
+            headers=list(
+                include_request_headers(
+                    headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.POST
+                ).items()
+            ),
             content=data,
         )
 
@@ -1620,7 +1622,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         self._response_headers = Headers()
         self._response_trailers = Headers()
         self._pool = self._connection_pool()
-        self._request_headers = self._init_request_headers(request_headers)
+        self._request_headers = request_headers
         self._event_hooks = {
             "request": list(event_hooks.get("request", [])),
             "response": list(event_hooks.get("response", [])),
@@ -1630,11 +1632,6 @@ class ConnectUnaryClientConn(UnaryClientConn):
         return httpcore.AsyncConnectionPool(
             http2=http2,
         )
-
-    def _init_request_headers(self, headers: Headers) -> Headers:
-        headers[HEADER_HOST] = self.url.host or ""
-
-        return headers
 
     @property
     def spec(self) -> Spec:
@@ -1715,7 +1712,11 @@ class ConnectUnaryClientConn(UnaryClientConn):
                     port=self.marshaler.url.port,
                     target=self.marshaler.url.raw_path_qs,
                 ),
-                headers=list(self._request_headers.items()),
+                headers=list(
+                    include_request_headers(
+                        headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.GET
+                    ).items()
+                ),
             )
         else:
             self._request_headers[HEADER_CONTENT_LENGTH] = str(len(data))
@@ -1728,7 +1729,11 @@ class ConnectUnaryClientConn(UnaryClientConn):
                     port=self.url.port,
                     target=self.url.raw_path,
                 ),
-                headers=list(self._request_headers.items()),
+                headers=list(
+                    include_request_headers(
+                        headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.POST
+                    ).items()
+                ),
                 content=data,
             )
 

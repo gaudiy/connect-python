@@ -400,6 +400,7 @@ class ConnectUnaryUnmarshaler:
 
         chunks: list[bytes] = []
         bytes_read = 0
+        # TODO(tsubakiky): close the stream
         async for chunk in self.stream:
             chunk_size = len(chunk)
             bytes_read += chunk_size
@@ -1261,6 +1262,7 @@ class ConnectStreamingUnmarshaler:
 
         try:
             async for chunk in self.stream:
+                end_stream_received = False
                 self.buffer += chunk
 
                 while True:
@@ -1271,25 +1273,28 @@ class ConnectStreamingUnmarshaler:
                     self.buffer = self.buffer[5 + data_len :]
 
                     if env.is_set(EnvelopeFlags.end_stream):
+                        if end_stream_received:
+                            raise ConnectError("protocol error: multiple end stream flags", Code.INTERNAL)
+
                         error, trailers = end_stream_from_bytes(env.data)
                         self._end_stream_error = error
                         self._trailers = trailers
+                        end_stream_received = True
+                        obj = None
+                    else:
+                        if env.is_set(EnvelopeFlags.compressed) and self.compression:
+                            data = self.compression.decompress(env.data, -1)
+                            env.data = data
 
-                        yield None, True
+                        try:
+                            obj = self.codec.unmarshal(env.data, message)
+                        except Exception as e:
+                            raise ConnectError(
+                                f"unmarshal message: {str(e)}",
+                                Code.INVALID_ARGUMENT,
+                            ) from e
 
-                    if env.is_set(EnvelopeFlags.compressed) and self.compression:
-                        data = self.compression.decompress(env.data, -1)
-                        env.data = data
-
-                    try:
-                        obj = self.codec.unmarshal(env.data, message)
-                    except Exception as e:
-                        raise ConnectError(
-                            f"unmarshal message: {str(e)}",
-                            Code.INVALID_ARGUMENT,
-                        ) from e
-
-                    yield obj, False
+                    yield obj, end_stream_received
         finally:
             await self.stream.aclose()
 
@@ -1449,8 +1454,13 @@ class ConnectStreamingClientConn(StreamingClientConn):
             Any: Objects obtained from unmarshaling the message.
 
         """
+        end_stream_received = False
         async for obj, end in self.unmarshaler.unmarshal(message):
             if end:
+                if end_stream_received:
+                    raise ConnectError("received extra end stream message", Code.INVALID_ARGUMENT)
+
+                end_stream_received = True
                 error = self.unmarshaler.end_stream_error
                 if error:
                     for key, value in self.response_headers.items():
@@ -1461,9 +1471,15 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 for key, value in self.unmarshaler.trailers.items():
                     self.response_trailers[key] = value
 
-                return
+                continue
+
+            if end_stream_received:
+                raise ConnectError("received message after end stream", Code.INVALID_ARGUMENT)
 
             yield obj
+
+        if not end_stream_received:
+            raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
     async def send(self, message: Any) -> bytes:
         """Asynchronously sends a message and returns the marshaled data.
@@ -1491,6 +1507,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 target=self.url.raw_path,
             ),
             headers=list(
+                # TODO(tsubakiky): update _request_headers
                 include_request_headers(
                     headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.POST
                 ).items()

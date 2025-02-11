@@ -1,6 +1,7 @@
 # ruff: noqa: ARG001 D103 D100
 
 
+import gzip
 import json
 
 import pytest
@@ -10,6 +11,7 @@ from connect.code import Code
 from connect.connect import ConnectRequest
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
+from connect.options import ClientOptions
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
@@ -303,3 +305,114 @@ async def test_server_streaming_not_received_end_stream(hypercorn_server: Server
 
     assert excinfo.value.code == Code.INVALID_ARGUMENT
     assert excinfo.value.raw_message == "missing end stream message"
+
+
+async def server_streaming_response_envelope_message_compression(scope: Scope, receive: Receive, send: Send) -> None:
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [
+            [b"content-type", b"application/connect+proto"],
+            [b"connect-accept-encoding", b"gzip"],
+            [b"connect-content-encoding", b"gzip"],
+        ],
+    })
+
+    request = ASGIRequest(scope, receive)
+    body = await request.body()
+    env, _ = Envelope.decode(body)
+    assert env is not None
+
+    ping_request = PingRequest()
+    ping_request.ParseFromString(env.data)
+
+    env = Envelope(
+        gzip.compress(PingResponse(name=f"Hi {ping_request.name}.").SerializeToString()), EnvelopeFlags.compressed
+    )
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+    env = Envelope(gzip.compress(PingResponse(name="I'm Eliza.").SerializeToString()), EnvelopeFlags.compressed)
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+    env = Envelope(json.dumps({}).encode(), EnvelopeFlags.end_stream)
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": False})
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ["hypercorn_server"],
+    [pytest.param(server_streaming_response_envelope_message_compression)],
+    indirect=["hypercorn_server"],
+)
+async def test_server_streaming_response_envelope_message_compression(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
+
+    client = Client(url=url, input=PingRequest, output=PingResponse)
+    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+
+    response_iterator = client.call_server_stream(ping_request)
+    want = ["Hi Bob.", "I'm Eliza."]
+    async for response in response_iterator:
+        assert response.message.name in want
+        want.remove(response.message.name)
+
+
+async def server_streaming_request_envelope_message_compression(scope: Scope, receive: Receive, send: Send) -> None:
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [
+            [b"content-type", b"application/connect+proto"],
+            [b"connect-accept-encoding", b"gzip"],
+            [b"connect-content-encoding", b"gzip"],
+        ],
+    })
+
+    request = ASGIRequest(scope, receive)
+    body = await request.body()
+    env, _ = Envelope.decode(body)
+    assert env is not None
+    for k, v in request.headers.items():
+        if k == "content-content-encoding":
+            assert v == "gzip"
+
+    assert env.is_set(EnvelopeFlags.compressed)
+
+    env.data = gzip.decompress(env.data)
+
+    ping_request = PingRequest()
+    ping_request.ParseFromString(env.data)
+
+    env = Envelope(
+        gzip.compress(PingResponse(name=f"Hi {ping_request.name}.").SerializeToString()), EnvelopeFlags.compressed
+    )
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+    env = Envelope(gzip.compress(PingResponse(name="I'm Eliza.").SerializeToString()), EnvelopeFlags.compressed)
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+    env = Envelope(json.dumps({}).encode(), EnvelopeFlags.end_stream)
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": False})
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ["hypercorn_server"],
+    [pytest.param(server_streaming_request_envelope_message_compression)],
+    indirect=["hypercorn_server"],
+)
+async def test_server_streaming_request_envelope_message_compression(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
+
+    client = Client(
+        url=url, input=PingRequest, output=PingResponse, options=ClientOptions(request_compression_name="gzip")
+    )
+    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+
+    response_iterator = client.call_server_stream(ping_request)
+    want = ["Hi Bob.", "I'm Eliza."]
+    async for response in response_iterator:
+        assert response.message.name in want
+        want.remove(response.message.name)

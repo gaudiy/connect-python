@@ -343,7 +343,7 @@ class ConnectUnaryUnmarshaler:
     def __init__(
         self,
         codec: Codec,
-        read_max_bytes: int = -1,
+        read_max_bytes: int,
         compression: Compression | None = None,
         stream: AsyncByteStream | None = None,
     ) -> None:
@@ -776,10 +776,13 @@ class ConnectClient(ProtocolClient):
             request_headers=headers,
             marshaler=ConnectStreamingMarshaler(
                 codec=self.params.codec,
+                compress_min_bytes=self.params.compress_min_bytes,
+                send_max_bytes=self.params.send_max_bytes,
                 compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
             ),
             unmarshaler=ConnectStreamingUnmarshaler(
                 codec=self.params.codec,
+                read_max_bytes=self.params.read_max_bytes,
             ),
         )
 
@@ -1047,17 +1050,25 @@ class ConnectStreamingMarshaler:
     """
 
     codec: Codec
+    compress_min_bytes: int
+    send_max_bytes: int
     compression: Compression | None
 
-    def __init__(self, codec: Codec, compression: Compression | None) -> None:
+    def __init__(
+        self, codec: Codec, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int
+    ) -> None:
         """Initialize the ProtocolConnect instance.
 
         Args:
-            codec (Codec): The codec to be used for encoding and decoding data.
+            codec (Codec): The codec to be used for encoding and decoding.
             compression (Compression | None): The compression method to be used, or None if no compression is to be applied.
+            compress_min_bytes (int): The minimum number of bytes before compression is applied.
+            send_max_bytes (int): The maximum number of bytes that can be sent in a single message.
 
         """
         self.codec = codec
+        self.compress_min_bytes = compress_min_bytes
+        self.send_max_bytes = send_max_bytes
         self.compression = compression
 
     def marshal(self, message: Any) -> bytes:
@@ -1084,10 +1095,22 @@ class ConnectStreamingMarshaler:
 
         env = Envelope(data, EnvelopeFlags(0))
 
-        if self.compression is None:
+        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
+            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                )
+
             return env.encode()
 
-        data = self.compression.compress(data)
+        env.data = self.compression.compress(data)
+
+        if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+            raise ConnectError(
+                f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                Code.RESOURCE_EXHAUSTED,
+            )
+
         env.flags |= EnvelopeFlags.compressed
 
         return env.encode()
@@ -1105,6 +1128,7 @@ class ConnectStreamingUnmarshaler:
     """
 
     codec: Codec
+    read_max_bytes: int
     compression: Compression | None
     stream: AsyncByteStream | None
     buffer: bytes
@@ -1112,17 +1136,23 @@ class ConnectStreamingUnmarshaler:
     _trailers: Headers
 
     def __init__(
-        self, codec: Codec, stream: AsyncByteStream | None = None, compression: Compression | None = None
+        self,
+        codec: Codec,
+        read_max_bytes: int,
+        stream: AsyncByteStream | None = None,
+        compression: Compression | None = None,
     ) -> None:
-        """Initialize the ProtocolConnect object.
+        """Initialize the protocol connection.
 
         Args:
-            codec (Codec): The codec to be used for encoding and decoding data.
-            stream (AsyncByteStream, optional): The asynchronous byte stream for data transmission. Defaults to None.
-            compression (Compression, optional): The compression method to be used. Defaults to None.
+            codec (Codec): The codec to use for encoding and decoding data.
+            read_max_bytes (int): The maximum number of bytes to read from the stream.
+            stream (AsyncByteStream | None, optional): The asynchronous byte stream to read from. Defaults to None.
+            compression (Compression | None, optional): The compression method to use. Defaults to None.
 
         """
         self.codec = codec
+        self.read_max_bytes = read_max_bytes
         self.compression = compression
         self.stream = stream
         self.buffer = b""
@@ -1156,6 +1186,12 @@ class ConnectStreamingUnmarshaler:
                     if env is None:
                         break
 
+                    if self.read_max_bytes > 0 and data_len > self.read_max_bytes:
+                        raise ConnectError(
+                            f"message size {data_len} is larger than configured readMaxBytes {self.read_max_bytes}",
+                            Code.RESOURCE_EXHAUSTED,
+                        )
+
                     self.buffer = self.buffer[5 + data_len :]
 
                     if env.is_set(EnvelopeFlags.end_stream):
@@ -1168,9 +1204,13 @@ class ConnectStreamingUnmarshaler:
                         end_stream_received = True
                         obj = None
                     else:
-                        if env.is_set(EnvelopeFlags.compressed) and self.compression:
-                            data = self.compression.decompress(env.data, -1)
-                            env.data = data
+                        if env.is_set(EnvelopeFlags.compressed):
+                            if not self.compression:
+                                raise ConnectError(
+                                    "protocol error: sent compressed message without compression support", Code.INTERNAL
+                                )
+
+                            env.data = self.compression.decompress(env.data, self.read_max_bytes)
 
                         try:
                             obj = self.codec.unmarshal(env.data, message)
@@ -1432,14 +1472,14 @@ class ConnectStreamingClientConn(StreamingClientConn):
             aiterator=response.aiter_stream(), aclose_func=response.aclose
         )
 
-        await self._validate_response(response)
+        self._validate_response(response)
 
         return data
 
-    async def _validate_response(self, response: httpcore.Response) -> None:
-        self._response_headers.update(Headers(response.headers))
+    def _validate_response(self, response: httpcore.Response) -> None:
+        response_headers = Headers(response.headers)
 
-        compression = self._response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+        compression = response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
         if (
             compression
             and compression != COMPRESSION_IDENTITY
@@ -1451,7 +1491,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             )
 
         self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
-        self.response_headers.update(Headers(response.headers))
+        self._response_headers.update(response_headers)
 
     async def aclose(self) -> None:
         """Asynchronously close the connection pool.

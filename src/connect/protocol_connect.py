@@ -1221,6 +1221,8 @@ class ConnectStreamingUnmarshaler:
     compression: Compression | None
     stream: AsyncByteStream | None
     buffer: bytes
+    _end_stream_error: ConnectError | None
+    _trailers: Headers
 
     def __init__(
         self, codec: Codec, stream: AsyncByteStream | None = None, compression: Compression | None = None
@@ -1237,8 +1239,10 @@ class ConnectStreamingUnmarshaler:
         self.compression = compression
         self.stream = stream
         self.buffer = b""
+        self._end_stream_error = None
+        self._trailers = Headers()
 
-    async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
+    async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals messages from the stream.
 
         Args:
@@ -1267,12 +1271,11 @@ class ConnectStreamingUnmarshaler:
                     self.buffer = self.buffer[5 + data_len :]
 
                     if env.is_set(EnvelopeFlags.end_stream):
-                        data = json.loads(env.data)
+                        error, trailers = end_stream_from_bytes(env.data)
+                        self._end_stream_error = error
+                        self._trailers = trailers
 
-                        if "error" in data:
-                            raise ConnectError(data["error"], Code.UNKNOWN)
-
-                        return
+                        yield None, True
 
                     if env.is_set(EnvelopeFlags.compressed) and self.compression:
                         data = self.compression.decompress(env.data, -1)
@@ -1286,7 +1289,7 @@ class ConnectStreamingUnmarshaler:
                             Code.INVALID_ARGUMENT,
                         ) from e
 
-                    yield obj
+                    yield obj, False
         finally:
             await self.stream.aclose()
 
@@ -1295,6 +1298,14 @@ class ConnectStreamingUnmarshaler:
                 if header:
                     message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
                     raise ConnectError(message, Code.INVALID_ARGUMENT)
+
+    @property
+    def trailers(self) -> Headers:
+        return self._trailers
+
+    @property
+    def end_stream_error(self) -> ConnectError | None:
+        return self._end_stream_error
 
 
 EventHook = Callable[..., Any]
@@ -1438,7 +1449,20 @@ class ConnectStreamingClientConn(StreamingClientConn):
             Any: Objects obtained from unmarshaling the message.
 
         """
-        async for obj in self.unmarshaler.unmarshal(message):
+        async for obj, end in self.unmarshaler.unmarshal(message):
+            if end:
+                error = self.unmarshaler.end_stream_error
+                if error:
+                    for key, value in self.response_headers.items():
+                        error.metadata[key] = value
+                        error.metadata.update(self.unmarshaler.trailers.copy())
+                    raise error
+
+                for key, value in self.unmarshaler.trailers.items():
+                    self.response_trailers[key] = value
+
+                return
+
             yield obj
 
     async def send(self, message: Any) -> bytes:
@@ -2121,6 +2145,36 @@ def error_from_json(obj: dict[str, Any]) -> ConnectError:
         )
 
     return error
+
+
+def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
+    try:
+        obj = json.loads(data)
+    except Exception as e:
+        raise ConnectError(
+            "invalid end stream",
+            Code.UNKNOWN,
+        ) from e
+
+    metadata = Headers()
+    if "metadata" in obj:
+        if not isinstance(obj["metadata"], dict) or not all(
+            isinstance(k, str) and isinstance(v, list) for k, v in obj["metadata"].items()
+        ):
+            raise ConnectError(
+                "invalid end stream",
+                Code.UNKNOWN,
+            )
+
+        for key, values in obj["metadata"].items():
+            value = ", ".join(values)
+            metadata[key] = value
+
+    if "error" in obj:
+        error = error_from_json(obj["error"])
+        return error, metadata
+    else:
+        return None, metadata
 
 
 def error_to_json(error: ConnectError) -> dict[str, Any]:

@@ -247,6 +247,7 @@ class Client[T_Request, T_Response]:
 
             return response
 
+        # TODO(tsubakiky): supprot interceptors
         async def _call_server_stream(request: ConnectRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
             headers = Headers()
             request.spec = config.spec(StreamType.ServerStream)

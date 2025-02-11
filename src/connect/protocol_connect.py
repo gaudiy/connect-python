@@ -1306,10 +1306,25 @@ class ConnectStreamingUnmarshaler:
 
     @property
     def trailers(self) -> Headers:
+        """Return the trailers headers.
+
+        Trailers are additional headers sent after the body of the message.
+
+        Returns:
+            Headers: The trailers headers.
+
+        """
         return self._trailers
 
     @property
     def end_stream_error(self) -> ConnectError | None:
+        """Return the error that occurred at the end of the stream, if any.
+
+        Returns:
+            ConnectError | None: The error that occurred at the end of the stream,
+            or None if no error occurred.
+
+        """
         return self._end_stream_error
 
 
@@ -2165,6 +2180,19 @@ def error_from_json(obj: dict[str, Any]) -> ConnectError:
 
 
 def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
+    """Parse a byte stream to extract metadata and error information.
+
+    Args:
+        data (bytes): The byte stream to be parsed.
+
+    Returns:
+        tuple[ConnectError | None, Headers]: A tuple containing an optional ConnectError
+        and a Headers object with the parsed metadata.
+
+    Raises:
+        ConnectError: If the byte stream is invalid or the metadata format is incorrect.
+
+    """
     try:
         obj = json.loads(data)
     except Exception as e:

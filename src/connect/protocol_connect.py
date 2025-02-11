@@ -400,6 +400,7 @@ class ConnectUnaryUnmarshaler:
 
         chunks: list[bytes] = []
         bytes_read = 0
+        # TODO(tsubakiky): close the stream
         async for chunk in self.stream:
             chunk_size = len(chunk)
             bytes_read += chunk_size
@@ -1221,6 +1222,8 @@ class ConnectStreamingUnmarshaler:
     compression: Compression | None
     stream: AsyncByteStream | None
     buffer: bytes
+    _end_stream_error: ConnectError | None
+    _trailers: Headers
 
     def __init__(
         self, codec: Codec, stream: AsyncByteStream | None = None, compression: Compression | None = None
@@ -1237,8 +1240,10 @@ class ConnectStreamingUnmarshaler:
         self.compression = compression
         self.stream = stream
         self.buffer = b""
+        self._end_stream_error = None
+        self._trailers = Headers()
 
-    async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
+    async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals messages from the stream.
 
         Args:
@@ -1257,6 +1262,7 @@ class ConnectStreamingUnmarshaler:
 
         try:
             async for chunk in self.stream:
+                end_stream_received = False
                 self.buffer += chunk
 
                 while True:
@@ -1267,26 +1273,28 @@ class ConnectStreamingUnmarshaler:
                     self.buffer = self.buffer[5 + data_len :]
 
                     if env.is_set(EnvelopeFlags.end_stream):
-                        data = json.loads(env.data)
+                        if end_stream_received:
+                            raise ConnectError("protocol error: multiple end stream flags", Code.INTERNAL)
 
-                        if "error" in data:
-                            raise ConnectError(data["error"], Code.UNKNOWN)
+                        error, trailers = end_stream_from_bytes(env.data)
+                        self._end_stream_error = error
+                        self._trailers = trailers
+                        end_stream_received = True
+                        obj = None
+                    else:
+                        if env.is_set(EnvelopeFlags.compressed) and self.compression:
+                            data = self.compression.decompress(env.data, -1)
+                            env.data = data
 
-                        return
+                        try:
+                            obj = self.codec.unmarshal(env.data, message)
+                        except Exception as e:
+                            raise ConnectError(
+                                f"unmarshal message: {str(e)}",
+                                Code.INVALID_ARGUMENT,
+                            ) from e
 
-                    if env.is_set(EnvelopeFlags.compressed) and self.compression:
-                        data = self.compression.decompress(env.data, -1)
-                        env.data = data
-
-                    try:
-                        obj = self.codec.unmarshal(env.data, message)
-                    except Exception as e:
-                        raise ConnectError(
-                            f"unmarshal message: {str(e)}",
-                            Code.INVALID_ARGUMENT,
-                        ) from e
-
-                    yield obj
+                    yield obj, end_stream_received
         finally:
             await self.stream.aclose()
 
@@ -1295,6 +1303,29 @@ class ConnectStreamingUnmarshaler:
                 if header:
                     message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
                     raise ConnectError(message, Code.INVALID_ARGUMENT)
+
+    @property
+    def trailers(self) -> Headers:
+        """Return the trailers headers.
+
+        Trailers are additional headers sent after the body of the message.
+
+        Returns:
+            Headers: The trailers headers.
+
+        """
+        return self._trailers
+
+    @property
+    def end_stream_error(self) -> ConnectError | None:
+        """Return the error that occurred at the end of the stream, if any.
+
+        Returns:
+            ConnectError | None: The error that occurred at the end of the stream,
+            or None if no error occurred.
+
+        """
+        return self._end_stream_error
 
 
 EventHook = Callable[..., Any]
@@ -1438,8 +1469,32 @@ class ConnectStreamingClientConn(StreamingClientConn):
             Any: Objects obtained from unmarshaling the message.
 
         """
-        async for obj in self.unmarshaler.unmarshal(message):
+        end_stream_received = False
+        async for obj, end in self.unmarshaler.unmarshal(message):
+            if end:
+                if end_stream_received:
+                    raise ConnectError("received extra end stream message", Code.INVALID_ARGUMENT)
+
+                end_stream_received = True
+                error = self.unmarshaler.end_stream_error
+                if error:
+                    for key, value in self.response_headers.items():
+                        error.metadata[key] = value
+                        error.metadata.update(self.unmarshaler.trailers.copy())
+                    raise error
+
+                for key, value in self.unmarshaler.trailers.items():
+                    self.response_trailers[key] = value
+
+                continue
+
+            if end_stream_received:
+                raise ConnectError("received message after end stream", Code.INVALID_ARGUMENT)
+
             yield obj
+
+        if not end_stream_received:
+            raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
     async def send(self, message: Any) -> bytes:
         """Asynchronously sends a message and returns the marshaled data.
@@ -1467,6 +1522,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 target=self.url.raw_path,
             ),
             headers=list(
+                # TODO(tsubakiky): update _request_headers
                 include_request_headers(
                     headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.POST
                 ).items()
@@ -2121,6 +2177,49 @@ def error_from_json(obj: dict[str, Any]) -> ConnectError:
         )
 
     return error
+
+
+def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
+    """Parse a byte stream to extract metadata and error information.
+
+    Args:
+        data (bytes): The byte stream to be parsed.
+
+    Returns:
+        tuple[ConnectError | None, Headers]: A tuple containing an optional ConnectError
+        and a Headers object with the parsed metadata.
+
+    Raises:
+        ConnectError: If the byte stream is invalid or the metadata format is incorrect.
+
+    """
+    try:
+        obj = json.loads(data)
+    except Exception as e:
+        raise ConnectError(
+            "invalid end stream",
+            Code.UNKNOWN,
+        ) from e
+
+    metadata = Headers()
+    if "metadata" in obj:
+        if not isinstance(obj["metadata"], dict) or not all(
+            isinstance(k, str) and isinstance(v, list) for k, v in obj["metadata"].items()
+        ):
+            raise ConnectError(
+                "invalid end stream",
+                Code.UNKNOWN,
+            )
+
+        for key, values in obj["metadata"].items():
+            value = ", ".join(values)
+            metadata[key] = value
+
+    if "error" in obj:
+        error = error_from_json(obj["error"])
+        return error, metadata
+    else:
+        return None, metadata
 
 
 def error_to_json(error: ConnectError) -> dict[str, Any]:

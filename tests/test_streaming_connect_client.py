@@ -8,8 +8,8 @@ import pytest
 from connect.client import Client
 from connect.code import Code
 from connect.connect import ConnectRequest
+from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
-from connect.protocol_connect import Envelope, EnvelopeFlags
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures

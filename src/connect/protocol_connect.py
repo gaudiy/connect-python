@@ -1071,49 +1071,45 @@ class ConnectStreamingMarshaler:
         self.send_max_bytes = send_max_bytes
         self.compression = compression
 
-    def marshal(self, message: Any) -> bytes:
-        """Marshals a message into a bytes object.
-
-        This method serializes the given message using the codec's marshal method.
-        If compression is enabled, the serialized data is compressed before being
-        encoded into an Envelope object.
+    async def marshal(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+        """Asynchronously marshals and compresses messages from an asynchronous iterator.
 
         Args:
-            message (Any): The message to be marshaled.
+            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be marshaled.
 
-        Returns:
-            bytes: The marshaled message as a bytes object.
+        Yields:
+            AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
 
         Raises:
-            ConnectError: If an error occurs during the marshaling process.
+            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
 
         """
-        try:
-            data = self.codec.marshal(message)
-        except Exception as e:
-            raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
+        async for message in messages:
+            try:
+                data = self.codec.marshal(message)
+            except Exception as e:
+                raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
 
-        env = Envelope(data, EnvelopeFlags(0))
+            env = Envelope(data, EnvelopeFlags(0))
 
-        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
-            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                raise ConnectError(
-                    f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
-                )
+            if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
+                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                    raise ConnectError(
+                        f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                    )
+                compressed_data = env.data
+            else:
+                compressed_data = self.compression.compress(data)
+                env.flags |= EnvelopeFlags.compressed
 
-            return env.encode()
+                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                    raise ConnectError(
+                        f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                        Code.RESOURCE_EXHAUSTED,
+                    )
 
-        env.data = self.compression.compress(data)
-
-        if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-            raise ConnectError(
-                f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
-                Code.RESOURCE_EXHAUSTED,
-            )
-
-        env.flags |= EnvelopeFlags.compressed
-
-        return env.encode()
+            env.data = compressed_data
+            yield env.encode()
 
 
 class ConnectStreamingUnmarshaler:
@@ -1422,22 +1418,24 @@ class ConnectStreamingClientConn(StreamingClientConn):
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
-    async def send(self, message: Any) -> bytes:
-        """Asynchronously sends a message and returns the marshaled data.
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        """Send a series of messages asynchronously.
+
+        This method marshals the provided messages, constructs an HTTP POST request,
+        and sends it using the httpcore library. It also triggers any registered
+        request and response hooks, and validates the response.
 
         Args:
-            message (Any): The message to be sent.
+            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
 
         Returns:
-            bytes: The marshaled data of the message.
+            None
 
         Raises:
-            httpcore.RequestError: If there is an error with the request.
-            httpcore.ResponseError: If there is an error with the response.
-            http.HTTPStatus: If the response status is not OK.
+            Exception: If there is an error during the request or response handling.
 
         """
-        data = self.marshaler.marshal(message)
+        content_iterator = self.marshaler.marshal(messages)
 
         request = httpcore.Request(
             method=HTTPMethod.POST,
@@ -1450,10 +1448,10 @@ class ConnectStreamingClientConn(StreamingClientConn):
             headers=list(
                 # TODO(tsubakiky): update _request_headers
                 include_request_headers(
-                    headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.POST
+                    headers=self._request_headers, url=self.url, content=content_iterator, method=HTTPMethod.POST
                 ).items()
             ),
-            content=data,
+            content=content_iterator,
         )
 
         for hook in self._event_hooks["request"]:
@@ -1466,6 +1464,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             hook(response)
 
         if response.status != http.HTTPStatus.OK:
+            # TODO(tsubakiky): add error handling
             await response.aread()
 
         self.unmarshaler.stream = ResponseAsyncByteStream(
@@ -1474,7 +1473,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         self._validate_response(response)
 
-        return data
+        return
 
     def _validate_response(self, response: httpcore.Response) -> None:
         response_headers = Headers(response.headers)

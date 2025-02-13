@@ -173,3 +173,17 @@ class AsyncByteStream(typing.AsyncIterable[bytes]):
         """Asynchronously close the byte stream."""
         if self.aclose_func is not None:
             await self.aclose_func()
+
+
+async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:
+    """Turn a plain iterable into an async iterator.
+
+    Args:
+        iterable (typing.Iterable[T]): The iterable to convert.
+
+    Yields:
+        typing.AsyncIterator[T]: An async iterator over the elements of the input iterable.
+
+    """
+    for i in iterable:
+        yield i

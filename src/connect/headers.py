@@ -1,6 +1,6 @@
 """Provides a Headers class for managing HTTP headers."""
 
-from collections.abc import Iterator, KeysView, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterable, Iterable, Iterator, KeysView, Mapping, MutableMapping, Sequence
 from typing import Any, Union
 
 from yarl import URL
@@ -254,7 +254,12 @@ class Headers(MutableMapping[str, str]):
         return len(self._list)
 
 
-def include_request_headers(headers: Headers, url: URL, content: bytes | None, method: str) -> Headers:
+def include_request_headers(
+    headers: Headers,
+    url: URL,
+    content: bytes | Iterable[bytes] | AsyncIterable[bytes] | None,
+    method: str | None = None,
+) -> Headers:
     """Include necessary request headers if they are not already present.
 
     This function ensures that the "Host" and "Content-Length" headers are included in the request headers.
@@ -280,8 +285,16 @@ def include_request_headers(headers: Headers, url: URL, content: bytes | None, m
 
         headers["Host"] = host
 
-    if content is not None and headers.get("Content-Length") is None and isinstance(content, bytes) and method != "GET":
-        content_length = str(len(content))
-        headers["Content-Length"] = content_length
+    if (
+        content is not None
+        and headers.get("Content-Length") is None
+        and headers.get("Transfer-Encoding") is None
+        and method != "GET"
+    ):
+        if isinstance(content, bytes):
+            content_length = str(len(content))
+            headers["Content-Length"] = content_length
+        elif isinstance(content, Iterable | AsyncIterable):
+            headers["Transfer-Encoding"] = "chunked"
 
     return headers

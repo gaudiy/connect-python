@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from enum import Enum
 
 from connect.client import Client
-from connect.connect import ConnectRequest, ConnectResponse
+from connect.connect import ConnectRequest, ConnectResponse, StreamRequest
 from connect.handler import UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -23,6 +23,7 @@ class ElizaServiceProcedures(Enum):
 
     Say = "/connectrpc.eliza.v1.ElizaService/Say"
     IntroduceServer = "/connectrpc.eliza.v1.ElizaService/IntroduceServer"
+    IntroduceClient = "/connectrpc.eliza.v1.ElizaService/IntroduceClient"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]
@@ -30,6 +31,9 @@ ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.servic
 ElizaService_Say_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
 ElizaService_IntroduceServer_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
     "IntroduceServer"
+]
+ElizaService_IntroduceClient_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
+    "IntroduceClient"
 ]
 
 
@@ -43,6 +47,9 @@ class ElizaServiceClient:
         self.IntroduceServer = Client[IntroduceRequest, IntroduceResponse](
             base_url + ElizaServiceProcedures.IntroduceServer.value, IntroduceRequest, IntroduceResponse, options
         ).call_server_stream
+        self.IntroduceClient = Client[IntroduceRequest, IntroduceResponse](
+            base_url + ElizaServiceProcedures.IntroduceClient.value, IntroduceRequest, IntroduceResponse, options
+        ).call_client_stream
 
 
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
@@ -53,6 +60,10 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     async def IntroduceServer(
         self, request: ConnectRequest[IntroduceRequest]
+    ) -> AsyncIterator[ConnectResponse[IntroduceResponse]]: ...
+    @abc.abstractmethod
+    async def IntroduceClient(
+        self, request: StreamRequest[IntroduceRequest]
     ) -> AsyncIterator[ConnectResponse[IntroduceResponse]]: ...
 
 

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import get_callable_attribute
+from connect.utils import aiterate, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -45,6 +45,100 @@ class Peer(BaseModel):
     address: Address | None
     protocol: str
     query: Mapping[str, str]
+
+
+class StreamRequest[T]:
+    """StreamRequest class represents a request that can handle streaming messages.
+
+    Attributes:
+        messages (AsyncIterator[T]): An asynchronous iterator of messages.
+        _spec (Spec): The specification for the request.
+        _peer (Peer): The peer information.
+        _headers (Headers): The request headers.
+        _method (str): The HTTP method used for the request.
+
+    """
+
+    messages: AsyncIterator[T]
+    _spec: Spec
+    _peer: Peer
+    _headers: Headers
+    _method: str
+
+    def __init__(
+        self,
+        messages: AsyncIterator[T] | T,
+        spec: Spec | None = None,
+        peer: Peer | None = None,
+        headers: Headers | None = None,
+        method: str | None = None,
+    ) -> None:
+        """Initialize a new Request instance.
+
+        Args:
+            messages (AsyncIterator[T]): An asynchronous iterator of messages.
+            spec (Spec): The specification for the request.
+            peer (Peer): The peer information.
+            headers (Mapping[str, str]): The request headers.
+            method (str): The HTTP method used for the request.
+
+        Returns:
+            None
+
+        """
+        self.messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self._spec = (
+            spec
+            if spec
+            else Spec(
+                procedure="",
+                descriptor=None,
+                stream_type=StreamType.Unary,
+                idempotency_level=IdempotencyLevel.IDEMPOTENT,
+            )
+        )
+        self._peer = peer if peer else Peer(address=None, protocol="", query={})
+        self._headers = headers if headers else Headers()
+        self._method = method if method else HTTPMethod.POST.value
+
+    def any(self) -> AsyncIterator[T]:
+        """Return the request message."""
+        return self.messages
+
+    @property
+    def spec(self) -> Spec:
+        """Return the request specification."""
+        return self._spec
+
+    @spec.setter
+    def spec(self, value: Spec) -> None:
+        """Set the request specification."""
+        self._spec = value
+
+    @property
+    def peer(self) -> Peer:
+        """Return the request peer."""
+        return self._peer
+
+    @peer.setter
+    def peer(self, value: Peer) -> None:
+        """Set the request peer."""
+        self._peer = value
+
+    @property
+    def headers(self) -> Headers:
+        """Return the request headers."""
+        return self._headers
+
+    @property
+    def method(self) -> str:
+        """Return the request method."""
+        return self._method
+
+    @method.setter
+    def method(self, value: str) -> None:
+        """Set the request method."""
+        self._method = value
 
 
 class ConnectRequest[T]:
@@ -135,7 +229,8 @@ class ConnectRequest[T]:
         """Return the request method."""
         return self._method
 
-    def set_request_method(self, value: str) -> None:
+    @method.setter
+    def method(self, value: str) -> None:
         """Set the request method."""
         self._method = value
 
@@ -352,8 +447,8 @@ class StreamingClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, message: Any) -> bytes:
-        """Send a message."""
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        """Send a stream of messages."""
         raise NotImplementedError()
 
     @property

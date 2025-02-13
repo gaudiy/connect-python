@@ -114,8 +114,17 @@ func (e *elizaServer) IntroduceServer(
 	return nil
 }
 
-func (e *elizaServer) IntroduceClient(context.Context, *connect.ClientStream[v1.IntroduceRequest]) (*connect.Response[v1.IntroduceResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("connectrpc.eliza.v1.ElizaService.IntroduceClient is not implemented"))
+func (e *elizaServer) IntroduceClient(ctx context.Context, stream *connect.ClientStream[v1.IntroduceRequest]) (*connect.Response[v1.IntroduceResponse], error) {
+	var messages string
+	for stream.Receive() {
+		messages += " " + stream.Msg().GetName()
+	}
+	if stream.Err() != nil {
+		return nil, stream.Err()
+	}
+	return connect.NewResponse(&v1.IntroduceResponse{
+		Sentence: messages,
+	}), nil
 }
 
 func newCORS() *cors.Cors {

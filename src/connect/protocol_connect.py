@@ -1115,6 +1115,50 @@ class ConnectStreamingMarshaler:
 
         return env.encode()
 
+    async def marshal_stream(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+        """Marshals a message into a bytes object.
+
+        This method serializes the given message using the codec's marshal method.
+        If compression is enabled, the serialized data is compressed before being
+        encoded into an Envelope object.
+
+        Args:
+            message (Any): The message to be marshaled.
+
+        Returns:
+            bytes: The marshaled message as a bytes object.
+
+        Raises:
+            ConnectError: If an error occurs during the marshaling process.
+
+        """
+        async for message in messages:
+            try:
+                data = self.codec.marshal(message)
+            except Exception as e:
+                raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
+
+            env = Envelope(data, EnvelopeFlags(0))
+
+            if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
+                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                    raise ConnectError(
+                        f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                    )
+                compressed_data = env.data
+            else:
+                compressed_data = self.compression.compress(data)
+                env.flags |= EnvelopeFlags.compressed
+
+                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                    raise ConnectError(
+                        f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                        Code.RESOURCE_EXHAUSTED,
+                    )
+
+            env.data = compressed_data
+            yield env.encode()
+
 
 class ConnectStreamingUnmarshaler:
     """A class to handle the unmarshaling of streaming data.
@@ -1421,6 +1465,46 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
+
+    async def send_stream(self, messages: AsyncIterator[Any]) -> None:
+        content_iter = self.marshaler.marshal_stream(messages)
+        request = httpcore.Request(
+            method=HTTPMethod.POST,
+            url=httpcore.URL(
+                scheme=self.url.scheme,
+                host=self.url.host or "",
+                port=self.url.port,
+                target=self.url.raw_path,
+            ),
+            headers=list(
+                # TODO(tsubakiky): update _request_headers
+                include_request_headers(
+                    headers=self._request_headers, url=self.url, content=content_iter, method=HTTPMethod.POST
+                ).items()
+            ),
+            content=content_iter,
+        )
+
+        for hook in self._event_hooks["request"]:
+            hook(request)
+
+        with map_httpcore_exceptions():
+            response = await self._pool.handle_async_request(request)
+
+        for hook in self._event_hooks["response"]:
+            hook(response)
+
+        if response.status != http.HTTPStatus.OK:
+            # TODO(tsubakiky): add error handling
+            await response.aread()
+
+        self.unmarshaler.stream = ResponseAsyncByteStream(
+            aiterator=response.aiter_stream(), aclose_func=response.aclose
+        )
+
+        self._validate_response(response)
+
+        return
 
     async def send(self, message: Any) -> bytes:
         """Asynchronously sends a message and returns the marshaled data.

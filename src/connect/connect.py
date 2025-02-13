@@ -47,6 +47,89 @@ class Peer(BaseModel):
     query: Mapping[str, str]
 
 
+class StreamRequest[T]:
+    messages: AsyncIterator[T]
+    _spec: Spec
+    _peer: Peer
+    _headers: Headers
+    _method: str
+
+    def __init__(
+        self,
+        messages: AsyncIterator[T],
+        spec: Spec | None = None,
+        peer: Peer | None = None,
+        headers: Headers | None = None,
+        method: str | None = None,
+    ) -> None:
+        """Initialize a new Request instance.
+
+        Args:
+            message (Req): The request message.
+            spec (Spec): The specification for the request.
+            peer (Peer): The peer information.
+            headers (Mapping[str, str]): The request headers.
+            method (str): The HTTP method used for the request.
+
+        Returns:
+            None
+
+        """
+        self.messages = messages
+        self._spec = (
+            spec
+            if spec
+            else Spec(
+                procedure="",
+                descriptor=None,
+                stream_type=StreamType.Unary,
+                idempotency_level=IdempotencyLevel.IDEMPOTENT,
+            )
+        )
+        self._peer = peer if peer else Peer(address=None, protocol="", query={})
+        self._headers = headers if headers else Headers()
+        self._method = method if method else HTTPMethod.POST.value
+
+    def any(self) -> AsyncIterator[T]:
+        """Return the request message."""
+        return self.messages
+
+    @property
+    def spec(self) -> Spec:
+        """Return the request specification."""
+        return self._spec
+
+    @spec.setter
+    def spec(self, value: Spec) -> None:
+        """Set the request specification."""
+        self._spec = value
+
+    @property
+    def peer(self) -> Peer:
+        """Return the request peer."""
+        return self._peer
+
+    @peer.setter
+    def peer(self, value: Peer) -> None:
+        """Set the request peer."""
+        self._peer = value
+
+    @property
+    def headers(self) -> Headers:
+        """Return the request headers."""
+        return self._headers
+
+    @property
+    def method(self) -> str:
+        """Return the request method."""
+        return self._method
+
+    @method.setter
+    def method(self, value: str) -> None:
+        """Set the request method."""
+        self._method = value
+
+
 class ConnectRequest[T]:
     """ConnectRequest is a class that encapsulates a request with a message, specification, peer, headers, and method.
 
@@ -135,7 +218,8 @@ class ConnectRequest[T]:
         """Return the request method."""
         return self._method
 
-    def set_request_method(self, value: str) -> None:
+    @method.setter
+    def method(self, value: str) -> None:
         """Set the request method."""
         self._method = value
 
@@ -155,6 +239,29 @@ class ConnectResponse[T]:
     ) -> None:
         """Initialize the response with a message."""
         self.message = message
+        self.headers = headers if headers else Headers()
+        self.trailers = trailers if trailers else Headers()
+
+    def any(self) -> T:
+        """Return the response message."""
+        return self.message
+
+
+class StreamResponse[T]:
+    """Response class for handling responses."""
+
+    message: T
+    headers: Headers
+    trailers: Headers
+
+    def __init__(
+        self,
+        messages: AsyncIterator[T],
+        headers: Headers | None = None,
+        trailers: Headers | None = None,
+    ) -> None:
+        """Initialize the response with a message."""
+        self.messages = messages
         self.headers = headers if headers else Headers()
         self.trailers = trailers if trailers else Headers()
 
@@ -356,6 +463,11 @@ class StreamingClientConn(AbstractAsyncContextManager):
         """Send a message."""
         raise NotImplementedError()
 
+    @abc.abstractmethod
+    async def send_stream(self, messages: AsyncIterator[Any]) -> None:
+        """Send a stream of messages."""
+        raise NotImplementedError()
+
     @property
     @abc.abstractmethod
     def response_headers(self) -> Headers:
@@ -470,6 +582,24 @@ async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> A
     """
     async for message in conn.receive(t):
         yield ConnectResponse(message, conn.response_headers, conn.response_trailers)
+
+
+async def recieve_stream_response_2[T](conn: StreamingClientConn, t: type[T]) -> StreamResponse[T]:
+    """Asynchronously receives a stream of responses from a streaming client connection.
+
+    Args:
+        conn (StreamingClientConn): The streaming client connection to receive messages from.
+        t (type[T]): The type of the messages to be received.
+
+    Yields:
+        ConnectResponse[T]: An asynchronous iterator of ConnectResponse objects containing the received messages, response headers, and response trailers.
+
+    Type Parameters:
+        T: The type of the messages to be received.
+
+    """
+    messages = conn.receive(t)
+    return StreamResponse(messages, conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

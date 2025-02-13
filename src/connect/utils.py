@@ -175,15 +175,15 @@ class AsyncByteStream(typing.AsyncIterable[bytes]):
             await self.aclose_func()
 
 
-async def async_iter[T](messages: typing.Iterable[T]) -> typing.AsyncIterator[T]:
-    """Create an asynchronous byte stream from an iterable of byte chunks.
+async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:
+    """Turn a plain iterable into an async iterator.
 
     Args:
-        messages (typing.Iterable[bytes]): An iterable of byte chunks to be streamed.
+        iterable (typing.Iterable[T]): The iterable to convert.
 
-    Returns:
-        AsyncByteStream: An asynchronous byte stream object that can be used to read the byte chunks.
+    Yields:
+        typing.AsyncIterator[T]: An async iterator over the elements of the input iterable.
 
     """
-    for message in messages:
-        yield message
+    for i in iterable:
+        yield i

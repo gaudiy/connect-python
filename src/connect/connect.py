@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import async_iter, get_callable_attribute
+from connect.utils import aiterate, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -86,7 +86,7 @@ class StreamRequest[T]:
             None
 
         """
-        self.messages = messages if isinstance(messages, AsyncIterator) else async_iter([messages])
+        self.messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
         self._spec = (
             spec
             if spec

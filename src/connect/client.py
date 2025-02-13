@@ -22,7 +22,6 @@ from connect.connect import (
     recieve_unary_response,
 )
 from connect.error import ConnectError
-from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
 from connect.options import ClientOptions
@@ -169,7 +168,6 @@ class Client[T_Request, T_Response]:
     config: ClientConfig
     protocol_client: ProtocolClient
     _call_unary: Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
-    _call_server_stream: Callable[[ConnectRequest[T_Request]], AsyncIterator[ConnectResponse[T_Response]]]
     _call_stream: Callable[[StreamType, StreamRequest[T_Request]], AsyncIterator[ConnectResponse[T_Response]]]
 
     def __init__(
@@ -261,11 +259,12 @@ class Client[T_Request, T_Response]:
 
                 conn.on_request_send(on_request_send)
 
-                await conn.send_stream(request.messages)
+                await conn.send(request.messages)
 
                 async for response in recieve_stream_response(conn=conn, t=output):
                     yield response
 
+        # TODO(tsubakiky): support interceptors
         stream_func = _stream_func
 
         async def call_stream(
@@ -279,32 +278,7 @@ class Client[T_Request, T_Response]:
             async for response in stream_func(request):
                 yield response
 
-        # TODO(tsubakiky): supprot interceptors
-        async def _call_server_stream(request: ConnectRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
-            headers = Headers()
-            request.spec = config.spec(StreamType.ServerStream)
-            request.peer = protocol_client.peer
-            protocol_client.write_request_headers(StreamType.ServerStream, headers)
-
-            async with protocol_client.stream_conn(config.spec(StreamType.ServerStream), headers) as conn:
-                conn.request_headers.update(request.headers)
-
-                def on_request_send(r: httpcore.Request) -> None:
-                    method = r.method
-                    try:
-                        request.method = method.decode("ascii")
-                    except UnicodeDecodeError as e:
-                        raise TypeError(f"method must be ascii encoded: {method!r}") from e
-
-                conn.on_request_send(on_request_send)
-
-                await conn.send(request.any())
-
-                async for response in recieve_stream_response(conn=conn, t=output):
-                    yield response
-
         self._call_unary = call_unary
-        self._call_server_stream = _call_server_stream
         self._call_stream = call_stream
 
     async def call_unary(self, request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
@@ -319,9 +293,7 @@ class Client[T_Request, T_Response]:
         """
         return await self._call_unary(request)
 
-    async def call_server_stream(
-        self, request: ConnectRequest[T_Request]
-    ) -> AsyncIterator[ConnectResponse[T_Response]]:
+    async def call_server_stream(self, request: StreamRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
         """Asynchronously calls a server streaming RPC (Remote Procedure Call) with the given request.
 
         Args:
@@ -331,17 +303,20 @@ class Client[T_Request, T_Response]:
             ConnectResponse[T_Response]: The response object containing the data received from the server.
 
         """
-        async for response in self._call_server_stream(request):
+        async for response in self._call_stream(StreamType.ServerStream, request):
             yield response
 
     async def call_client_stream(self, request: StreamRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
-        """Asynchronously calls a client streaming RPC (Remote Procedure Call) with the given requests.
+        """Asynchronously calls a client stream and yields responses.
+
+        This method sends a stream request to the client and asynchronously
+        iterates over the responses, yielding each response one by one.
 
         Args:
-            requests (AsyncIterator[ConnectRequest[T_Request]]): The request objects containing the data to be sent to the server.
+            request (StreamRequest[T_Request]): The stream request to be sent.
 
-        Returns:
-            ConnectResponse[T_Response]: The response object containing the data received from the server.
+        Yields:
+            ConnectResponse[T_Response]: The response from the client stream.
 
         """
         async for response in self._call_stream(StreamType.ClientStream, request):

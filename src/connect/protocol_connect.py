@@ -1071,51 +1071,7 @@ class ConnectStreamingMarshaler:
         self.send_max_bytes = send_max_bytes
         self.compression = compression
 
-    def marshal(self, message: Any) -> bytes:
-        """Marshals a message into a bytes object.
-
-        This method serializes the given message using the codec's marshal method.
-        If compression is enabled, the serialized data is compressed before being
-        encoded into an Envelope object.
-
-        Args:
-            message (Any): The message to be marshaled.
-
-        Returns:
-            bytes: The marshaled message as a bytes object.
-
-        Raises:
-            ConnectError: If an error occurs during the marshaling process.
-
-        """
-        try:
-            data = self.codec.marshal(message)
-        except Exception as e:
-            raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
-
-        env = Envelope(data, EnvelopeFlags(0))
-
-        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
-            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                raise ConnectError(
-                    f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
-                )
-
-            return env.encode()
-
-        env.data = self.compression.compress(data)
-
-        if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-            raise ConnectError(
-                f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
-                Code.RESOURCE_EXHAUSTED,
-            )
-
-        env.flags |= EnvelopeFlags.compressed
-
-        return env.encode()
-
-    async def marshal_stream(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+    async def marshal(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
         """Marshals a message into a bytes object.
 
         This method serializes the given message using the codec's marshal method.
@@ -1466,8 +1422,9 @@ class ConnectStreamingClientConn(StreamingClientConn):
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
-    async def send_stream(self, messages: AsyncIterator[Any]) -> None:
-        content_iter = self.marshaler.marshal_stream(messages)
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        content_iter = self.marshaler.marshal(messages)
+
         request = httpcore.Request(
             method=HTTPMethod.POST,
             url=httpcore.URL(
@@ -1505,60 +1462,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self._validate_response(response)
 
         return
-
-    async def send(self, message: Any) -> bytes:
-        """Asynchronously sends a message and returns the marshaled data.
-
-        Args:
-            message (Any): The message to be sent.
-
-        Returns:
-            bytes: The marshaled data of the message.
-
-        Raises:
-            httpcore.RequestError: If there is an error with the request.
-            httpcore.ResponseError: If there is an error with the response.
-            http.HTTPStatus: If the response status is not OK.
-
-        """
-        data = self.marshaler.marshal(message)
-
-        request = httpcore.Request(
-            method=HTTPMethod.POST,
-            url=httpcore.URL(
-                scheme=self.url.scheme,
-                host=self.url.host or "",
-                port=self.url.port,
-                target=self.url.raw_path,
-            ),
-            headers=list(
-                # TODO(tsubakiky): update _request_headers
-                include_request_headers(
-                    headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.POST
-                ).items()
-            ),
-            content=data,
-        )
-
-        for hook in self._event_hooks["request"]:
-            hook(request)
-
-        with map_httpcore_exceptions():
-            response = await self._pool.handle_async_request(request)
-
-        for hook in self._event_hooks["response"]:
-            hook(response)
-
-        if response.status != http.HTTPStatus.OK:
-            await response.aread()
-
-        self.unmarshaler.stream = ResponseAsyncByteStream(
-            aiterator=response.aiter_stream(), aclose_func=response.aclose
-        )
-
-        self._validate_response(response)
-
-        return data
 
     def _validate_response(self, response: httpcore.Response) -> None:
         response_headers = Headers(response.headers)

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import get_callable_attribute
+from connect.utils import async_iter, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -48,6 +48,17 @@ class Peer(BaseModel):
 
 
 class StreamRequest[T]:
+    """StreamRequest class represents a request that can handle streaming messages.
+
+    Attributes:
+        messages (AsyncIterator[T]): An asynchronous iterator of messages.
+        _spec (Spec): The specification for the request.
+        _peer (Peer): The peer information.
+        _headers (Headers): The request headers.
+        _method (str): The HTTP method used for the request.
+
+    """
+
     messages: AsyncIterator[T]
     _spec: Spec
     _peer: Peer
@@ -56,7 +67,7 @@ class StreamRequest[T]:
 
     def __init__(
         self,
-        messages: AsyncIterator[T],
+        messages: AsyncIterator[T] | T,
         spec: Spec | None = None,
         peer: Peer | None = None,
         headers: Headers | None = None,
@@ -65,7 +76,7 @@ class StreamRequest[T]:
         """Initialize a new Request instance.
 
         Args:
-            message (Req): The request message.
+            messages (AsyncIterator[T]): An asynchronous iterator of messages.
             spec (Spec): The specification for the request.
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
@@ -75,7 +86,7 @@ class StreamRequest[T]:
             None
 
         """
-        self.messages = messages
+        self.messages = messages if isinstance(messages, AsyncIterator) else async_iter([messages])
         self._spec = (
             spec
             if spec
@@ -239,29 +250,6 @@ class ConnectResponse[T]:
     ) -> None:
         """Initialize the response with a message."""
         self.message = message
-        self.headers = headers if headers else Headers()
-        self.trailers = trailers if trailers else Headers()
-
-    def any(self) -> T:
-        """Return the response message."""
-        return self.message
-
-
-class StreamResponse[T]:
-    """Response class for handling responses."""
-
-    message: T
-    headers: Headers
-    trailers: Headers
-
-    def __init__(
-        self,
-        messages: AsyncIterator[T],
-        headers: Headers | None = None,
-        trailers: Headers | None = None,
-    ) -> None:
-        """Initialize the response with a message."""
-        self.messages = messages
         self.headers = headers if headers else Headers()
         self.trailers = trailers if trailers else Headers()
 
@@ -459,12 +447,7 @@ class StreamingClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, message: Any) -> bytes:
-        """Send a message."""
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    async def send_stream(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterator[Any]) -> None:
         """Send a stream of messages."""
         raise NotImplementedError()
 

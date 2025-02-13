@@ -8,7 +8,7 @@ import pytest
 
 from connect.client import Client
 from connect.code import Code
-from connect.connect import ConnectRequest
+from connect.connect import StreamRequest
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
 from connect.options import ClientOptions
@@ -63,7 +63,7 @@ async def test_server_streaming(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]
@@ -114,7 +114,7 @@ async def test_server_streaming_end_stream_error(hypercorn_server: ServerConfig)
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]
@@ -177,7 +177,7 @@ async def test_server_streaming_received_message_after_end_stream(hypercorn_serv
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]
@@ -242,7 +242,7 @@ async def test_server_streaming_received_extra_end_stream(hypercorn_server: Serv
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]
@@ -293,7 +293,7 @@ async def test_server_streaming_not_received_end_stream(hypercorn_server: Server
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]
@@ -349,7 +349,7 @@ async def test_server_streaming_response_envelope_message_compression(hypercorn_
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
     client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]
@@ -409,7 +409,7 @@ async def test_server_streaming_request_envelope_message_compression(hypercorn_s
     client = Client(
         url=url, input=PingRequest, output=PingResponse, options=ClientOptions(request_compression_name="gzip")
     )
-    ping_request = ConnectRequest(message=PingRequest(name="Bob"))
+    ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
     response_iterator = client.call_server_stream(ping_request)
     want = ["Hi Bob.", "I'm Eliza."]

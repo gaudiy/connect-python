@@ -17,10 +17,8 @@ from connect.connect import (
     ConnectResponse,
     Spec,
     StreamRequest,
-    StreamResponse,
     StreamType,
     recieve_stream_response,
-    recieve_stream_response_2,
     recieve_unary_response,
 )
 from connect.error import ConnectError
@@ -171,9 +169,8 @@ class Client[T_Request, T_Response]:
     config: ClientConfig
     protocol_client: ProtocolClient
     _call_unary: Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
-    _call_client_stream: Callable[[StreamRequest[T_Request]], AsyncIterator[ConnectResponse[T_Response]]]
     _call_server_stream: Callable[[ConnectRequest[T_Request]], AsyncIterator[ConnectResponse[T_Response]]]
-    _call_stream: Callable[[StreamType, StreamRequest[T_Request]], Awaitable[StreamResponse[T_Response]]]
+    _call_stream: Callable[[StreamType, StreamRequest[T_Request]], AsyncIterator[ConnectResponse[T_Response]]]
 
     def __init__(
         self, url: str, input: type[T_Request], output: type[T_Response], options: ClientOptions | None = None
@@ -251,7 +248,7 @@ class Client[T_Request, T_Response]:
 
             return response
 
-        async def _stream_func(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+        async def _stream_func(request: StreamRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
             async with protocol_client.stream_conn(request.spec, request.headers) as conn:
                 conn.request_headers.update(request.headers)
 
@@ -266,21 +263,21 @@ class Client[T_Request, T_Response]:
 
                 await conn.send_stream(request.messages)
 
-                response = await recieve_stream_response_2(conn=conn, t=output)
-                return response
+                async for response in recieve_stream_response(conn=conn, t=output):
+                    yield response
 
         stream_func = _stream_func
 
         async def call_stream(
             stream_type: StreamType,
             request: StreamRequest[T_Request],
-        ) -> StreamResponse[T_Response]:
+        ) -> AsyncIterator[ConnectResponse[T_Response]]:
             request.spec = config.spec(stream_type)
             request.peer = protocol_client.peer
             protocol_client.write_request_headers(stream_type, request.headers)
 
-            response = await stream_func(request)
-            return response
+            async for response in stream_func(request):
+                yield response
 
         # TODO(tsubakiky): supprot interceptors
         async def _call_server_stream(request: ConnectRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
@@ -337,7 +334,7 @@ class Client[T_Request, T_Response]:
         async for response in self._call_server_stream(request):
             yield response
 
-    async def call_client_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+    async def call_client_stream(self, request: StreamRequest[T_Request]) -> AsyncIterator[ConnectResponse[T_Response]]:
         """Asynchronously calls a client streaming RPC (Remote Procedure Call) with the given requests.
 
         Args:
@@ -347,4 +344,5 @@ class Client[T_Request, T_Response]:
             ConnectResponse[T_Response]: The response object containing the data received from the server.
 
         """
-        return await self._call_stream(StreamType.ClientStream, request)
+        async for response in self._call_stream(StreamType.ClientStream, request):
+            yield response

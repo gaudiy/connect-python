@@ -584,24 +584,6 @@ async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> A
         yield ConnectResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response_2[T](conn: StreamingClientConn, t: type[T]) -> StreamResponse[T]:
-    """Asynchronously receives a stream of responses from a streaming client connection.
-
-    Args:
-        conn (StreamingClientConn): The streaming client connection to receive messages from.
-        t (type[T]): The type of the messages to be received.
-
-    Yields:
-        ConnectResponse[T]: An asynchronous iterator of ConnectResponse objects containing the received messages, response headers, and response trailers.
-
-    Type Parameters:
-        T: The type of the messages to be received.
-
-    """
-    messages = conn.receive(t)
-    return StreamResponse(messages, conn.response_headers, conn.response_trailers)
-
-
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
     """Receives a unary message from the given connection.
 

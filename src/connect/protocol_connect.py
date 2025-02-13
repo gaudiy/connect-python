@@ -1072,20 +1072,16 @@ class ConnectStreamingMarshaler:
         self.compression = compression
 
     async def marshal(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
-        """Marshals a message into a bytes object.
-
-        This method serializes the given message using the codec's marshal method.
-        If compression is enabled, the serialized data is compressed before being
-        encoded into an Envelope object.
+        """Asynchronously marshals and compresses messages from an asynchronous iterator.
 
         Args:
-            message (Any): The message to be marshaled.
+            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be marshaled.
 
-        Returns:
-            bytes: The marshaled message as a bytes object.
+        Yields:
+            AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
 
         Raises:
-            ConnectError: If an error occurs during the marshaling process.
+            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
 
         """
         async for message in messages:
@@ -1423,7 +1419,23 @@ class ConnectStreamingClientConn(StreamingClientConn):
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
     async def send(self, messages: AsyncIterator[Any]) -> None:
-        content_iter = self.marshaler.marshal(messages)
+        """Send a series of messages asynchronously.
+
+        This method marshals the provided messages, constructs an HTTP POST request,
+        and sends it using the httpcore library. It also triggers any registered
+        request and response hooks, and validates the response.
+
+        Args:
+            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If there is an error during the request or response handling.
+
+        """
+        content_iterator = self.marshaler.marshal(messages)
 
         request = httpcore.Request(
             method=HTTPMethod.POST,
@@ -1436,10 +1448,10 @@ class ConnectStreamingClientConn(StreamingClientConn):
             headers=list(
                 # TODO(tsubakiky): update _request_headers
                 include_request_headers(
-                    headers=self._request_headers, url=self.url, content=content_iter, method=HTTPMethod.POST
+                    headers=self._request_headers, url=self.url, content=content_iterator, method=HTTPMethod.POST
                 ).items()
             ),
-            content=content_iter,
+            content=content_iterator,
         )
 
         for hook in self._event_hooks["request"]:

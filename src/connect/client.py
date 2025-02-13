@@ -267,6 +267,7 @@ class Client[T_Request, T_Response]:
         # TODO(tsubakiky): support interceptors
         stream_func = _stream_func
 
+        # TODO(tsubakiky): return StreamResponse instead of AsyncIterator[ConnectResponse]
         async def call_stream(
             stream_type: StreamType,
             request: StreamRequest[T_Request],

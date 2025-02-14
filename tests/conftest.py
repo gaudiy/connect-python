@@ -37,15 +37,15 @@ class ASGIRequest:
         self.receive = receive
 
     async def body(self) -> bytes:
-        body = b""
-        more_body = True
+        return b"".join([message async for message in self.iter_bytes()])
 
+    async def iter_bytes(self) -> typing.AsyncGenerator[bytes]:
+        more_body = True
         while more_body:
             message = await self.receive()
-            body += message.get("body", b"")
+            body = message.get("body", b"")
             more_body = message.get("more_body", False)
-
-        return body
+            yield body
 
     @property
     def headers(self) -> dict[str, str]:

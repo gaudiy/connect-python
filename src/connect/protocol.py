@@ -14,6 +14,7 @@ from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
+from connect.session import AsyncClientSession
 
 PROTOCOL_CONNECT = "connect"
 
@@ -60,6 +61,7 @@ class ProtocolClientParams(BaseModel):
         arbitrary_types_allowed=True,
     )
 
+    session: AsyncClientSession
     codec: Codec
     url: URL
     compression_name: str | None = Field(default=None)

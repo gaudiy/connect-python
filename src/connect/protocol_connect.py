@@ -4,14 +4,12 @@ import base64
 import contextlib
 import http
 import json
-import types
 from collections.abc import (
     AsyncGenerator,
     AsyncIterable,
     AsyncIterator,
     Awaitable,
     Callable,
-    Iterator,
     Mapping,
 )
 from http import HTTPMethod, HTTPStatus
@@ -46,7 +44,8 @@ from connect.protocol import (
     negotiate_compression,
 )
 from connect.request import Request
-from connect.utils import AsyncByteStream
+from connect.session import AsyncClientSession
+from connect.utils import AsyncByteStream, map_httpcore_exceptions
 from connect.version import __version__
 
 CONNECT_UNARY_HEADER_COMPRESSION = "Content-Encoding"
@@ -730,6 +729,7 @@ class ConnectClient(ProtocolClient):
 
         """
         conn = ConnectUnaryClientConn(
+            session=self.params.session,
             spec=spec,
             peer=self.peer,
             url=self.params.url,
@@ -769,6 +769,7 @@ class ConnectClient(ProtocolClient):
 
         """
         conn = ConnectStreamingClientConn(
+            session=self.params.session,
             spec=spec,
             peer=self.peer,
             url=self.params.url,
@@ -948,59 +949,6 @@ class ConnectUnaryRequestMarshaler:
             del self.connect_marshaler.headers[HEADER_CONTENT_LENGTH]
 
         self.url = url
-
-
-def _load_httpcore_exceptions() -> dict[type[Exception], Code]:
-    return {
-        httpcore.TimeoutException: Code.DEADLINE_EXCEEDED,
-        httpcore.ConnectTimeout: Code.DEADLINE_EXCEEDED,
-        httpcore.ReadTimeout: Code.DEADLINE_EXCEEDED,
-        httpcore.WriteTimeout: Code.DEADLINE_EXCEEDED,
-        httpcore.PoolTimeout: Code.RESOURCE_EXHAUSTED,
-        httpcore.NetworkError: Code.UNAVAILABLE,
-        httpcore.ConnectError: Code.UNAVAILABLE,
-        httpcore.ReadError: Code.UNAVAILABLE,
-        httpcore.WriteError: Code.UNAVAILABLE,
-        httpcore.ProxyError: Code.UNAVAILABLE,
-        httpcore.UnsupportedProtocol: Code.INVALID_ARGUMENT,
-        httpcore.ProtocolError: Code.INVALID_ARGUMENT,
-        httpcore.LocalProtocolError: Code.INTERNAL,
-        httpcore.RemoteProtocolError: Code.INTERNAL,
-    }
-
-
-HTTPCORE_EXC_MAP: dict[type[Exception], Code] = {}
-
-
-@contextlib.contextmanager
-def map_httpcore_exceptions() -> Iterator[None]:
-    """Map exceptions raised by the HTTP core to custom exceptions.
-
-    This function uses a global exception map `HTTPCORE_EXC_MAP` to translate exceptions
-    raised within its context. If the map is empty, it loads the exceptions using the
-    `_load_httpcore_exceptions` function. When an exception is caught, it checks if the
-    exception matches any in the map and raises a `ConnectError` with the corresponding
-    error code. If no match is found, the original exception is re-raised.
-
-    Yields:
-        None: This function is a generator used as a context manager.
-
-    Raises:
-        ConnectError: If the caught exception matches an entry in `HTTPCORE_EXC_MAP`.
-        Exception: If no match is found in `HTTPCORE_EXC_MAP`, the original exception is re-raised.
-
-    """
-    global HTTPCORE_EXC_MAP
-    if len(HTTPCORE_EXC_MAP) == 0:
-        HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
-    try:
-        yield
-    except Exception as exc:
-        for from_exc, to_code in HTTPCORE_EXC_MAP.items():
-            if isinstance(exc, from_exc):
-                raise ConnectError(str(exc), to_code) from exc
-
-        raise exc
 
 
 class ResponseAsyncByteStream(AsyncByteStream):
@@ -1267,10 +1215,9 @@ class ConnectStreamingClientConn(StreamingClientConn):
     _response_trailers: Headers
     _request_headers: Headers
 
-    _pool: httpcore.AsyncConnectionPool
-
     def __init__(
         self,
+        session: AsyncClientSession,
         spec: Spec,
         peer: Peer,
         url: URL,
@@ -1283,6 +1230,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """Initialize a new instance of the class.
 
         Args:
+            session (AsyncClientSession): The session object for the connection.
             spec (Spec): The specification object.
             peer (Peer): The peer object.
             url (URL): The URL for the connection.
@@ -1298,6 +1246,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
+        self.session = session
         self._spec = spec
         self._peer = peer
         self.url = url
@@ -1307,7 +1256,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self.response_content = None
         self._response_headers = Headers()
         self._response_trailers = Headers()
-        self._pool = self._connection_pool()
         self._request_headers = request_headers
         self._event_hooks = {
             "request": list(event_hooks.get("request", [])),
@@ -1375,11 +1323,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         """
         self._event_hooks["request"].append(fn)
-
-    def _connection_pool(self, http2: bool = False) -> httpcore.AsyncConnectionPool:
-        return httpcore.AsyncConnectionPool(
-            http2=http2,
-        )
 
     async def receive(self, message: Any) -> AsyncIterator[Any]:
         """Asynchronously receives and processes a message.
@@ -1458,7 +1401,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             hook(request)
 
         with map_httpcore_exceptions():
-            response = await self._pool.handle_async_request(request)
+            response = await self.session.pool.handle_async_request(request)
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -1492,49 +1435,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
         self._response_headers.update(response_headers)
 
-    async def aclose(self) -> None:
-        """Asynchronously close the connection pool.
-
-        This method will close all connections in the pool asynchronously.
-        """
-        await self._pool.aclose()
-
-    async def __aenter__(self) -> "ConnectStreamingClientConn":
-        """Asynchronous context manager entry method.
-
-        This method is called when entering the asynchronous context using the `async with` statement.
-        It awaits the entry of the connection pool and returns the current instance of `ConnectStreamingClientConn`.
-
-        Returns:
-            ConnectStreamingClientConn: The current instance of the connection.
-
-        """
-        await self._pool.__aenter__()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None = None,
-        exc: BaseException | None = None,
-        tb: types.TracebackType | None = None,
-    ) -> None:
-        """Exit the runtime context related to this object.
-
-        This method is called when the execution of the block inside the `async with` statement is finished.
-        It delegates the exit process to the underlying pool's `__aexit__` method.
-
-        Args:
-            exc_type (type[BaseException] | None): The exception type if an exception was raised, otherwise None.
-            exc (BaseException | None): The exception instance if an exception was raised, otherwise None.
-            tb (types.TracebackType | None): The traceback object if an exception was raised, otherwise None.
-
-        Returns:
-            None
-
-        """
-        with map_httpcore_exceptions():
-            await self._pool.__aexit__(exc_type, exc, tb)
-
 
 class ConnectUnaryClientConn(UnaryClientConn):
     """A client connection for unary RPCs using the Connect protocol.
@@ -1550,11 +1450,11 @@ class ConnectUnaryClientConn(UnaryClientConn):
         _response_headers (Headers): The headers of the response.
         _response_trailers (Headers): The trailers of the response.
         _request_headers (Headers): The headers of the request.
-        _pool (httpcore.AsyncConnectionPool): The connection pool.
         _event_hooks (dict[str, list[EventHook]]): Event hooks for request and response.
 
     """
 
+    session: AsyncClientSession
     _spec: Spec
     _peer: Peer
     url: URL
@@ -1566,10 +1466,9 @@ class ConnectUnaryClientConn(UnaryClientConn):
     _response_trailers: Headers
     _request_headers: Headers
 
-    _pool: httpcore.AsyncConnectionPool
-
     def __init__(
         self,
+        session: AsyncClientSession,
         spec: Spec,
         peer: Peer,
         url: URL,
@@ -1582,6 +1481,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """Initialize the ConnectProtocol instance.
 
         Args:
+            session (AsyncClientSession): The session for the connection.
             spec (Spec): The specification for the connection.
             peer (Peer): The peer information.
             url (URL): The URL for the connection.
@@ -1597,6 +1497,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
+        self.session = session
         self._spec = spec
         self._peer = peer
         self.url = url
@@ -1606,17 +1507,11 @@ class ConnectUnaryClientConn(UnaryClientConn):
         self.response_content = None
         self._response_headers = Headers()
         self._response_trailers = Headers()
-        self._pool = self._connection_pool()
         self._request_headers = request_headers
         self._event_hooks = {
             "request": list(event_hooks.get("request", [])),
             "response": list(event_hooks.get("response", [])),
         }
-
-    def _connection_pool(self, http2: bool = False) -> httpcore.AsyncConnectionPool:
-        return httpcore.AsyncConnectionPool(
-            http2=http2,
-        )
 
     @property
     def spec(self) -> Spec:
@@ -1726,7 +1621,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
             hook(request)
 
         with map_httpcore_exceptions():
-            response = await self._pool.handle_async_request(request=request)
+            response = await self.session.pool.handle_async_request(request=request)
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -1833,50 +1728,6 @@ class ConnectUnaryClientConn(UnaryClientConn):
             "request": list(event_hooks.get("request", [])),
             "response": list(event_hooks.get("response", [])),
         }
-
-    async def aclose(self) -> None:
-        """Asynchronously closes the connection pool.
-
-        This method should be called to properly close all connections in the pool
-        and release any resources associated with them.
-        """
-        await self._pool.aclose()
-
-    async def __aenter__(self) -> "ConnectUnaryClientConn":
-        """Asynchronous context manager entry method.
-
-        This method is called when entering the asynchronous context using the `async with` statement.
-        It awaits the entry of the connection pool and returns the current instance of `ConnectUnaryClientConn`.
-
-        Returns:
-            ConnectUnaryClientConn: The current instance of the connection.
-
-        """
-        await self._pool.__aenter__()
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None = None,
-        exc: BaseException | None = None,
-        tb: types.TracebackType | None = None,
-    ) -> None:
-        """Exit the runtime context related to this object.
-
-        This method is called when the execution of the block inside the `async with` statement is finished.
-        It delegates the exit process to the underlying pool's `__aexit__` method.
-
-        Args:
-            exc_type (type[BaseException] | None): The exception type if an exception was raised, otherwise None.
-            exc (BaseException | None): The exception instance if an exception was raised, otherwise None.
-            tb (types.TracebackType | None): The traceback object if an exception was raised, otherwise None.
-
-        Returns:
-            None
-
-        """
-        with map_httpcore_exceptions():
-            await self._pool.__aexit__(exc_type, exc, tb)
 
 
 def connect_validate_unary_response_content_type(

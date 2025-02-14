@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from connect.connect import ConnectRequest
+from connect.session import AsyncClientSession
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import SayRequest
 from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceClient
@@ -14,14 +15,16 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     """Interact with the ElizaServiceClient asynchronously."""
-    client = ElizaServiceClient(
-        base_url="http://localhost:8080/",
-    )
-    response = await client.Say(ConnectRequest(SayRequest(sentence="I feel happy.")))
+    async with AsyncClientSession() as session:
+        client = ElizaServiceClient(
+            session=session,
+            base_url="http://localhost:8080/",
+        )
+        response = await client.Say(ConnectRequest(SayRequest(sentence="I feel happy.")))
 
-    logger.debug(response.message.sentence)
-    for k, v in response.headers.items():
-        logger.debug(f"{k}: {v}")
+        logger.debug(response.message.sentence)
+        for k, v in response.headers.items():
+            logger.debug(f"{k}: {v}")
 
 
 if __name__ == "__main__":

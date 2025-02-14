@@ -271,8 +271,7 @@ class Client[T_Request, T_Response]:
 
             return StreamResponse(conn.receive(output), conn.response_headers, conn.response_trailers)
 
-        # TODO(tsubakiky): support interceptors
-        stream_func = _stream_func
+        stream_func = apply_interceptors(_stream_func, options.interceptors)
 
         async def call_stream(
             stream_type: StreamType,

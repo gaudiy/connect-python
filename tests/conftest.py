@@ -20,6 +20,7 @@ from uvicorn.config import Config
 from uvicorn.server import Server
 from yarl import URL
 
+from connect.envelope import Envelope, EnvelopeFlags
 from tests.testdata.ping.v1.ping_pb2 import PingResponse
 
 Message = typing.MutableMapping[str, typing.Any]
@@ -65,6 +66,8 @@ class DefaultApp:
             await self.ping_json(scope, receive, send)
         elif scope["path"].endswith("/proto"):
             await self.ping_proto(scope, receive, send)
+        elif scope["path"].endswith("/stream"):
+            await self.ping_stream(scope, receive, send)
         else:
             await self.not_found(scope, receive, send)
 
@@ -100,6 +103,24 @@ class DefaultApp:
         content = PingResponse(name="test").SerializeToString()
 
         await send({"type": "http.response.body", "body": content})
+
+    async def ping_stream(self, scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                [b"content-type", b"application/connect+proto"],
+                [b"connect-accept-encoding", b"identity"],
+                [b"connect-content-encoding", b"identity"],
+            ],
+        })
+
+        env = Envelope(PingResponse(name="ping").SerializeToString(), EnvelopeFlags(0))
+        await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+        env = Envelope(json.dumps({}).encode(), EnvelopeFlags.end_stream)
+        await send({"type": "http.response.body", "body": env.encode(), "more_body": False})
 
     async def not_found(self, scope: Scope, receive: Receive, send: Send) -> None:
         await send({

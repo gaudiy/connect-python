@@ -14,6 +14,7 @@ from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import Interceptor, UnaryFunc
 from connect.options import ClientOptions
+from connect.session import AsyncClientSession
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
@@ -24,12 +25,13 @@ from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
 async def test_post_application_proto(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    response = await client.call_unary(ping_request)
+        response = await client.call_unary(ping_request)
 
-    assert response.message.name == "test"
+        assert response.message.name == "test"
 
 
 async def post_response_gzip(scope: Scope, receive: Receive, send: Send) -> None:
@@ -51,10 +53,11 @@ async def post_response_gzip(scope: Scope, receive: Receive, send: Send) -> None
 async def test_post_response_gzip(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    await client.call_unary(ping_request)
+        await client.call_unary(ping_request)
 
 
 async def post_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
@@ -84,12 +87,17 @@ async def post_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
 async def test_post_request_gzip(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(
-        url=url, input=PingRequest, output=PingResponse, options=ClientOptions(request_compression_name="gzip")
-    )
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(
+            session=session,
+            url=url,
+            input=PingRequest,
+            output=PingResponse,
+            options=ClientOptions(request_compression_name="gzip"),
+        )
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    await client.call_unary(ping_request)
+        await client.call_unary(ping_request)
 
 
 async def get_application_proto(scope: Scope, receive: Receive, send: Send) -> None:
@@ -142,15 +150,17 @@ async def get_application_proto(scope: Scope, receive: Receive, send: Send) -> N
 async def test_get_application_proto(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(
-        url=url,
-        input=PingRequest,
-        output=PingResponse,
-        options=ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True),
-    )
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(
+            session=session,
+            url=url,
+            input=PingRequest,
+            output=PingResponse,
+            options=ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True),
+        )
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    await client.call_unary(ping_request)
+        await client.call_unary(ping_request)
 
 
 async def post_not_found(scope: Scope, receive: Receive, send: Send) -> None:
@@ -169,14 +179,15 @@ async def post_not_found(scope: Scope, receive: Receive, send: Send) -> None:
 async def test_post_not_found(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    with pytest.raises(ConnectError) as excinfo:
-        await client.call_unary(ping_request)
+        with pytest.raises(ConnectError) as excinfo:
+            await client.call_unary(ping_request)
 
-    assert "unimplemented" in str(excinfo.value)
-    assert excinfo.value.code == Code.UNIMPLEMENTED
+        assert "unimplemented" in str(excinfo.value)
+        assert excinfo.value.code == Code.UNIMPLEMENTED
 
 
 async def post_invalid_content_type_prefix(scope: Scope, receive: Receive, send: Send) -> None:
@@ -197,13 +208,14 @@ async def post_invalid_content_type_prefix(scope: Scope, receive: Receive, send:
 async def test_post_invalid_content_type_prefix(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    with pytest.raises(ConnectError) as excinfo:
-        await client.call_unary(ping_request)
+        with pytest.raises(ConnectError) as excinfo:
+            await client.call_unary(ping_request)
 
-    assert excinfo.value.code == Code.UNKNOWN
+        assert excinfo.value.code == Code.UNKNOWN
 
 
 async def post_error_details(scope: Scope, receive: Receive, send: Send) -> None:
@@ -243,19 +255,20 @@ async def test_post_error_details(hypercorn_server: ServerConfig) -> None:
 
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    with pytest.raises(ConnectError) as excinfo:
-        await client.call_unary(ping_request)
+        with pytest.raises(ConnectError) as excinfo:
+            await client.call_unary(ping_request)
 
-    assert excinfo.value.code == Code.UNAVAILABLE
-    assert excinfo.value.raw_message == "Service unavailable"
+        assert excinfo.value.code == Code.UNAVAILABLE
+        assert excinfo.value.raw_message == "Service unavailable"
 
-    got_msg = excinfo.value.details[0].get_inner()
-    assert isinstance(got_msg, struct_pb2.Struct)
-    assert got_msg.fields["name"].string_value == "test"
-    assert got_msg.fields["age"].number_value == 1
+        got_msg = excinfo.value.details[0].get_inner()
+        assert isinstance(got_msg, struct_pb2.Struct)
+        assert got_msg.fields["name"].string_value == "test"
+        assert got_msg.fields["age"].number_value == 1
 
 
 async def post_compressed_error_details(scope: Scope, receive: Receive, send: Send) -> None:
@@ -299,22 +312,23 @@ async def test_post_compressed_error_details(hypercorn_server: ServerConfig) -> 
 
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    client = Client(url=url, input=PingRequest, output=PingResponse)
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    with pytest.raises(ConnectError) as excinfo:
-        await client.call_unary(ping_request)
+        with pytest.raises(ConnectError) as excinfo:
+            await client.call_unary(ping_request)
 
-    assert excinfo.value.code == Code.UNAVAILABLE
-    assert excinfo.value.raw_message == "Service unavailable"
-    assert excinfo.value.metadata["content-type"] == "application/json"
-    assert excinfo.value.metadata["content-encoding"] == "gzip"
-    assert len(excinfo.value.details) == 1
+        assert excinfo.value.code == Code.UNAVAILABLE
+        assert excinfo.value.raw_message == "Service unavailable"
+        assert excinfo.value.metadata["content-type"] == "application/json"
+        assert excinfo.value.metadata["content-encoding"] == "gzip"
+        assert len(excinfo.value.details) == 1
 
-    got_msg = excinfo.value.details[0].get_inner()
-    assert isinstance(got_msg, struct_pb2.Struct)
-    assert got_msg.fields["name"].string_value == "test"
-    assert got_msg.fields["age"].number_value == 1
+        got_msg = excinfo.value.details[0].get_inner()
+        assert isinstance(got_msg, struct_pb2.Struct)
+        assert got_msg.fields["name"].string_value == "test"
+        assert got_msg.fields["age"].number_value == 1
 
 
 @pytest.mark.asyncio()
@@ -357,19 +371,21 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
 
             return _wrapped
 
-    client = Client(
-        url=url,
-        input=PingRequest,
-        output=PingResponse,
-        options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
-    )
-    ping_request = ConnectRequest(message=PingRequest(name="test"))
+    async with AsyncClientSession() as session:
+        client = Client(
+            session=session,
+            url=url,
+            input=PingRequest,
+            output=PingResponse,
+            options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
+        )
+        ping_request = ConnectRequest(message=PingRequest(name="test"))
 
-    await client.call_unary(ping_request)
+        await client.call_unary(ping_request)
 
-    assert len(ephemeral_files) == 2
-    for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
-        ephemeral_file.seek(0)
-        assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
+        assert len(ephemeral_files) == 2
+        for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+            ephemeral_file.seek(0)
+            assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
 
-        ephemeral_file.close()
+            ephemeral_file.close()

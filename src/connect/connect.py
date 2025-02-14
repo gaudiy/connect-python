@@ -4,8 +4,7 @@ import abc
 from collections.abc import AsyncIterator, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
-from types import TracebackType
-from typing import Any, Protocol, Self, cast
+from typing import Any, Protocol, cast
 
 from pydantic import BaseModel
 
@@ -47,7 +46,83 @@ class Peer(BaseModel):
     query: Mapping[str, str]
 
 
-class StreamRequest[T]:
+class RequestCommon:
+    _spec: Spec
+    _peer: Peer
+    _headers: Headers
+    _method: str
+
+    def __init__(
+        self,
+        spec: Spec | None = None,
+        peer: Peer | None = None,
+        headers: Headers | None = None,
+        method: str | None = None,
+    ) -> None:
+        """Initialize a new Request instance.
+
+        Args:
+            messages (AsyncIterator[T]): An asynchronous iterator of messages.
+            spec (Spec): The specification for the request.
+            peer (Peer): The peer information.
+            headers (Mapping[str, str]): The request headers.
+            method (str): The HTTP method used for the request.
+
+        Returns:
+            None
+
+        """
+        self._spec = (
+            spec
+            if spec
+            else Spec(
+                procedure="",
+                descriptor=None,
+                stream_type=StreamType.Unary,
+                idempotency_level=IdempotencyLevel.IDEMPOTENT,
+            )
+        )
+        self._peer = peer if peer else Peer(address=None, protocol="", query={})
+        self._headers = headers if headers else Headers()
+        self._method = method if method else HTTPMethod.POST.value
+
+    @property
+    def spec(self) -> Spec:
+        """Return the request specification."""
+        return self._spec
+
+    @spec.setter
+    def spec(self, value: Spec) -> None:
+        """Set the request specification."""
+        self._spec = value
+
+    @property
+    def peer(self) -> Peer:
+        """Return the request peer."""
+        return self._peer
+
+    @peer.setter
+    def peer(self, value: Peer) -> None:
+        """Set the request peer."""
+        self._peer = value
+
+    @property
+    def headers(self) -> Headers:
+        """Return the request headers."""
+        return self._headers
+
+    @property
+    def method(self) -> str:
+        """Return the request method."""
+        return self._method
+
+    @method.setter
+    def method(self, value: str) -> None:
+        """Set the request method."""
+        self._method = value
+
+
+class StreamRequest[T](RequestCommon):
     """StreamRequest class represents a request that can handle streaming messages.
 
     Attributes:
@@ -86,62 +161,16 @@ class StreamRequest[T]:
             None
 
         """
+        super().__init__(spec, peer, headers, method)
         self.messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
-        self._spec = (
-            spec
-            if spec
-            else Spec(
-                procedure="",
-                descriptor=None,
-                stream_type=StreamType.Unary,
-                idempotency_level=IdempotencyLevel.IDEMPOTENT,
-            )
-        )
-        self._peer = peer if peer else Peer(address=None, protocol="", query={})
-        self._headers = headers if headers else Headers()
-        self._method = method if method else HTTPMethod.POST.value
 
     def any(self) -> AsyncIterator[T]:
         """Return the request message."""
         return self.messages
 
-    @property
-    def spec(self) -> Spec:
-        """Return the request specification."""
-        return self._spec
 
-    @spec.setter
-    def spec(self, value: Spec) -> None:
-        """Set the request specification."""
-        self._spec = value
-
-    @property
-    def peer(self) -> Peer:
-        """Return the request peer."""
-        return self._peer
-
-    @peer.setter
-    def peer(self, value: Peer) -> None:
-        """Set the request peer."""
-        self._peer = value
-
-    @property
-    def headers(self) -> Headers:
-        """Return the request headers."""
-        return self._headers
-
-    @property
-    def method(self) -> str:
-        """Return the request method."""
-        return self._method
-
-    @method.setter
-    def method(self, value: str) -> None:
-        """Set the request method."""
-        self._method = value
-
-
-class ConnectRequest[T]:
+# TODO(tsubakiky): rename to UnaryRequest
+class ConnectRequest[T](RequestCommon):
     """ConnectRequest is a class that encapsulates a request with a message, specification, peer, headers, and method.
 
     Attributes:
@@ -180,62 +209,42 @@ class ConnectRequest[T]:
             None
 
         """
+        super().__init__(spec, peer, headers, method)
         self.message = message
-        self._spec = (
-            spec
-            if spec
-            else Spec(
-                procedure="",
-                descriptor=None,
-                stream_type=StreamType.Unary,
-                idempotency_level=IdempotencyLevel.IDEMPOTENT,
-            )
-        )
-        self._peer = peer if peer else Peer(address=None, protocol="", query={})
-        self._headers = headers if headers else Headers()
-        self._method = method if method else HTTPMethod.POST.value
 
     def any(self) -> T:
         """Return the request message."""
         return self.message
 
-    @property
-    def spec(self) -> Spec:
-        """Return the request specification."""
-        return self._spec
 
-    @spec.setter
-    def spec(self, value: Spec) -> None:
-        """Set the request specification."""
-        self._spec = value
+class ResponseCommon:
+    """Response class for handling responses."""
 
-    @property
-    def peer(self) -> Peer:
-        """Return the request peer."""
-        return self._peer
+    _headers: Headers
+    _trailers: Headers
 
-    @peer.setter
-    def peer(self, value: Peer) -> None:
-        """Set the request peer."""
-        self._peer = value
+    def __init__(
+        self,
+        headers: Headers | None = None,
+        trailers: Headers | None = None,
+    ) -> None:
+        """Initialize the response with a message."""
+        self._headers = headers if headers else Headers()
+        self._trailers = trailers if trailers else Headers()
 
     @property
     def headers(self) -> Headers:
-        """Return the request headers."""
+        """Return the response headers."""
         return self._headers
 
     @property
-    def method(self) -> str:
-        """Return the request method."""
-        return self._method
-
-    @method.setter
-    def method(self, value: str) -> None:
-        """Set the request method."""
-        self._method = value
+    def trailers(self) -> Headers:
+        """Return the response trailers."""
+        return self._trailers
 
 
-class ConnectResponse[T]:
+# TODO(tsubakiky): rename to UnaryResponse
+class ConnectResponse[T](ResponseCommon):
     """Response class for handling responses."""
 
     message: T
@@ -249,13 +258,34 @@ class ConnectResponse[T]:
         trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
+        super().__init__(headers, trailers)
         self.message = message
-        self.headers = headers if headers else Headers()
-        self.trailers = trailers if trailers else Headers()
 
     def any(self) -> T:
         """Return the response message."""
         return self.message
+
+
+class StreamResponse[T](ResponseCommon):
+    """Response class for handling responses."""
+
+    messages: AsyncIterator[T]
+    headers: Headers
+    trailers: Headers
+
+    def __init__(
+        self,
+        messages: AsyncIterator[T] | T,
+        headers: Headers | None = None,
+        trailers: Headers | None = None,
+    ) -> None:
+        """Initialize the response with a message."""
+        super().__init__(headers, trailers)
+        self.messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+
+    def any(self) -> AsyncIterator[T]:
+        """Return the response message."""
+        return self.messages
 
 
 class StreamingHandlerConn(abc.ABC):
@@ -353,25 +383,7 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
 
-class AbstractAsyncContextManager(abc.ABC):
-    """Abstract base class for an asynchronous context manager."""
-
-    async def __aenter__(self) -> Self:
-        """Enter the context manager and return the instance."""
-        return self
-
-    @abc.abstractmethod
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
-    ) -> None:
-        """Exit the context manager and handle any exceptions that occur."""
-        return None
-
-
-class UnaryClientConn(AbstractAsyncContextManager):
+class UnaryClientConn:
     """Abstract base class for a streaming client connection."""
 
     @property
@@ -420,7 +432,7 @@ class UnaryClientConn(AbstractAsyncContextManager):
         raise NotImplementedError()
 
 
-class StreamingClientConn(AbstractAsyncContextManager):
+class StreamingClientConn:
     """Abstract base class for a streaming client connection."""
 
     @property

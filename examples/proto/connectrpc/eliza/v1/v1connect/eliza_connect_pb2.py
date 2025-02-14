@@ -12,6 +12,7 @@ from connect.client import Client
 from connect.connect import ConnectRequest, ConnectResponse, StreamRequest
 from connect.handler import UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
+from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2
@@ -38,17 +39,25 @@ ElizaService_IntroduceClient_method_descriptor: MethodDescriptor = ElizaService_
 
 
 class ElizaServiceClient:
-    def __init__(self, base_url: str, options: ClientOptions | None = None) -> None:
+    def __init__(self, base_url: str, session: AsyncClientSession, options: ClientOptions | None = None) -> None:
         base_url = base_url.removesuffix("/")
 
         self.Say = Client[SayRequest, SayResponse](
-            base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
+            session, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
         ).call_unary
         self.IntroduceServer = Client[IntroduceRequest, IntroduceResponse](
-            base_url + ElizaServiceProcedures.IntroduceServer.value, IntroduceRequest, IntroduceResponse, options
+            session,
+            base_url + ElizaServiceProcedures.IntroduceServer.value,
+            IntroduceRequest,
+            IntroduceResponse,
+            options,
         ).call_server_stream
         self.IntroduceClient = Client[IntroduceRequest, IntroduceResponse](
-            base_url + ElizaServiceProcedures.IntroduceClient.value, IntroduceRequest, IntroduceResponse, options
+            session,
+            base_url + ElizaServiceProcedures.IntroduceClient.value,
+            IntroduceRequest,
+            IntroduceResponse,
+            options,
         ).call_client_stream
 
 

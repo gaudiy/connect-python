@@ -1,14 +1,23 @@
 """Provides utility functions for asynchronous programming."""
 
 import asyncio
+import contextlib
 import functools
 import typing
-from collections.abc import Awaitable, Callable
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Iterator,
+)
 
 import anyio.to_thread
+import httpcore
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from connect.code import Code
+from connect.error import ConnectError
 
 type AwaitableCallable[T] = typing.Callable[..., typing.Awaitable[T]]
 
@@ -187,3 +196,56 @@ async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:
     """
     for i in iterable:
         yield i
+
+
+def _load_httpcore_exceptions() -> dict[type[Exception], Code]:
+    return {
+        httpcore.TimeoutException: Code.DEADLINE_EXCEEDED,
+        httpcore.ConnectTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.ReadTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.WriteTimeout: Code.DEADLINE_EXCEEDED,
+        httpcore.PoolTimeout: Code.RESOURCE_EXHAUSTED,
+        httpcore.NetworkError: Code.UNAVAILABLE,
+        httpcore.ConnectError: Code.UNAVAILABLE,
+        httpcore.ReadError: Code.UNAVAILABLE,
+        httpcore.WriteError: Code.UNAVAILABLE,
+        httpcore.ProxyError: Code.UNAVAILABLE,
+        httpcore.UnsupportedProtocol: Code.INVALID_ARGUMENT,
+        httpcore.ProtocolError: Code.INVALID_ARGUMENT,
+        httpcore.LocalProtocolError: Code.INTERNAL,
+        httpcore.RemoteProtocolError: Code.INTERNAL,
+    }
+
+
+HTTPCORE_EXC_MAP: dict[type[Exception], Code] = {}
+
+
+@contextlib.contextmanager
+def map_httpcore_exceptions() -> Iterator[None]:
+    """Map exceptions raised by the HTTP core to custom exceptions.
+
+    This function uses a global exception map `HTTPCORE_EXC_MAP` to translate exceptions
+    raised within its context. If the map is empty, it loads the exceptions using the
+    `_load_httpcore_exceptions` function. When an exception is caught, it checks if the
+    exception matches any in the map and raises a `ConnectError` with the corresponding
+    error code. If no match is found, the original exception is re-raised.
+
+    Yields:
+        None: This function is a generator used as a context manager.
+
+    Raises:
+        ConnectError: If the caught exception matches an entry in `HTTPCORE_EXC_MAP`.
+        Exception: If no match is found in `HTTPCORE_EXC_MAP`, the original exception is re-raised.
+
+    """
+    global HTTPCORE_EXC_MAP
+    if len(HTTPCORE_EXC_MAP) == 0:
+        HTTPCORE_EXC_MAP = _load_httpcore_exceptions()
+    try:
+        yield
+    except Exception as exc:
+        for from_exc, to_code in HTTPCORE_EXC_MAP.items():
+            if isinstance(exc, from_exc):
+                raise ConnectError(str(exc), to_code) from exc
+
+        raise exc

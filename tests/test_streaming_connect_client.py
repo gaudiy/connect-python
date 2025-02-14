@@ -4,14 +4,16 @@
 import gzip
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 
 from connect.client import Client
 from connect.code import Code
-from connect.connect import StreamRequest
+from connect.connect import StreamRequest, StreamResponse
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
+from connect.interceptor import Interceptor, StreamFunc
 from connect.options import ClientOptions
 from connect.session import AsyncClientSession
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
@@ -473,6 +475,63 @@ async def client_streaming(scope: Scope, receive: Receive, send: Send) -> None:
 
 
 @pytest.mark.asyncio()
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(None)], indirect=["hypercorn_server"])
+async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> None:
+    import io
+    import tempfile
+
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/stream"
+
+    ephemeral_files: list[io.BufferedRandom] = []
+
+    class FileInterceptor1(Interceptor):
+        def wrap_stream(self, next: StreamFunc) -> StreamFunc:
+            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 1")
+
+                return await next(request)
+
+            return _wrapped
+
+    class FileInterceptor2(Interceptor):
+        def wrap_stream(self, next: StreamFunc) -> StreamFunc:
+            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 2")
+
+                return await next(request)
+
+            return _wrapped
+
+    async with AsyncClientSession() as session:
+        client = Client(
+            session=session,
+            url=url,
+            input=PingRequest,
+            output=PingResponse,
+            options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
+        )
+
+        ping_request = StreamRequest(messages=PingRequest(name="test"))
+
+        await client.call_server_stream(ping_request)
+
+        assert len(ephemeral_files) == 2
+        for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+            ephemeral_file.seek(0)
+            assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
+
+            ephemeral_file.close()
+
+
+@pytest.mark.asyncio()
 @pytest.mark.parametrize(["hypercorn_server"], [pytest.param(client_streaming)], indirect=["hypercorn_server"])
 async def test_client_streaming(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
@@ -491,3 +550,63 @@ async def test_client_streaming(hypercorn_server: ServerConfig) -> None:
         async for message in response.messages:
             assert message.name in want
             want.remove(message.name)
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(None)], indirect=["hypercorn_server"])
+async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> None:
+    import io
+    import tempfile
+
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/stream"
+
+    ephemeral_files: list[io.BufferedRandom] = []
+
+    class FileInterceptor1(Interceptor):
+        def wrap_stream(self, next: StreamFunc) -> StreamFunc:
+            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 1")
+
+                return await next(request)
+
+            return _wrapped
+
+    class FileInterceptor2(Interceptor):
+        def wrap_stream(self, next: StreamFunc) -> StreamFunc:
+            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 2")
+
+                return await next(request)
+
+            return _wrapped
+
+    async def iterator() -> AsyncIterator[PingRequest]:
+        yield PingRequest(name="test")
+
+    async with AsyncClientSession() as session:
+        client = Client(
+            session=session,
+            url=url,
+            input=PingRequest,
+            output=PingResponse,
+            options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
+        )
+
+        ping_request = StreamRequest(messages=iterator())
+
+        await client.call_client_stream(ping_request)
+
+        assert len(ephemeral_files) == 2
+        for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+            ephemeral_file.seek(0)
+            assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
+
+            ephemeral_file.close()

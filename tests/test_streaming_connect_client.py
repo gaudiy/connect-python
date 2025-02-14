@@ -3,6 +3,7 @@
 
 import gzip
 import json
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -425,6 +426,68 @@ async def test_server_streaming_request_envelope_message_compression(hypercorn_s
 
         response = await client.call_server_stream(ping_request)
         want = ["Hi Bob.", "I'm Eliza."]
+        async for message in response.messages:
+            assert message.name in want
+            want.remove(message.name)
+
+
+async def client_streaming(scope: Scope, receive: Receive, send: Send) -> None:
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [
+            [b"content-type", b"application/connect+proto"],
+            [b"connect-accept-encoding", b"identity"],
+            [b"connect-content-encoding", b"identity"],
+        ],
+    })
+
+    request = ASGIRequest(scope, receive)
+    ping_requests: list[PingRequest] = []
+    async for body in request.iter_bytes():
+        env, _ = Envelope.decode(body)
+        if env:
+            ping_request = PingRequest()
+            ping_request.ParseFromString(env.data)
+            ping_requests.append(ping_request)
+
+    for k, v in request.headers.items():
+        if k == "content-type":
+            assert v == "application/connect+proto"
+        if k == "connect-accept-encoding":
+            assert v == "gzip"
+        if k == "connect-protocol-version":
+            assert v == "1"
+
+        assert k not in ["connect-content-encoding"]
+
+    assert len(ping_requests) == 3
+    assert " ".join([ping_request.name for ping_request in ping_requests]) == "Hello. My name is Bob. How are you?"
+
+    env = Envelope(PingResponse(name="I'm fine.").SerializeToString(), EnvelopeFlags(0))
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+    env = Envelope(json.dumps({}).encode(), EnvelopeFlags.end_stream)
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": False})
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(["hypercorn_server"], [pytest.param(client_streaming)], indirect=["hypercorn_server"])
+async def test_client_streaming(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
+
+    async def iterator() -> AsyncIterator[PingRequest]:
+        messages = ["Hello.", "My name is Bob.", "How are you?"]
+        for message in messages:
+            yield PingRequest(name=message)
+
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = StreamRequest(messages=iterator())
+
+        response = await client.call_client_stream(ping_request)
+        want = ["I'm fine."]
         async for message in response.messages:
             assert message.name in want
             want.remove(message.name)

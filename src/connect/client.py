@@ -182,6 +182,7 @@ class Client[T_Request, T_Response]:
         """Initialize the client with the given URL, request and response types, and optional client options.
 
         Args:
+            session (AsyncClientSession): The client session to use for the connection.
             url (str): The URL of the server to connect to.
             input (type[T_Request]): The type of the request object.
             output (type[T_Response]): The type of the response object.

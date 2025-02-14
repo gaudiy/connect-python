@@ -1230,6 +1230,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """Initialize a new instance of the class.
 
         Args:
+            session (AsyncClientSession): The session object for the connection.
             spec (Spec): The specification object.
             peer (Peer): The peer object.
             url (URL): The URL for the connection.
@@ -1480,6 +1481,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """Initialize the ConnectProtocol instance.
 
         Args:
+            session (AsyncClientSession): The session for the connection.
             spec (Spec): The specification for the connection.
             peer (Peer): The peer information.
             url (URL): The URL for the connection.

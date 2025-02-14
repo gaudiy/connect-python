@@ -47,6 +47,16 @@ class Peer(BaseModel):
 
 
 class RequestCommon:
+    """RequestCommon is a class that encapsulates common attributes and methods for handling HTTP requests.
+
+    Attributes:
+        _spec (Spec): The specification for the request.
+        _peer (Peer): The peer information.
+        _headers (Headers): The request headers.
+        _method (str): The HTTP method used for the request.
+
+    """
+
     _spec: Spec
     _peer: Peer
     _headers: Headers
@@ -218,7 +228,13 @@ class ConnectRequest[T](RequestCommon):
 
 
 class ResponseCommon:
-    """Response class for handling responses."""
+    """ResponseCommon is a class that encapsulates common response attributes such as headers and trailers.
+
+    Attributes:
+        _headers (Headers): The headers of the response.
+        _trailers (Headers): The trailers of the response.
+
+    """
 
     _headers: Headers
     _trailers: Headers

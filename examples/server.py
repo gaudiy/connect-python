@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 import hypercorn.asyncio
-from connect.connect import ConnectRequest, ConnectResponse
+from connect.connect import UnaryRequest, UnaryResponse
 from connect.interceptor import Interceptor, UnaryFunc
 from connect.middleware import ConnectMiddleware
 from starlette.applications import Starlette
@@ -17,10 +17,10 @@ from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceHa
 class ElizaService(ElizaServiceHandler):
     """Ping service implementation."""
 
-    async def Say(self, request: ConnectRequest[SayRequest]) -> ConnectResponse[SayResponse]:
+    async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]:
         """Return a ping response."""
         data = request.message
-        return ConnectResponse(SayResponse(sentence=data.sentence))
+        return UnaryResponse(SayResponse(sentence=data.sentence))
 
 
 class IPRestrictionInterceptor(Interceptor):
@@ -29,7 +29,7 @@ class IPRestrictionInterceptor(Interceptor):
     def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
         """Wrap a unary function with the interceptor."""
 
-        async def _wrapped(request: ConnectRequest[Any]) -> ConnectResponse[Any]:
+        async def _wrapped(request: UnaryRequest[Any]) -> UnaryResponse[Any]:
             ip_allow_list = os.environ.get("IP_ALLOW_LIST", "").split(",")
             if not ip_allow_list:
                 raise Exception("White list not found")

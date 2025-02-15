@@ -7,7 +7,7 @@ import (
 // p.P(`import abc`)
 // p.P(`from enum import Enum`)
 // p.P()
-// p.P(`from connect.connect import ConnectRequest, ConnectResponse`)
+// p.P(`from connect.connect import UnaryRequest, UnaryResponse`)
 // p.P(`from connect.handler import UnaryHandler`)
 // p.P(`from connect.options import ConnectOptions`)
 // p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)

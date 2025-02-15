@@ -3,7 +3,7 @@
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
-from connect.connect import ConnectRequest, ConnectResponse
+from connect.connect import UnaryRequest, UnaryResponse
 from connect.idempotency_level import IdempotencyLevel
 from connect.middleware import ConnectMiddleware
 from connect.options import ConnectOptions
@@ -18,10 +18,10 @@ from tests.testdata.ping.v1.v1connect.ping_connect import (
 class PingService(PingServiceHandler):
     """Ping service implementation."""
 
-    async def Ping(self, request: ConnectRequest[PingRequest]) -> ConnectResponse[PingResponse]:
+    async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
         """Return a ping response."""
         data = request.message
-        return ConnectResponse(PingResponse(name=data.name))
+        return UnaryResponse(PingResponse(name=data.name))
 
 
 middleware = [

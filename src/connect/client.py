@@ -13,12 +13,12 @@ from connect.code import Code
 from connect.codec import Codec, ProtoBinaryCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
 from connect.connect import (
-    ConnectRequest,
-    ConnectResponse,
     Spec,
     StreamRequest,
     StreamResponse,
     StreamType,
+    UnaryRequest,
+    UnaryResponse,
     recieve_unary_response,
 )
 from connect.error import ConnectError
@@ -154,21 +154,21 @@ class Client[T_Request, T_Response]:
     Attributes:
         config (ClientConfig): Configuration for the client.
         protocol_client (ProtocolClient): The protocol client used for communication.
-        _call_unary (Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]):
+        _call_unary (Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]):
             Internal method to handle unary calls.
 
     Methods:
         __init__(url: str, input: type[T_Request], output: type[T_Response], options: ClientOptions | None = None):
             Initialize the client with the given parameters.
 
-        call_unary(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
+        call_unary(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
             Make a unary call with the given request.
 
     """
 
     config: ClientConfig
     protocol_client: ProtocolClient
-    _call_unary: Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
+    _call_unary: Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
     _call_stream: Callable[[StreamType, StreamRequest[T_Request]], Awaitable[StreamResponse[T_Response]]]
 
     def __init__(
@@ -214,7 +214,7 @@ class Client[T_Request, T_Response]:
 
         unary_spec = config.spec(StreamType.Unary)
 
-        async def _unary_func(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
+        async def _unary_func(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
             conn = protocol_client.conn(unary_spec, request.headers)
 
             def on_request_send(r: httpcore.Request) -> None:
@@ -233,7 +233,7 @@ class Client[T_Request, T_Response]:
 
         unary_func = apply_interceptors(_unary_func, options.interceptors)
 
-        async def call_unary(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
+        async def call_unary(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
             request.spec = unary_spec
             request.peer = protocol_client.peer
             protocol_client.write_request_headers(StreamType.Unary, request.headers)
@@ -286,14 +286,14 @@ class Client[T_Request, T_Response]:
         self._call_unary = call_unary
         self._call_stream = call_stream
 
-    async def call_unary(self, request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
+    async def call_unary(self, request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
         """Asynchronously calls a unary RPC (Remote Procedure Call) with the given request.
 
         Args:
-            request (ConnectRequest[T_Request]): The request object containing the data to be sent to the server.
+            request (UnaryRequest[T_Request]): The request object containing the data to be sent to the server.
 
         Returns:
-            ConnectResponse[T_Response]: The response object containing the data received from the server.
+            UnaryResponse[T_Response]: The response object containing the data received from the server.
 
         """
         return await self._call_unary(request)
@@ -302,10 +302,10 @@ class Client[T_Request, T_Response]:
         """Asynchronously calls a server streaming RPC (Remote Procedure Call) with the given request.
 
         Args:
-            request (ConnectRequest[T_Request]): The request object containing the data to be sent to the server.
+            request (UnaryRequest[T_Request]): The request object containing the data to be sent to the server.
 
         Returns:
-            ConnectResponse[T_Response]: The response object containing the data received from the server.
+            UnaryResponse[T_Response]: The response object containing the data received from the server.
 
         """
         return await self._call_stream(StreamType.ServerStream, request)
@@ -320,7 +320,7 @@ class Client[T_Request, T_Response]:
             request (StreamRequest[T_Request]): The stream request to be sent.
 
         Yields:
-            ConnectResponse[T_Response]: The response from the client stream.
+            UnaryResponse[T_Response]: The response from the client stream.
 
         """
         return await self._call_stream(StreamType.ClientStream, request)

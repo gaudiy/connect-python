@@ -179,9 +179,8 @@ class StreamRequest[T](RequestCommon):
         return self.messages
 
 
-# TODO(tsubakiky): rename to UnaryRequest
-class ConnectRequest[T](RequestCommon):
-    """ConnectRequest is a class that encapsulates a request with a message, specification, peer, headers, and method.
+class UnaryRequest[T](RequestCommon):
+    """UnaryRequest is a class that encapsulates a request with a message, specification, peer, headers, and method.
 
     Attributes:
         message (Req): The request message.
@@ -259,8 +258,7 @@ class ResponseCommon:
         return self._trailers
 
 
-# TODO(tsubakiky): rename to UnaryResponse
-class ConnectResponse[T](ResponseCommon):
+class UnaryResponse[T](ResponseCommon):
     """Response class for handling responses."""
 
     message: T
@@ -534,15 +532,15 @@ class ReceiveConn(Protocol):
         raise NotImplementedError()
 
 
-async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> ConnectRequest[T]:
-    """Receives a unary request from the given connection and returns a ConnectRequest object.
+async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> UnaryRequest[T]:
+    """Receives a unary request from the given connection and returns a UnaryRequest object.
 
     Args:
         conn (StreamingHandlerConn): The connection from which to receive the unary request.
         t (type[T]): The type of the message to be received.
 
     Returns:
-        ConnectRequest[T]: A ConnectRequest object containing the received message.
+        UnaryRequest[T]: A UnaryRequest object containing the received message.
 
     """
     message = await receive_unary_message(conn, t)
@@ -552,7 +550,7 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Co
     if get_http_method:
         method = cast(HTTPMethod, get_http_method())
 
-    return ConnectRequest(
+    return UnaryRequest(
         message=message,
         spec=conn.spec,
         peer=conn.peer,
@@ -561,7 +559,7 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Co
     )
 
 
-async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> ConnectResponse[T]:
+async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:
     """Receive a unary response from a streaming client connection.
 
     Args:
@@ -569,15 +567,15 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> Connec
         t (type[T]): The type of the expected response message.
 
     Returns:
-        ConnectResponse[T]: The response containing the message, response headers, and response trailers.
+        UnaryResponse[T]: The response containing the message, response headers, and response trailers.
 
     """
     message = await receive_unary_message(conn, t)
 
-    return ConnectResponse(message, conn.response_headers, conn.response_trailers)
+    return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncIterator[ConnectResponse[T]]:
+async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncIterator[UnaryResponse[T]]:
     """Asynchronously receives a stream of responses from a streaming client connection.
 
     Args:
@@ -585,14 +583,14 @@ async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> A
         t (type[T]): The type of the messages to be received.
 
     Yields:
-        ConnectResponse[T]: An asynchronous iterator of ConnectResponse objects containing the received messages, response headers, and response trailers.
+        UnaryResponse[T]: An asynchronous iterator of UnaryResponse objects containing the received messages, response headers, and response trailers.
 
     Type Parameters:
         T: The type of the messages to be received.
 
     """
     async for message in conn.receive(t):
-        yield ConnectResponse(message, conn.response_headers, conn.response_trailers)
+        yield UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

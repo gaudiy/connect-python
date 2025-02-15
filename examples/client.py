@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from connect.connect import ConnectRequest
+from connect.connect import UnaryRequest
 from connect.session import AsyncClientSession
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import SayRequest
@@ -20,7 +20,7 @@ async def main() -> None:
             session=session,
             base_url="http://localhost:8080/",
         )
-        response = await client.Say(ConnectRequest(SayRequest(sentence="I feel happy.")))
+        response = await client.Say(UnaryRequest(SayRequest(sentence="I feel happy.")))
 
         logger.debug(response.message.sentence)
         for k, v in response.headers.items():

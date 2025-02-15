@@ -397,30 +397,32 @@ class ConnectUnaryUnmarshaler:
 
         chunks: list[bytes] = []
         bytes_read = 0
-        # TODO(tsubakiky): close the stream
-        async for chunk in self.stream:
-            chunk_size = len(chunk)
-            bytes_read += chunk_size
-            if self.read_max_bytes > 0 and bytes_read > self.read_max_bytes:
-                raise ConnectError(
-                    f"message size {bytes_read} is larger than configured max {self.read_max_bytes}",
-                    Code.RESOURCE_EXHAUSTED,
-                )
-
-            chunks.append(chunk)
-
-        data = b"".join(chunks)
-
-        if len(data) > 0 and self.compression:
-            data = self.compression.decompress(data, self.read_max_bytes)
-
         try:
-            obj = func(data, message)
-        except Exception as e:
-            raise ConnectError(
-                f"unmarshal message: {str(e)}",
-                Code.INVALID_ARGUMENT,
-            ) from e
+            async for chunk in self.stream:
+                chunk_size = len(chunk)
+                bytes_read += chunk_size
+                if self.read_max_bytes > 0 and bytes_read > self.read_max_bytes:
+                    raise ConnectError(
+                        f"message size {bytes_read} is larger than configured max {self.read_max_bytes}",
+                        Code.RESOURCE_EXHAUSTED,
+                    )
+
+                chunks.append(chunk)
+
+            data = b"".join(chunks)
+
+            if len(data) > 0 and self.compression:
+                data = self.compression.decompress(data, self.read_max_bytes)
+
+            try:
+                obj = func(data, message)
+            except Exception as e:
+                raise ConnectError(
+                    f"unmarshal message: {str(e)}",
+                    Code.INVALID_ARGUMENT,
+                ) from e
+        finally:
+            await self.stream.aclose()
 
         return obj
 

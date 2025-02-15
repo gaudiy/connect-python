@@ -146,7 +146,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P(`import abc`)
 	p.P(`from enum import Enum`)
 	p.P()
-	p.P(`from connect.connect import ConnectRequest, ConnectResponse`)
+	p.P(`from connect.connect import UnaryRequest, UnaryResponse`)
 	p.P(`from connect.handler import UnaryHandler`)
 	p.P(`from connect.options import ConnectOptions`)
 	p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
@@ -185,7 +185,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P()
 	for meth, svc := range p.services {
 		p.P(`    @abc.abstractmethod`)
-		p.P(`    async def `, meth.Method, `(self, `, `request: ConnectRequest[`, svc.input.method, `]) -> ConnectResponse[`, svc.output.method, `]: ...`)
+		p.P(`    async def `, meth.Method, `(self, `, `request: UnaryRequest[`, svc.input.method, `]) -> UnaryResponse[`, svc.output.method, `]: ...`)
 	}
 	p.P()
 	p.P()

@@ -4,9 +4,9 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeGuard, overload
 
-from connect.connect import ConnectRequest, ConnectResponse, StreamRequest, StreamResponse
+from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 
-UnaryFunc = Callable[[ConnectRequest[Any]], Awaitable[ConnectResponse[Any]]]
+UnaryFunc = Callable[[UnaryRequest[Any]], Awaitable[UnaryResponse[Any]]]
 StreamFunc = Callable[[StreamRequest[Any]], Awaitable[StreamResponse[Any]]]
 
 
@@ -21,7 +21,7 @@ def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
     """Determine if the given function is a unary function.
 
     A unary function is defined as a callable that takes a single parameter
-    whose type annotation has an origin of `ConnectRequest`.
+    whose type annotation has an origin of `UnaryRequest`.
 
     Args:
         next (UnaryFunc | StreamFunc): The function to be checked.
@@ -35,7 +35,7 @@ def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
     return bool(
         callable(next)
         and len(parameters) == 1
-        and getattr(parameters[0].annotation, "__origin__", None) is ConnectRequest
+        and getattr(parameters[0].annotation, "__origin__", None) is UnaryRequest
     )
 
 

@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from enum import Enum
 
 from connect.client import Client
-from connect.connect import ConnectRequest, ConnectResponse, StreamRequest
+from connect.connect import StreamRequest, UnaryRequest, UnaryResponse
 from connect.handler import UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
@@ -65,15 +65,15 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
     @abc.abstractmethod
-    async def Say(self, request: ConnectRequest[SayRequest]) -> ConnectResponse[SayResponse]: ...
+    async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
     @abc.abstractmethod
     async def IntroduceServer(
-        self, request: ConnectRequest[IntroduceRequest]
-    ) -> AsyncIterator[ConnectResponse[IntroduceResponse]]: ...
+        self, request: UnaryRequest[IntroduceRequest]
+    ) -> AsyncIterator[UnaryResponse[IntroduceResponse]]: ...
     @abc.abstractmethod
     async def IntroduceClient(
         self, request: StreamRequest[IntroduceRequest]
-    ) -> AsyncIterator[ConnectResponse[IntroduceResponse]]: ...
+    ) -> AsyncIterator[UnaryResponse[IntroduceResponse]]: ...
 
 
 def create_ElizaService_handlers(

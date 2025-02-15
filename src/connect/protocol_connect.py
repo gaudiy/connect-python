@@ -1390,7 +1390,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 target=self.url.raw_path,
             ),
             headers=list(
-                # TODO(tsubakiky): update _request_headers
                 include_request_headers(
                     headers=self._request_headers, url=self.url, content=content_iterator, method=HTTPMethod.POST
                 ).items()

@@ -11,11 +11,11 @@ from connect.code import Code
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import Compression, GZipCompression
 from connect.connect import (
-    ConnectRequest,
-    ConnectResponse,
     Spec,
     StreamingHandlerConn,
     StreamType,
+    UnaryRequest,
+    UnaryResponse,
     receive_unary_request,
 )
 from connect.error import ConnectError
@@ -141,7 +141,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-type UnaryFunc[T_Request, T_Response] = Callable[[ConnectRequest[T_Request]], Awaitable[ConnectResponse[T_Response]]]
+type UnaryFunc[T_Request, T_Response] = Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
 
 
 class UnaryHandler[T_Request, T_Response]:
@@ -177,7 +177,7 @@ class UnaryHandler[T_Request, T_Response]:
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
-        async def _untyped(request: ConnectRequest[T_Request]) -> ConnectResponse[T_Response]:
+        async def _untyped(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
             response = await unary(request)
 
             return response

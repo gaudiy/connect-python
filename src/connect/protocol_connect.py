@@ -2,7 +2,6 @@
 
 import base64
 import contextlib
-import http
 import json
 from collections.abc import (
     AsyncGenerator,
@@ -1406,20 +1405,24 @@ class ConnectStreamingClientConn(StreamingClientConn):
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        if response.status != http.HTTPStatus.OK:
-            # TODO(tsubakiky): add error handling
-            await response.aread()
-
         self.unmarshaler.stream = ResponseAsyncByteStream(
             aiterator=response.aiter_stream(), aclose_func=response.aclose
         )
 
-        self._validate_response(response)
+        await self._validate_response(response)
 
         return
 
-    def _validate_response(self, response: httpcore.Response) -> None:
+    async def _validate_response(self, response: httpcore.Response) -> None:
         response_headers = Headers(response.headers)
+
+        if response.status != HTTPStatus.OK:
+            await response.aread()
+
+            raise ConnectError(
+                f"HTTP {response.status}",
+                code_from_http_status(response.status),
+            )
 
         compression = response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
         if (

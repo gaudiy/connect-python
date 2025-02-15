@@ -531,6 +531,41 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
             ephemeral_file.close()
 
 
+async def server_streaming_not_httpstatus_200(scope: Scope, receive: Receive, send: Send) -> None:
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 429,
+        "headers": [
+            [b"content-type", b"application/connect+proto"],
+            [b"connect-accept-encoding", b"identity"],
+            [b"connect-content-encoding", b"identity"],
+        ],
+    })
+
+    await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+
+@pytest.mark.asyncio()
+@pytest.mark.parametrize(
+    ["hypercorn_server"], [pytest.param(server_streaming_not_httpstatus_200)], indirect=["hypercorn_server"]
+)
+async def test_server_streaming_not_httpstatus_200(hypercorn_server: ServerConfig) -> None:
+    url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
+
+    async with AsyncClientSession() as session:
+        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+
+    with pytest.raises(ConnectError) as excinfo:
+        await client.call_server_stream(ping_request)
+
+    assert excinfo.value.code == Code.UNAVAILABLE
+    assert len(excinfo.value.details) == 0
+    assert excinfo.value.wire_error is False
+    assert excinfo.value.metadata == {}
+
+
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(["hypercorn_server"], [pytest.param(client_streaming)], indirect=["hypercorn_server"])
 async def test_client_streaming(hypercorn_server: ServerConfig) -> None:

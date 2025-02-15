@@ -1,8 +1,7 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
-import http
 from collections.abc import Awaitable, Callable
-from http import HTTPMethod
+from http import HTTPMethod, HTTPStatus
 from typing import Any
 
 import anyio
@@ -224,7 +223,7 @@ class UnaryHandler[T_Request, T_Response]:
         protocol_handlers = self.protocol_handlers.get(HTTPMethod(request.method))
         if not protocol_handlers:
             response_headers["Allow"] = self.allow_methods
-            status = http.HTTPStatus.METHOD_NOT_ALLOWED
+            status = HTTPStatus.METHOD_NOT_ALLOWED
             return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
         content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
@@ -237,7 +236,7 @@ class UnaryHandler[T_Request, T_Response]:
 
         if not protocol_handler:
             response_headers["Accept-Post"] = self.accept_post
-            status = http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+            status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
             return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
         if HTTPMethod(request.method) == HTTPMethod.GET:
@@ -256,10 +255,10 @@ class UnaryHandler[T_Request, T_Response]:
                     pass
 
             if has_body:
-                status = http.HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+                status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
                 return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
-        status_code = http.HTTPStatus.OK.value
+        status_code = HTTPStatus.OK.value
         try:
             timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
             timeout_sec = None

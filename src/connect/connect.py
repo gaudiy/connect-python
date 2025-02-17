@@ -520,6 +520,96 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
 
+class StreamingHandlerConn(abc.ABC):
+    """Abstract base class for a streaming handler connection.
+
+    This class defines the interface for handling streaming connections, including
+    methods for specifying the connection, handling peer communication, receiving
+    and sending messages, and managing request and response headers and trailers.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def spec(self) -> Spec:
+        """Return the specification details.
+
+        Returns:
+            Spec: The specification details.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def peer(self) -> Peer:
+        """Establish a connection to a peer in the network.
+
+        Returns:
+            Any: The result of the connection attempt. The exact type and structure
+            of the return value will depend on the implementation details.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Receives a message and processes it.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            Any: The result of processing the message.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def request_headers(self) -> Headers:
+        """Generate and return the request headers.
+
+        Returns:
+            Any: The request headers.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def send(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_headers(self) -> Headers:
+        """Retrieve the response headers.
+
+        Returns:
+            Any: The response headers.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_trailers(self) -> Headers:
+        """Handle response trailers.
+
+        This method is intended to be overridden in subclasses to provide
+        specific functionality for processing response trailers.
+
+        Returns:
+            Any: The return type is not specified as this is a placeholder method.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def finally_send(self, error: ConnectError | None) -> AsyncIterator[bytes]:
+        raise NotImplementedError()
+
+
 class UnaryClientConn:
     """Abstract base class for a streaming client connection."""
 

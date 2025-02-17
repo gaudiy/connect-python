@@ -359,7 +359,7 @@ class ConnectHandler(ProtocolHandler):
             await conn.send_error(error)
             return None
 
-        return conn
+            return stream_conn
 
 
 class ProtocolConnect(Protocol):

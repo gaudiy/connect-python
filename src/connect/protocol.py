@@ -9,7 +9,15 @@ from yarl import URL
 from connect.code import Code
 from connect.codec import Codec, ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType, UnaryClientConn
+from connect.connect import (
+    Peer,
+    Spec,
+    StreamingClientConn,
+    StreamingHandlerConn,
+    StreamType,
+    UnaryClientConn,
+    UnaryHandlerConn,
+)
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
@@ -144,7 +152,7 @@ class ProtocolHandler(abc.ABC):
     @abc.abstractmethod
     async def conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers
-    ) -> StreamingHandlerConn:
+    ) -> UnaryHandlerConn | StreamingHandlerConn:
         """Handle the connection for a given request and response headers.
 
         Args:
@@ -153,7 +161,7 @@ class ProtocolHandler(abc.ABC):
             response_trailers (Headers): The mutable headers for the response trailers.
 
         Returns:
-            StreamingHandlerConn: The connection handler for streaming.
+            UnaryHandlerConn: The connection handler for streaming.
 
         """
         raise NotImplementedError()

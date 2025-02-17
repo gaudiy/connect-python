@@ -249,3 +249,9 @@ def map_httpcore_exceptions() -> Iterator[None]:
                 raise ConnectError(str(exc), to_code) from exc
 
         raise exc
+
+
+async def achain[T](*itrs: typing.AsyncIterable[T]) -> typing.AsyncIterator[T]:
+    for itr in itrs:
+        async for item in itr:
+            yield item

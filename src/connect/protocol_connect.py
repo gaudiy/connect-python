@@ -23,7 +23,16 @@ from yarl import URL
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
-from connect.connect import Address, Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType, UnaryClientConn
+from connect.connect import (
+    Address,
+    Peer,
+    Spec,
+    StreamingClientConn,
+    StreamingHandlerConn,
+    StreamType,
+    UnaryClientConn,
+    UnaryHandlerConn,
+)
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
 from connect.headers import Headers, include_request_headers
@@ -160,7 +169,7 @@ class ConnectHandler(ProtocolHandler):
 
     async def conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers
-    ) -> StreamingHandlerConn:
+    ) -> UnaryHandlerConn | StreamingHandlerConn:
         """Handle the connection for the given request and response headers.
 
         Args:
@@ -169,7 +178,7 @@ class ConnectHandler(ProtocolHandler):
             response_trailers (Headers): The headers for the response trailers.
 
         Returns:
-            StreamingHandlerConn: The connection handler for the request.
+            UnaryHandlerConn: The connection handler for the request.
 
         Raises:
             ValueError: If the request method is not supported or if the codec is not found.
@@ -191,9 +200,8 @@ class ConnectHandler(ProtocolHandler):
 
             accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
         else:
-            # Streaming support is not yet implemented
-            content_encoding = None
-            accept_encoding = None
+            content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+            accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
 
         request_compression, response_compression = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
@@ -242,8 +250,10 @@ class ConnectHandler(ProtocolHandler):
         response_headers[HEADER_CONTENT_TYPE] = content_type
         accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
         if self.params.spec.stream_type != StreamType.Unary:
-            # TODO(tsubakiky): Add streaming support
-            pass
+            accept_compression_header = CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION
+            if response_compression and response_compression.name != COMPRESSION_IDENTITY:
+                response_headers[CONNECT_STREAMING_HEADER_COMPRESSION] = response_compression.name
+
         response_headers[accept_compression_header] = f"{', '.join(c.name for c in self.params.compressions)}"
 
         peer = Peer(
@@ -253,7 +263,7 @@ class ConnectHandler(ProtocolHandler):
         )
 
         if self.params.spec.stream_type == StreamType.Unary:
-            conn = ConnectUnaryHandlerConn(
+            unary_conn = ConnectUnaryHandlerConn(
                 request=request,
                 peer=peer,
                 spec=self.params.spec,
@@ -274,11 +284,30 @@ class ConnectHandler(ProtocolHandler):
                 response_headers=response_headers,
                 response_trailers=response_trailers,
             )
+            return unary_conn
         else:
-            # TODO(tsubakiky): Add streaming support
-            pass
+            stream_conn = ConnectStreamingHandlerConn(
+                request=request,
+                peer=peer,
+                spec=self.params.spec,
+                marshaler=ConnectStreamingMarshaler(
+                    codec=codec,
+                    compress_min_bytes=self.params.compress_min_bytes,
+                    send_max_bytes=self.params.send_max_bytes,
+                    compression=response_compression,
+                ),
+                unmarshaler=ConnectStreamingUnmarshaler(
+                    stream=request_stream,
+                    codec=codec,
+                    compression=request_compression,
+                    read_max_bytes=self.params.read_max_bytes,
+                ),
+                request_headers=Headers(request.headers, encoding="latin-1"),
+                response_headers=response_headers,
+                response_trailers=response_trailers,
+            )
 
-        return conn
+            return stream_conn
 
 
 class ProtocolConnect(Protocol):
@@ -511,7 +540,7 @@ class ConnectUnaryMarshaler:
         return data
 
 
-class ConnectUnaryHandlerConn(StreamingHandlerConn):
+class ConnectUnaryHandlerConn(UnaryHandlerConn):
     """ConnectUnaryHandlerConn is a handler connection class for unary RPCs in the Connect protocol.
 
     Attributes:
@@ -1060,6 +1089,35 @@ class ConnectStreamingMarshaler:
             env.data = compressed_data
             yield env.encode()
 
+    def write_envelope(self, env: Envelope) -> Envelope:
+        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(env.data) < self.compress_min_bytes:
+            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"message size {len(env.data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                )
+            compressed_data = env.data
+            flags = env.flags
+        else:
+            compressed_data = self.compression.compress(env.data)
+            flags = EnvelopeFlags(env.flags | EnvelopeFlags.compressed)
+
+            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"compressed message size {len(env.data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                    Code.RESOURCE_EXHAUSTED,
+                )
+
+        return Envelope(
+            data=compressed_data,
+            flags=flags,
+        )
+
+    def marshal_end_stream(self, data: bytes) -> bytes:
+        env = Envelope(data, EnvelopeFlags(EnvelopeFlags.end_stream))
+        env = self.write_envelope(env)
+
+        return env.encode()
+
 
 class ConnectStreamingUnmarshaler:
     """A class to handle the unmarshaling of streaming data.
@@ -1197,6 +1255,111 @@ class ConnectStreamingUnmarshaler:
 
         """
         return self._end_stream_error
+
+
+class ConnectStreamingHandlerConn(StreamingHandlerConn):
+    request: Request
+    _peer: Peer
+    _spec: Spec
+    marshaler: ConnectStreamingMarshaler
+    unmarshaler: ConnectStreamingUnmarshaler
+    _request_headers: Headers
+    _response_headers: Headers
+    _response_trailers: Headers
+
+    def __init__(
+        self,
+        request: Request,
+        peer: Peer,
+        spec: Spec,
+        marshaler: ConnectStreamingMarshaler,
+        unmarshaler: ConnectStreamingUnmarshaler,
+        request_headers: Headers,
+        response_headers: Headers,
+        response_trailers: Headers | None = None,
+    ) -> None:
+        self.request = request
+        self._peer = peer
+        self._spec = spec
+        self.marshaler = marshaler
+        self.unmarshaler = unmarshaler
+        self._request_headers = request_headers
+        self._response_headers = response_headers
+        self._response_trailers = response_trailers or Headers()
+
+    @property
+    def spec(self) -> Spec:
+        """Return the specification object.
+
+        Returns:
+            Spec: The specification object.
+
+        """
+        return self._spec
+
+    @property
+    def peer(self) -> Peer:
+        """Return the peer associated with this instance.
+
+        :return: The peer associated with this instance.
+        :rtype: Peer
+        """
+        return self._peer
+
+    async def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Receives a message, unmarshals it, and returns the resulting object.
+
+        Args:
+            message (Any): The message to be unmarshaled.
+
+        Returns:
+            Any: The unmarshaled object.
+
+        """
+        async for obj, _ in self.unmarshaler.unmarshal(message):
+            yield obj
+
+    @property
+    def request_headers(self) -> Headers:
+        """Retrieve the headers from the request.
+
+        Returns:
+            Mapping[str, str]: A dictionary-like object containing the request headers.
+
+        """
+        return self._request_headers
+
+    def send(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+        return self.marshaler.marshal(messages)
+
+    @property
+    def response_headers(self) -> Headers:
+        """Retrieve the response headers.
+
+        Returns:
+            Any: The response headers.
+
+        """
+        return self._response_headers
+
+    @property
+    def response_trailers(self) -> Headers:
+        """Handle response trailers.
+
+        This method is intended to be overridden in subclasses to provide
+        specific functionality for processing response trailers.
+
+        Returns:
+            Any: The processed response trailer data.
+
+        """
+        return self._response_trailers
+
+    async def finally_send(self, error: ConnectError | None) -> AsyncIterator[bytes]:
+        json_obj = end_stream_to_json(error, self.response_trailers)
+        json_str = json.dumps(json_obj)
+
+        yield self.marshaler.marshal_end_stream(json_str.encode())
 
 
 EventHook = Callable[..., Any]
@@ -1709,8 +1872,6 @@ class ConnectUnaryClientConn(UnaryClientConn):
             wire_error.metadata.update(self._response_trailers)
             raise wire_error
 
-        return
-
     @property
     def event_hooks(self) -> dict[str, list[EventHook]]:
         """Return the event hooks.
@@ -2000,6 +2161,20 @@ def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
         return error, metadata
     else:
         return None, metadata
+
+
+def end_stream_to_json(error: ConnectError | None, trailers: Headers) -> dict[str, Any]:
+    json_dict = {}
+
+    metadata = Headers(trailers.copy())
+    if error:
+        json_dict["error"] = error_to_json(error)
+        metadata.update(error.metadata.copy())
+
+    if len(metadata) > 0:
+        json_dict["metadata"] = {k: v.split(", ") for k, v in metadata.items()}
+
+    return json_dict
 
 
 def error_to_json(error: ConnectError) -> dict[str, Any]:

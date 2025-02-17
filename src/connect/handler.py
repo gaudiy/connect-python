@@ -1,11 +1,11 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from http import HTTPMethod, HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import anyio
-from starlette.responses import PlainTextResponse
+from starlette.responses import PlainTextResponse, StreamingResponse
 
 from connect.code import Code
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
@@ -13,9 +13,13 @@ from connect.compression import Compression, GZipCompression
 from connect.connect import (
     Spec,
     StreamingHandlerConn,
+    StreamRequest,
+    StreamResponse,
     StreamType,
+    UnaryHandlerConn,
     UnaryRequest,
     UnaryResponse,
+    receive_stream_request,
     receive_unary_request,
 )
 from connect.error import ConnectError
@@ -43,6 +47,7 @@ from connect.protocol_connect import (
 )
 from connect.request import Request
 from connect.response import Response
+from connect.utils import achain
 
 
 class HandlerConfig:
@@ -141,24 +146,13 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-type UnaryFunc[T_Request, T_Response] = Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
+UnaryImplementationFunc = Callable[[UnaryHandlerConn], Awaitable[bytes]]
+StreamImplementationFunc = Callable[[StreamingHandlerConn], Awaitable[AsyncIterator[bytes]]]
 
 
-class UnaryHandler[T_Request, T_Response]:
-    """A handler for unary RPC (Remote Procedure Call) operations.
-
-    Attributes:
-        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
-        procedure (str): The name of the procedure being handled.
-        unary (UnaryFunc[Req, Res]): The unary function to be executed.
-        input (type[Req]): The type of the request input.
-        output (type[Res]): The type of the response output.
-        options (ConnectOptions | None): Optional configuration options for the handler.
-
-    """
-
+class Handler:
     procedure: str
-    implementation: Callable[[StreamingHandlerConn], Awaitable[bytes]]
+    implementation: UnaryImplementationFunc | StreamImplementationFunc
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
@@ -166,43 +160,16 @@ class UnaryHandler[T_Request, T_Response]:
     def __init__(
         self,
         procedure: str,
-        unary: UnaryFunc[T_Request, T_Response],
-        input: type[T_Request],
-        output: type[T_Response],
-        options: ConnectOptions | None = None,
+        implementation: UnaryImplementationFunc | StreamImplementationFunc,
+        protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]],
+        allow_methods: str,
+        accept_post: str,
     ):
-        """Initialize the unary handler."""
-        options = options if options is not None else ConnectOptions()
-
-        config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
-        protocol_handlers = create_protocol_handlers(config)
-
-        async def _untyped(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
-            response = await unary(request)
-
-            return response
-
-        untyped = apply_interceptors(_untyped, options.interceptors)
-
-        async def implementation(conn: StreamingHandlerConn) -> bytes:
-            request = await receive_unary_request(conn, input)
-            response = await untyped(request)
-
-            if not isinstance(response.message, output):
-                raise ConnectError(
-                    f"expected response of type: {output.__name__}",
-                    Code.INTERNAL,
-                )
-
-            conn.response_headers.update(exclude_protocol_headers(response.headers))
-            conn.response_trailers.update(exclude_protocol_headers(response.trailers))
-            return conn.send(response.message)
-
         self.procedure = procedure
         self.implementation = implementation
-        self.protocol_handlers = mapped_method_handlers(protocol_handlers)
-        self.allow_methods = sorted_allow_method_value(protocol_handlers)
-        self.accept_post = sorted_accept_post_value(protocol_handlers)
+        self.protocol_handlers = protocol_handlers
+        self.allow_methods = allow_methods
+        self.accept_post = accept_post
 
     async def handle(self, request: Request) -> Response:
         """Handle an incoming HTTP request and return an HTTP response.
@@ -229,6 +196,7 @@ class UnaryHandler[T_Request, T_Response]:
         content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
 
         protocol_handler: ProtocolHandler | None = None
+
         for handler in protocol_handlers:
             if handler.can_handle_payload(request, content_type):
                 protocol_handler = handler
@@ -259,6 +227,8 @@ class UnaryHandler[T_Request, T_Response]:
                 return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
         status_code = HTTPStatus.OK.value
+        body: bytes | AsyncIterator[bytes] = b""
+        error: ConnectError | None = None
         try:
             timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
             timeout_sec = None
@@ -270,9 +240,13 @@ class UnaryHandler[T_Request, T_Response]:
 
                 timeout_sec = timeout_ms / 1000
 
+            conn = await protocol_handler.conn(request, response_headers, response_trailers)
+
             with anyio.fail_after(timeout_sec):
-                conn = await protocol_handler.conn(request, response_headers, response_trailers)
-                body = await self.implementation(conn)
+                if isinstance(conn, UnaryHandlerConn):
+                    body = await cast(UnaryImplementationFunc, self.implementation)(conn)
+                else:
+                    body = await cast(StreamImplementationFunc, self.implementation)(conn)
 
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
@@ -280,17 +254,120 @@ class UnaryHandler[T_Request, T_Response]:
             if isinstance(e, TimeoutError):
                 error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
 
-            status_code = connect_code_to_http(error.code)
+        finally:
+            if isinstance(body, bytes):
+                if error:
+                    status_code = connect_code_to_http(error.code)
 
-            response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
-            if not error.wire_error:
-                response_headers.update(error.metadata)
+                    response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
+                    if not error.wire_error:
+                        response_headers.update(error.metadata)
 
-            body = error_to_json_bytes(error)
+                    body = error_to_json_bytes(error)
 
-        for key, value in response_trailers.items():
-            response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+                for key, value in response_trailers.items():
+                    response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
-        response = Response(content=body, headers=response_headers, status_code=status_code)
+                response = Response(content=body, headers=response_headers, status_code=status_code)
+            else:
+                assert isinstance(conn, StreamingHandlerConn)
+
+                body = achain(body, conn.finally_send(error))
+                response = StreamingResponse(content=body, headers=response_headers, status_code=status_code)
 
         return response
+
+
+type UnaryFunc[T_Request, T_Response] = Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
+type StreamFunc[T_Request, T_Response] = Callable[[StreamRequest[T_Request]], Awaitable[StreamResponse[T_Response]]]
+
+
+class UnaryHandler[T_Request, T_Response](Handler):
+    """A handler for unary RPC (Remote Procedure Call) operations.
+
+    Attributes:
+        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to lists of protocol handlers.
+        procedure (str): The name of the procedure being handled.
+        unary (UnaryFunc[Req, Res]): The unary function to be executed.
+        input (type[Req]): The type of the request input.
+        output (type[Res]): The type of the response output.
+        options (ConnectOptions | None): Optional configuration options for the handler.
+
+    """
+
+    procedure: str
+    protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
+    allow_methods: str
+    accept_post: str
+
+    def __init__(
+        self,
+        procedure: str,
+        unary: UnaryFunc[T_Request, T_Response],
+        input: type[T_Request],
+        output: type[T_Response],
+        options: ConnectOptions | None = None,
+    ):
+        """Initialize the unary handler."""
+        options = options if options is not None else ConnectOptions()
+
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
+        protocol_handlers = create_protocol_handlers(config)
+
+        async def _untyped(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
+            response = await unary(request)
+
+            return response
+
+        untyped = apply_interceptors(_untyped, options.interceptors)
+
+        async def implementation(conn: UnaryHandlerConn) -> bytes:
+            request = await receive_unary_request(conn, input)
+            response = await untyped(request)
+
+            if not isinstance(response.message, output):
+                raise ConnectError(
+                    f"expected response of type: {output.__name__}",
+                    Code.INTERNAL,
+                )
+
+            conn.response_headers.update(exclude_protocol_headers(response.headers))
+            conn.response_trailers.update(exclude_protocol_headers(response.trailers))
+            return conn.send(response.message)
+
+        super().__init__(
+            procedure=procedure,
+            implementation=implementation,
+            protocol_handlers=mapped_method_handlers(protocol_handlers),
+            allow_methods=sorted_allow_method_value(protocol_handlers),
+            accept_post=sorted_accept_post_value(protocol_handlers),
+        )
+
+
+class ServerStreamHander[T_Request, T_Response](Handler):
+    def __init__(
+        self,
+        procedure: str,
+        stream: StreamFunc[T_Request, T_Response],
+        input: type[T_Request],
+        output: type[T_Response],  # noqa: ARG002
+        options: ConnectOptions | None = None,
+    ):
+        options = options if options is not None else ConnectOptions()
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.ServerStream, options=options)
+        protocol_handlers = create_protocol_handlers(config)
+
+        async def implementation(conn: StreamingHandlerConn) -> AsyncIterator[bytes]:
+            request = await receive_stream_request(conn, input)
+
+            response = await stream(request)
+
+            return conn.send(response.messages)
+
+        super().__init__(
+            procedure=procedure,
+            implementation=implementation,
+            protocol_handlers=mapped_method_handlers(protocol_handlers),
+            allow_methods=sorted_allow_method_value(protocol_handlers),
+            accept_post=sorted_accept_post_value(protocol_handlers),
+        )

@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 
 from pydantic import BaseModel
 
+from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.utils import aiterate, get_callable_attribute
@@ -294,7 +295,7 @@ class StreamResponse[T](ResponseCommon):
         return self._messages
 
 
-class StreamingHandlerConn(abc.ABC):
+class UnaryHandlerConn(abc.ABC):
     """Abstract base class for a streaming handler connection.
 
     This class defines the interface for handling streaming connections, including
@@ -386,6 +387,96 @@ class StreamingHandlerConn(abc.ABC):
             Any: The return type is not specified as this is a placeholder method.
 
         """
+        raise NotImplementedError()
+
+
+class StreamingHandlerConn(abc.ABC):
+    """Abstract base class for a streaming handler connection.
+
+    This class defines the interface for handling streaming connections, including
+    methods for specifying the connection, handling peer communication, receiving
+    and sending messages, and managing request and response headers and trailers.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def spec(self) -> Spec:
+        """Return the specification details.
+
+        Returns:
+            Spec: The specification details.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def peer(self) -> Peer:
+        """Establish a connection to a peer in the network.
+
+        Returns:
+            Any: The result of the connection attempt. The exact type and structure
+            of the return value will depend on the implementation details.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Receives a message and processes it.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            Any: The result of processing the message.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def request_headers(self) -> Headers:
+        """Generate and return the request headers.
+
+        Returns:
+            Any: The request headers.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def send(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_headers(self) -> Headers:
+        """Retrieve the response headers.
+
+        Returns:
+            Any: The response headers.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_trailers(self) -> Headers:
+        """Handle response trailers.
+
+        This method is intended to be overridden in subclasses to provide
+        specific functionality for processing response trailers.
+
+        Returns:
+            Any: The return type is not specified as this is a placeholder method.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def finally_send(self, error: ConnectError | None) -> AsyncIterator[bytes]:
         raise NotImplementedError()
 
 
@@ -524,11 +615,11 @@ class ReceiveConn(Protocol):
         raise NotImplementedError()
 
 
-async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> UnaryRequest[T]:
+async def receive_unary_request[T](conn: UnaryHandlerConn, t: type[T]) -> UnaryRequest[T]:
     """Receives a unary request from the given connection and returns a UnaryRequest object.
 
     Args:
-        conn (StreamingHandlerConn): The connection from which to receive the unary request.
+        conn (UnaryHandlerConn): The connection from which to receive the unary request.
         t (type[T]): The type of the message to be received.
 
     Returns:
@@ -549,6 +640,22 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Un
         headers=conn.request_headers,
         method=method.value,
     )
+
+
+async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> StreamRequest[T]:
+    return StreamRequest(
+        messages=receive_stream_message(conn, t),
+        spec=conn.spec,
+        peer=conn.peer,
+        headers=conn.request_headers,
+        method=HTTPMethod.POST,
+    )
+
+
+async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> AsyncIterator[T]:
+    async for message in conn.receive(t):
+        # TODO(tsubakiky): Add validation for message type
+        yield cast(T, message)
 
 
 async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:

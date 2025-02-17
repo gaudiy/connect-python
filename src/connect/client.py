@@ -257,7 +257,6 @@ class Client[T_Request, T_Response]:
 
         async def _stream_func(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
             conn = protocol_client.stream_conn(request.spec, request.headers)
-            conn.request_headers.update(request.headers)
 
             def on_request_send(r: httpcore.Request) -> None:
                 method = r.method

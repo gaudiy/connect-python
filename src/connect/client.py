@@ -19,6 +19,7 @@ from connect.connect import (
     StreamType,
     UnaryRequest,
     UnaryResponse,
+    recieve_stream_response,
     recieve_unary_response,
 )
 from connect.error import ConnectError
@@ -226,7 +227,7 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.any())
+            await conn.send(request.message)
 
             response = await recieve_unary_response(conn=conn, t=output)
             return response
@@ -238,7 +239,7 @@ class Client[T_Request, T_Response]:
             request.peer = protocol_client.peer
             protocol_client.write_request_headers(StreamType.Unary, request.headers)
 
-            if not isinstance(request.any(), input):
+            if not isinstance(request.message, input):
                 raise ConnectError(
                     f"expected request of type: {input.__name__}",
                     Code.INTERNAL,
@@ -246,7 +247,7 @@ class Client[T_Request, T_Response]:
 
             response = await unary_func(request)
 
-            if not isinstance(response.any(), output):
+            if not isinstance(response.message, output):
                 raise ConnectError(
                     f"expected response of type: {output.__name__}",
                     Code.INTERNAL,
@@ -267,9 +268,10 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.any())
+            await conn.send(request.messages)
 
-            return StreamResponse(conn.receive(output), conn.response_headers, conn.response_trailers)
+            response = await recieve_stream_response(conn=conn, t=output)
+            return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)
 

@@ -144,11 +144,7 @@ class StreamRequest[T](RequestCommon):
 
     """
 
-    messages: AsyncIterator[T]
-    _spec: Spec
-    _peer: Peer
-    _headers: Headers
-    _method: str
+    _messages: AsyncIterator[T]
 
     def __init__(
         self,
@@ -172,11 +168,12 @@ class StreamRequest[T](RequestCommon):
 
         """
         super().__init__(spec, peer, headers, method)
-        self.messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
 
-    def any(self) -> AsyncIterator[T]:
+    @property
+    def messages(self) -> AsyncIterator[T]:
         """Return the request message."""
-        return self.messages
+        return self._messages
 
 
 class UnaryRequest[T](RequestCommon):
@@ -191,11 +188,7 @@ class UnaryRequest[T](RequestCommon):
 
     """
 
-    message: T
-    _spec: Spec
-    _peer: Peer
-    _headers: Headers
-    _method: str
+    _message: T
 
     def __init__(
         self,
@@ -219,11 +212,12 @@ class UnaryRequest[T](RequestCommon):
 
         """
         super().__init__(spec, peer, headers, method)
-        self.message = message
+        self._message = message
 
-    def any(self) -> T:
+    @property
+    def message(self) -> T:
         """Return the request message."""
-        return self.message
+        return self._message
 
 
 class ResponseCommon:
@@ -261,9 +255,7 @@ class ResponseCommon:
 class UnaryResponse[T](ResponseCommon):
     """Response class for handling responses."""
 
-    message: T
-    headers: Headers
-    trailers: Headers
+    _message: T
 
     def __init__(
         self,
@@ -273,19 +265,18 @@ class UnaryResponse[T](ResponseCommon):
     ) -> None:
         """Initialize the response with a message."""
         super().__init__(headers, trailers)
-        self.message = message
+        self._message = message
 
-    def any(self) -> T:
+    @property
+    def message(self) -> T:
         """Return the response message."""
-        return self.message
+        return self._message
 
 
 class StreamResponse[T](ResponseCommon):
     """Response class for handling responses."""
 
-    messages: AsyncIterator[T]
-    headers: Headers
-    trailers: Headers
+    _messages: AsyncIterator[T]
 
     def __init__(
         self,
@@ -295,11 +286,12 @@ class StreamResponse[T](ResponseCommon):
     ) -> None:
         """Initialize the response with a message."""
         super().__init__(headers, trailers)
-        self.messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
 
-    def any(self) -> AsyncIterator[T]:
+    @property
+    def messages(self) -> AsyncIterator[T]:
         """Return the response message."""
-        return self.messages
+        return self._messages
 
 
 class StreamingHandlerConn(abc.ABC):
@@ -575,26 +567,22 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryR
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> AsyncIterator[UnaryResponse[T]]:
-    """Asynchronously receives a stream of responses from a streaming client connection.
+async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> StreamResponse[T]:
+    """Receive a stream response from a streaming client connection.
 
     Args:
-        conn (StreamingClientConn): The streaming client connection to receive messages from.
-        t (type[T]): The type of the messages to be received.
+        conn (StreamingClientConn): The streaming client connection.
+        t (type[T]): The type of the response to be received.
 
-    Yields:
-        UnaryResponse[T]: An asynchronous iterator of UnaryResponse objects containing the received messages, response headers, and response trailers.
-
-    Type Parameters:
-        T: The type of the messages to be received.
+    Returns:
+        StreamResponse[T]: The stream response containing the received data, response headers, and response trailers.
 
     """
-    async for message in conn.receive(t):
-        yield UnaryResponse(message, conn.response_headers, conn.response_trailers)
+    return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
-    """Receives a unary message from the given connection.
+    """Receive a unary message from the given connection.
 
     Args:
         conn (ReceiveConn): The connection object to receive the message from.

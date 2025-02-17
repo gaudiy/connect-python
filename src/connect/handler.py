@@ -188,7 +188,7 @@ class UnaryHandler[T_Request, T_Response]:
             request = await receive_unary_request(conn, input)
             response = await untyped(request)
 
-            if not isinstance(response.any(), output):
+            if not isinstance(response.message, output):
                 raise ConnectError(
                     f"expected response of type: {output.__name__}",
                     Code.INTERNAL,
@@ -196,7 +196,7 @@ class UnaryHandler[T_Request, T_Response]:
 
             conn.response_headers.update(exclude_protocol_headers(response.headers))
             conn.response_trailers.update(exclude_protocol_headers(response.trailers))
-            return conn.send(response.any())
+            return conn.send(response.message)
 
         self.procedure = procedure
         self.implementation = implementation

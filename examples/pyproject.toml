@@ -9,7 +9,7 @@ version = "0.1.0"
 dependencies = [
   "connect-python",
   "grpcio==1.68.1",
-  "hypercorn>=0.17.3",
+  "hypercorn[trio,uvloop]>=0.17.3",
 ]
 
 [tool.uv]

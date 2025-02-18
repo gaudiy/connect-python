@@ -62,7 +62,7 @@ func (g *Generator) Generate() {
 
 		// NOTE(zchee): importPath should be empty.
 		importPath := protogen.GoImportPath(``)
-		gf := g.plugin.NewGeneratedFile(file.GeneratedFilenamePrefix+"_connect_pb2.py", importPath)
+		gf := g.plugin.NewGeneratedFile(file.GeneratedFilenamePrefix+"_connect.py", importPath)
 
 		g.generate(gf, file)
 	}
@@ -82,9 +82,19 @@ func protocVersion(plugin *protogen.Plugin) string {
 	return fmt.Sprintf("v%d.%d.%d%s", v.GetMajor(), v.GetMinor(), v.GetPatch(), suffix)
 }
 
-type method struct {
+type RPCType int
+
+const (
+	Unary RPCType = iota
+	ServerStreaming
+	ClientStreaming
+	BidirectionalStreaming
+)
+
+type Method struct {
 	Method   string
 	FullName string
+	RPCType  RPCType
 }
 
 type message struct {
@@ -101,7 +111,7 @@ type service struct {
 type GeneratedFile struct {
 	*protogen.GeneratedFile
 
-	services map[method]*service
+	services map[Method]*service
 	imports  map[PythonImportPath]bool
 
 	config        *Config
@@ -112,16 +122,29 @@ type GeneratedFile struct {
 func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p := &GeneratedFile{
 		GeneratedFile: gen,
-		services:      make(map[method]*service),
+		services:      make(map[Method]*service),
 	}
 	for _, svc := range f.Services {
 		for _, meth := range svc.Methods {
 			fullname := string(meth.Desc.FullName())
 			idx := strings.LastIndex(fullname, ".")
-			method := method{
+			method := Method{
 				Method:   meth.GoName,
 				FullName: fullname[:idx],
 			}
+
+			// parse RPC type
+			switch {
+			case meth.Desc.IsStreamingServer():
+				method.RPCType = ServerStreaming
+			case meth.Desc.IsStreamingClient():
+				method.RPCType = ClientStreaming
+			case meth.Desc.IsStreamingServer() && meth.Desc.IsStreamingClient():
+				method.RPCType = BidirectionalStreaming
+			default:
+				method.RPCType = Unary
+			}
+
 			p.services[method] = &service{
 				input: &message{
 					Message: meth.Input,
@@ -146,9 +169,11 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P(`import abc`)
 	p.P(`from enum import Enum`)
 	p.P()
-	p.P(`from connect.connect import UnaryRequest, UnaryResponse`)
-	p.P(`from connect.handler import UnaryHandler`)
-	p.P(`from connect.options import ConnectOptions`)
+	p.P(`from connect.client import Client`)
+	p.P(`from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse`)
+	p.P(`from connect.handler import ServerStreamHander, UnaryHandler`)
+	p.P(`from connect.options import ClientOptions, ConnectOptions`)
+	p.P(`from connect.session import AsyncClientSession`)
 	p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
 	p.P()
 
@@ -157,13 +182,28 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	svcNameService := upperSvcName + `Service`
 	svcNamePB := svcName + "_pb2"
 	p.P(`from `, `..`, ` import `, svcNamePB)
-	for _, svc := range p.services {
-		p.P(`from `, `..`+svcNamePB, ` import `, svc.input.method, `, `, svc.output.method)
+	var sb strings.Builder
+	numSvc := len(p.services)
+	if numSvc > 0 {
+		fmt.Fprintln(&sb, "# TODO(zchee): duplicate imports")
+		fmt.Fprintf(&sb, "from ..%s import ", svcNamePB)
 	}
+	i := 0
+	for _, svc := range p.services {
+		fmt.Fprintf(&sb, "%s, %s", svc.input.method, svc.output.method)
+		if i <= numSvc-2 {
+			fmt.Fprint(&sb, ", ")
+		}
+		i++
+	}
+	if numSvc > 0 {
+		fmt.Fprintf(&sb, "\n")
+	}
+	p.P(sb.String())
 	p.P()
 	p.P()
 	procedures := svcNameService + `Procedures`
-	p.P(`class `, procedures, `(Enum)`, `:`)
+	p.P(`class `, procedures, `(Enum):`)
 	p.P(`    """Procedures for the `, svcName, ` service."""`)
 	p.P()
 	for meth := range p.services {
@@ -174,36 +214,94 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	serviceDescriptor := svcNameService + `_service_descriptor`
 	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, svcNamePB+`.DESCRIPTOR.services_by_name[`, strconv.Quote(svcNameService), `]`)
 	p.P()
-	for meth := range p.services {
-		p.P(svcNameService, `_`, meth.Method, `_method_descriptor`, `: `, `MethodDescriptor`, ` = `, serviceDescriptor, `.methods_by_name[`, strconv.Quote(meth.Method), `]`)
+	p.P()
+	p.P(`class `, upperSvcName, `Client:`)
+	p.P(`    def __init__(self, base_url: str, session: AsyncClientSession, options: ClientOptions | None = None) -> None:`)
+	p.P(`        base_url = base_url.removesuffix("/")`)
+	p.P()
+	for meth, svc := range p.services {
+		p.P(`        `, `self.`, meth.Method, ` = `, `Client[`, svc.input.method, `, `, svc.output.method, `](`)
+		p.P(`            `, `session, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, options`)
+		switch meth.RPCType {
+		case Unary:
+			p.P(`        `, `).call_unary`)
+		case ServerStreaming:
+			p.P(`        `, `).call_server_stream`)
+		case ClientStreaming:
+			p.P(`        `, `).call_client_stream`)
+		}
 	}
 	p.P()
 	p.P()
 	handler := svcNameService + `Handler`
-	p.P(`class `, handler, `(metaclass=abc.ABCMeta)`, `:`)
-	p.P(`    """Handler for the `, svcName, ` service."""`)
+	p.P(`class `, handler, `(metaclass=abc.ABCMeta):`)
+	p.P(`    `, `"""Handler for the `, lowerCamelCase(upperSvcName), ` service."""`)
 	p.P()
 	for meth, svc := range p.services {
-		p.P(`    @abc.abstractmethod`)
-		p.P(`    async def `, meth.Method, `(self, `, `request: UnaryRequest[`, svc.input.method, `]) -> UnaryResponse[`, svc.output.method, `]: ...`)
+		sb.Reset()
+		p.P(`    `, `@abc.abstractmethod`)
+		fmt.Fprintf(&sb, "    async def %s(self, request: ", meth.Method)
+		var (
+			reqRPCType  string
+			respRPCType string
+		)
+		// TODO(zchee): BidirectionalStreaming?
+		switch meth.RPCType {
+		case Unary:
+			reqRPCType = `UnaryRequest`
+			respRPCType = `UnaryResponse`
+		case ServerStreaming, ClientStreaming:
+			reqRPCType = `StreamRequest`
+			respRPCType = `StreamResponse`
+		}
+		fmt.Fprintf(&sb, "%s[%s]) -> %s[%s]: ...", reqRPCType, svc.input.method, respRPCType, svc.output.method)
+		p.P(sb.String())
 	}
 	p.P()
 	p.P()
 	p.P(`def create_`, svcNameService, `_handlers`, `(`)
 	p.P(`    service: `, handler, `, options: ConnectOptions | None = None`)
 	p.P(`) -> list[UnaryHandler]:`)
-	p.P(`    rpc_handlers = [`)
+	p.P(`    handlers = [`)
 	for meth, svc := range p.services {
-		p.P(`        UnaryHandler(`)
-		p.P(`            procedure=`, procedures+`.`+meth.Method+`.value`, `,`)
-		p.P(`            unary=`, `service.`+meth.Method, `,`)
-		p.P(`            input=`, svc.input.method, `,`)
-		p.P(`            output=`, svc.output.method, `,`)
-		p.P(`            options=options,`)
-		p.P(`        )`)
+		var (
+			rpcHandler string
+			call       string
+		)
+		// TODO(zchee): ClientStreaming and BidirectionalStreaming?
+		switch meth.RPCType {
+		case Unary:
+			rpcHandler = `UnaryHandler`
+			call = fmt.Sprintf("            unary=service.%s,", meth.Method)
+		case ServerStreaming:
+			rpcHandler = `ServerStreamHander`
+			call = fmt.Sprintf("            stream=service.%s,", meth.Method)
+		}
+
+		// TODO(zchee): ClientStreaming and BidirectionalStreaming?
+		if meth.RPCType == Unary || meth.RPCType == ServerStreaming {
+			p.P(`        `, rpcHandler, `(`)
+			p.P(`            procedure=`, procedures+`.`+meth.Method+`.value,`)
+			p.P(call)
+			p.P(`            input=`, svc.input.method, `,`)
+			p.P(`            output=`, svc.output.method, `,`)
+			p.P(`            options=options,`)
+			p.P(`        ),`)
+		}
 	}
 	p.P(`    ]`)
-	p.P(`    return rpc_handlers`)
+	p.P(`    return handlers`)
+}
+
+func lowerCamelCase(s string) string {
+	if len(s) == 0 {
+		return s
+	}
+	if isASCIIUpper(s[0]) {
+		// convert uppercase to lowercase
+		s = string(s[0]-'A'+'a') + s[1:]
+	}
+	return s
 }
 
 // camelCase camel-cases a protobuf name for use as a Go identifier.
@@ -243,6 +341,10 @@ func camelCase(s string) string {
 		}
 	}
 	return string(b)
+}
+
+func isASCIIUpper(c byte) bool {
+	return 'A' <= c && c <= 'Z'
 }
 
 func isASCIILower(c byte) bool {

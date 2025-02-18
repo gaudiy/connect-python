@@ -7,13 +7,16 @@ authors = [{ name = "zchee" }]
 requires-python = ">=3.13"
 version = "0.1.0"
 dependencies = [
-  "connect-python@git+https://github.com/gaudiy/connect-python@main",
+  "connect-python",
   "grpcio==1.68.1",
   "hypercorn>=0.17.3",
 ]
 
 [tool.uv]
 dev-dependencies = ["mypy>=1.13.0", "pyright>=1.1.390", "ruff>=0.8.2"]
+
+[tool.uv.sources]
+connect-python = { path = "../" }
 
 [tool.ruff]
 line-length = 120

@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.13"
 
 [[package]]
@@ -25,17 +26,16 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2024.12.14"
+version = "2025.1.31"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/0f/bd/1d41ee578ce09523c81a15426705dd20969f5abf006d1afe8aeff0dd776a/certifi-2024.12.14.tar.gz", hash = "sha256:b650d30f370c2b724812bee08008be0c4163b163ddaec3f2546c1caf65f191db", size = 166010 }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/ab/c9f1e32b7b1bf505bf26f0ef697775960db7932abeb7b516de930ba2705f/certifi-2025.1.31.tar.gz", hash = "sha256:3d5da6925056f6f18f119200434a4780a94263f10d1c21d032a6f6b2baa20651", size = 167577 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a5/32/8f6669fc4798494966bf446c8c4a162e0b5d893dff088afddf76414f70e1/certifi-2024.12.14-py3-none-any.whl", hash = "sha256:1275f7a45be9464efc1173084eaa30f866fe2e47d389406136d332ed4967ec56", size = 164927 },
+    { url = "https://files.pythonhosted.org/packages/38/fc/bce832fd4fd99766c04d1ee0eead6b0ec6486fb100ae5e74c1d91292b982/certifi-2025.1.31-py3-none-any.whl", hash = "sha256:ca78db4565a652026a4db2bcdf68f2fb589ea80d0be70e03929ed730746b84fe", size = 166393 },
 ]
 
 [[package]]
 name = "connect-python"
-version = "0.0.1"
-source = { git = "https://github.com/gaudiy/connect-python?rev=main#267041690e3e6eef70e43970623630ae0b78b040" }
+source = { directory = "../" }
 dependencies = [
     { name = "anyio" },
     { name = "protobuf" },
@@ -43,6 +43,29 @@ dependencies = [
     { name = "starlette", extra = ["full"] },
     { name = "types-protobuf" },
     { name = "yarl" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.7.0" },
+    { name = "protobuf", specifier = ">=5.29.1" },
+    { name = "pydantic", specifier = ">=2.10.4" },
+    { name = "starlette", extras = ["full"], specifier = ">=0.42.0" },
+    { name = "types-protobuf", specifier = ">=5.29.1.20241207" },
+    { name = "yarl", specifier = ">=1.18.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "grpcio-tools", specifier = "==1.68.1" },
+    { name = "hypercorn", extras = ["trio", "uvloop"], specifier = ">=0.17.3" },
+    { name = "mypy", specifier = ">=1.13.0" },
+    { name = "mypy-protobuf", specifier = ">=3.6.0" },
+    { name = "pyright", specifier = ">=1.1.390" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-asyncio", specifier = ">=0.25.1" },
+    { name = "ruff", specifier = ">=0.8.2" },
+    { name = "uvicorn", specifier = ">=0.34.0" },
 ]
 
 [[package]]
@@ -64,7 +87,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "connect-python", git = "https://github.com/gaudiy/connect-python?rev=main" },
+    { name = "connect-python", directory = "../" },
     { name = "grpcio", specifier = "==1.68.1" },
     { name = "hypercorn", specifier = ">=0.17.3" },
 ]
@@ -478,11 +501,11 @@ full = [
 
 [[package]]
 name = "types-protobuf"
-version = "5.29.1.20241207"
+version = "5.29.1.20250208"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/70/89/b661a447139f665ccea8e39bfdd52a92f803df4b5de0e6001a3537feaacb/types_protobuf-5.29.1.20241207.tar.gz", hash = "sha256:2ebcadb8ab3ef2e3e2f067e0882906d64ba0dc65fc5b0fd7a8b692315b4a0be9", size = 59190 }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/75/8effaebae86ae9e489d4d453b30c6da728e8a9267a261418d476c5c2fbe6/types_protobuf-5.29.1.20250208.tar.gz", hash = "sha256:c1acd6a59ab554dbe09b5d1fa7dd701e2fcfb2212937a3af1c03b736060b792a", size = 59330 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/6e/cdf152187019d6f6d04066b23e48659d961b527e9c6d43b48459d160e332/types_protobuf-5.29.1.20241207-py3-none-any.whl", hash = "sha256:92893c42083e9b718c678badc0af7a9a1307b92afe1599e5cba5f3d35b668b2f", size = 73902 },
+    { url = "https://files.pythonhosted.org/packages/96/e9/095c36efdc9dbb1df75ce42f37c0de6a6879aad937a08f0b97942b7c5968/types_protobuf-5.29.1.20250208-py3-none-any.whl", hash = "sha256:c5f8bfb4afdc1b5cbca1848f2c8b361a2090add7401f410b22b599ef647bf483", size = 73925 },
 ]
 
 [[package]]

@@ -70,4 +70,10 @@ func main() {
 	for ; stream.Receive(); number++ {
 		log.Printf("Received message %d: %s", number, stream.Msg().Sentence)
 	}
+
+	if err := stream.Err(); err != nil {
+		log.Fatalln(err)
+	}
+
+	stream.Close()
 }

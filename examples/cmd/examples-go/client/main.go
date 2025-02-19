@@ -74,6 +74,12 @@ func init() {
 	default: // throw
 		log.Fatal("please enable any rpc type. [-u, -ss, -cs, -bidi]")
 	}
+
+	if err := stream.Err(); err != nil {
+		log.Fatalln(err)
+	}
+
+	stream.Close()
 }
 
 func asError(err error) (*connect.Error, bool) {

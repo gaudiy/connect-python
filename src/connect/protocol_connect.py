@@ -360,13 +360,8 @@ class ConnectHandler(ProtocolHandler):
             return None
 
             if error:
-                await writer.write(
-                    StreamingResponse(
-                        content=aiterate([stream_conn.send_error(error)]),
-                        headers=response_headers,
-                        status_code=connect_code_to_http(error.code),
-                    )
-                )
+                await stream_conn.send_error(error)
+                return None
 
             return stream_conn
 
@@ -1572,13 +1567,13 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         await self.writer.write(
             StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
         )
-
-    def send_error(self, error: ConnectError) -> bytes:
         json_obj = end_stream_to_json(error, self.response_trailers)
         json_str = json.dumps(json_obj)
 
         body = self.marshaler.marshal_end_stream(json_str.encode())
-        return body
+
+        response = StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
+        await self.writer.write(response)
 
 
 EventHook = Callable[..., Any]

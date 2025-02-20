@@ -577,7 +577,16 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def send(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        """Send a stream of messages asynchronously.
+
+        Args:
+            messages (AsyncIterator[Any]): An asynchronous iterator that yields messages to be sent.
+
+        Raises:
+            NotImplementedError: This method should be implemented by subclasses.
+
+        """
         raise NotImplementedError()
 
     @property
@@ -606,7 +615,19 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def finally_send(self, error: ConnectError | None) -> AsyncIterator[bytes]:
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error message.
+
+        This method should be implemented to handle the process of sending an error message
+        when a ConnectError occurs.
+
+        Args:
+            error (ConnectError): The error that needs to be sent.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+
+        """
         raise NotImplementedError()
 
 

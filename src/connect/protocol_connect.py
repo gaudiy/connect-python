@@ -18,6 +18,7 @@ from typing import Any
 import google.protobuf.any_pb2 as any_pb2
 import httpcore
 from google.protobuf import json_format
+from starlette.responses import StreamingResponse
 from yarl import URL
 
 from connect.code import Code
@@ -53,8 +54,9 @@ from connect.protocol import (
 )
 from connect.request import Request
 from connect.session import AsyncClientSession
-from connect.utils import AsyncByteStream, map_httpcore_exceptions
+from connect.utils import AsyncByteStream, aiterate, map_httpcore_exceptions
 from connect.version import __version__
+from connect.writer import ServerResponseWriter
 
 CONNECT_UNARY_HEADER_COMPRESSION = "Content-Encoding"
 CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION = "Accept-Encoding"
@@ -168,7 +170,7 @@ class ConnectHandler(ProtocolHandler):
         return content_type in self.accept
 
     async def conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> UnaryHandlerConn | StreamingHandlerConn:
         """Handle the connection for the given request and response headers.
 
@@ -203,23 +205,28 @@ class ConnectHandler(ProtocolHandler):
             content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
             accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
 
-        request_compression, response_compression = negotiate_compression(
+        request_compression, response_compression, error = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
+        )
+
+        error = ConnectError(
+            "unsupported compression",
+            Code.UNIMPLEMENTED,
         )
 
         required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
         connect_check_protocol_version(request, required)
 
         if HTTPMethod(request.method) == HTTPMethod.GET:
-            encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER)
-            message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER)
-            if encoding is None:
-                raise ConnectError(
+            encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER, "")
+            message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER, "")
+            if error is None and encoding == "":
+                error = ConnectError(
                     f"missing {CONNECT_UNARY_ENCODING_QUERY_PARAMETER} parameter",
                     Code.INVALID_ARGUMENT,
                 )
-            elif message is None:
-                raise ConnectError(
+            if error is None and message == "":
+                error = ConnectError(
                     f"missing {CONNECT_UNARY_MESSAGE_QUERY_PARAMETER} parameter",
                     Code.INVALID_ARGUMENT,
                 )
@@ -241,7 +248,7 @@ class ConnectHandler(ProtocolHandler):
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
         codec = self.params.codecs.get(codec_name)
-        if codec is None:
+        if error is None and codec is None:
             raise ConnectError(
                 f"invalid message encoding: {codec_name}",
                 Code.INVALID_ARGUMENT,
@@ -307,6 +314,15 @@ class ConnectHandler(ProtocolHandler):
                 response_trailers=response_trailers,
             )
 
+            if error:
+                await writer.write(
+                    StreamingResponse(
+                        content=aiterate([stream_conn.send_error(error)]),
+                        headers=response_headers,
+                        status_code=connect_code_to_http(error.code),
+                    )
+                )
+
             return stream_conn
 
 
@@ -362,14 +378,14 @@ class ConnectUnaryUnmarshaler:
 
     """
 
-    codec: Codec
+    codec: Codec | None
     read_max_bytes: int
     compression: Compression | None
     stream: AsyncByteStream | None
 
     def __init__(
         self,
-        codec: Codec,
+        codec: Codec | None,
         read_max_bytes: int,
         compression: Compression | None = None,
         stream: AsyncByteStream | None = None,
@@ -398,6 +414,9 @@ class ConnectUnaryUnmarshaler:
             Any: The result of the unmarshaling process.
 
         """
+        if self.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
+
         return await self.unmarshal_func(message, self.codec.unmarshal)
 
     async def unmarshal_func(self, message: Any, func: Callable[[bytes, Any], Any]) -> Any:
@@ -468,7 +487,7 @@ class ConnectUnaryMarshaler:
 
     """
 
-    codec: Codec
+    codec: Codec | None
     compression: Compression | None
     compress_min_bytes: int
     send_max_bytes: int
@@ -476,7 +495,7 @@ class ConnectUnaryMarshaler:
 
     def __init__(
         self,
-        codec: Codec,
+        codec: Codec | None,
         compression: Compression | None,
         compress_min_bytes: int,
         send_max_bytes: int,
@@ -514,6 +533,9 @@ class ConnectUnaryMarshaler:
             ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
 
         """
+        if self.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
+
         try:
             data = self.codec.marshal(message)
         except Exception as e:
@@ -875,6 +897,9 @@ class ConnectUnaryRequestMarshaler:
 
         """
         if self.enable_get:
+            if self.connect_marshaler.codec is None:
+                raise ConnectError("codec is not set", Code.INTERNAL)
+
             if self.stable_codec is None:
                 raise ConnectError(
                     f"codec {self.connect_marshaler.codec.name} doesn't support stable marshal; can't use get",
@@ -944,6 +969,9 @@ class ConnectUnaryRequestMarshaler:
     def _build_get_url(self, data: bytes, compressed: bool) -> URL:
         assert self.url is not None
         assert self.stable_codec is not None
+
+        if self.connect_marshaler.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
 
         url = self.url
         url = url.update_query({
@@ -1027,13 +1055,13 @@ class ConnectStreamingMarshaler:
 
     """
 
-    codec: Codec
+    codec: Codec | None
     compress_min_bytes: int
     send_max_bytes: int
     compression: Compression | None
 
     def __init__(
-        self, codec: Codec, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int
+        self, codec: Codec | None, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int
     ) -> None:
         """Initialize the ProtocolConnect instance.
 
@@ -1062,6 +1090,9 @@ class ConnectStreamingMarshaler:
             ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
 
         """
+        if self.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
+
         async for message in messages:
             try:
                 data = self.codec.marshal(message)
@@ -1130,7 +1161,7 @@ class ConnectStreamingUnmarshaler:
 
     """
 
-    codec: Codec
+    codec: Codec | None
     read_max_bytes: int
     compression: Compression | None
     stream: AsyncByteStream | None
@@ -1140,7 +1171,7 @@ class ConnectStreamingUnmarshaler:
 
     def __init__(
         self,
-        codec: Codec,
+        codec: Codec | None,
         read_max_bytes: int,
         stream: AsyncByteStream | None = None,
         compression: Compression | None = None,
@@ -1178,6 +1209,9 @@ class ConnectStreamingUnmarshaler:
         """
         if self.stream is None:
             raise ConnectError("stream is not set", Code.INTERNAL)
+
+        if self.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
 
         try:
             async for chunk in self.stream:
@@ -1360,6 +1394,13 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         json_str = json.dumps(json_obj)
 
         yield self.marshaler.marshal_end_stream(json_str.encode())
+
+    def send_error(self, error: ConnectError) -> bytes:
+        json_obj = end_stream_to_json(error, self.response_trailers)
+        json_str = json.dumps(json_obj)
+
+        body = self.marshaler.marshal_end_stream(json_str.encode())
+        return body
 
 
 EventHook = Callable[..., Any]
@@ -1833,7 +1874,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
             self._response_trailers[key[len(CONNECT_UNARY_TRAILER_PREFIX) :]] = value
 
         connect_validate_unary_response_content_type(
-            self.marshaler.connect_marshaler.codec.name,
+            self.marshaler.connect_marshaler.codec.name if self.marshaler.connect_marshaler.codec else "",
             response.status,
             self._response_headers.get(HEADER_CONTENT_TYPE, ""),
         )

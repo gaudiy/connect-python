@@ -1,8 +1,11 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
+import asyncio
+import inspect
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from http import HTTPMethod, HTTPStatus
-from typing import Any, cast
+from typing import Any, TypeGuard
 
 import anyio
 from starlette.responses import PlainTextResponse, StreamingResponse
@@ -48,6 +51,10 @@ from connect.protocol_connect import (
 from connect.request import Request
 from connect.response import Response
 from connect.utils import achain
+from connect.writer import ServerResponseWriter
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class HandlerConfig:
@@ -156,6 +163,7 @@ class Handler:
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
+    protocol_handler: ProtocolHandler
 
     def __init__(
         self,
@@ -207,6 +215,8 @@ class Handler:
             status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
             return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
+        self.protocol_handler = protocol_handler
+
         if HTTPMethod(request.method) == HTTPMethod.GET:
             content_length = request.headers.get(HEADER_CONTENT_LENGTH, None)
             has_body = False
@@ -226,8 +236,149 @@ class Handler:
                 status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
                 return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
 
+        # status_code = HTTPStatus.OK.value
+        # body: bytes | AsyncIterator[bytes] = b""
+        # error: ConnectError | None = None
+        # try:
+        #     timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
+        #     timeout_sec = None
+        #     if timeout is not None:
+        #         try:
+        #             timeout_ms = float(timeout)
+        #         except ValueError as e:
+        #             raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+
+        #         timeout_sec = timeout_ms / 1000
+
+        #     conn = await protocol_handler.conn(request, response_headers, response_trailers)
+
+        #     with anyio.fail_after(timeout_sec):
+        #         if isinstance(conn, UnaryHandlerConn):
+        #             body = await cast(UnaryImplementationFunc, self.implementation)(conn)
+        #         else:
+        #             body = await cast(StreamImplementationFunc, self.implementation)(conn)
+
+        # except Exception as e:
+        #     error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+
+        #     if isinstance(e, TimeoutError):
+        #         error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
+
+        # finally:
+        #     if isinstance(body, bytes):
+        #         if error:
+        #             status_code = connect_code_to_http(error.code)
+
+        #             response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
+        #             if not error.wire_error:
+        #                 response_headers.update(error.metadata)
+
+        #             body = error_to_json_bytes(error)
+
+        #         for key, value in response_trailers.items():
+        #             response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+
+        #         response = Response(content=body, headers=response_headers, status_code=status_code)
+        #     else:
+        #         assert isinstance(conn, StreamingHandlerConn)
+
+        #         body = achain(body, conn.finally_send(error))
+        #         response = StreamingResponse(content=body, headers=response_headers, status_code=status_code)
+
+        writer = ServerResponseWriter()
+
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(self._handle(request, response_headers, response_trailers, writer))
+
+        responses: list[Response] = []
+        while not task.done():
+            try:
+                response = await asyncio.wait_for(writer.receive(), timeout=0.1)
+            except TimeoutError:
+                continue
+
+            responses.append(response)
+
+        # exc = task.exception()
+        # if exc:
+        #     raise exc
+        # while True:
+        #     done, pending = await asyncio.wait(
+        #         [task, asyncio.create_task(writer.receive())],
+        #         return_when=asyncio.FIRST_COMPLETED,
+        #     )
+        #     if task in done:
+        #         exc = task.exception()
+        #         if exc:
+        #             responses.append(Response(content=str(exc), status_code=500))
+
+        #         break
+
+        #     for future in done:
+        #         if future is not task:
+        #             res = future.result()
+        #             responses.append(future.result())
+
+        return responses[0]
+
+    async def _handle(
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> None:
+        if self.is_stream_impl(self.implementation):
+            await self.stream_handle(request, response_headers, response_trailers, writer)
+        else:
+            await self.unary_handle(request, response_headers, response_trailers, writer)
+
+    def is_stream(self, conn: UnaryHandlerConn | StreamingHandlerConn) -> TypeGuard[StreamingHandlerConn]:
+        return isinstance(conn, StreamingHandlerConn)
+
+    def is_unary(self, conn: UnaryHandlerConn | StreamingHandlerConn) -> TypeGuard[UnaryHandlerConn]:
+        return isinstance(conn, UnaryHandlerConn)
+
+    def is_stream_impl(
+        self, impl: UnaryImplementationFunc | StreamImplementationFunc
+    ) -> TypeGuard[StreamImplementationFunc]:
+        signature = inspect.signature(impl)
+        parameters = list(signature.parameters.values())
+        return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == StreamingHandlerConn)
+
+    def is_unary_impl(
+        self, impl: UnaryImplementationFunc | StreamImplementationFunc
+    ) -> TypeGuard[UnaryImplementationFunc]:
+        signature = inspect.signature(impl)
+        parameters = list(signature.parameters.values())
+        return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == UnaryHandlerConn)
+
+    async def stream_handle(
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> Response:
         status_code = HTTPStatus.OK.value
-        body: bytes | AsyncIterator[bytes] = b""
+        body: AsyncIterator[bytes]
+        error: ConnectError | None = None
+        try:
+            conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
+
+            implementation = self.implementation
+            if self.is_stream(conn) and self.is_stream_impl(implementation):
+                _conn = conn
+                body = await implementation(conn)
+
+        except Exception as e:
+            error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+
+        finally:
+            assert isinstance(conn, StreamingHandlerConn)
+            body = achain(body, conn.finally_send(error))
+            response = StreamingResponse(content=body, headers=conn.response_headers, status_code=status_code)
+            await writer.write(response)
+
+        return response
+
+    async def unary_handle(
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> Response:
+        status_code = HTTPStatus.OK.value
+        body: bytes
         error: ConnectError | None = None
         try:
             timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
@@ -240,13 +391,14 @@ class Handler:
 
                 timeout_sec = timeout_ms / 1000
 
-            conn = await protocol_handler.conn(request, response_headers, response_trailers)
+            conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
 
-            with anyio.fail_after(timeout_sec):
-                if isinstance(conn, UnaryHandlerConn):
-                    body = await cast(UnaryImplementationFunc, self.implementation)(conn)
+            implementation = self.implementation
+            with anyio.fail_after(delay=timeout_sec):
+                if self.is_unary(conn) and self.is_unary_impl(implementation):
+                    body = await implementation(conn)
                 else:
-                    body = await cast(StreamImplementationFunc, self.implementation)(conn)
+                    raise ValueError(f"Invalid function type for unary handler: {implementation}")
 
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
@@ -255,25 +407,20 @@ class Handler:
                 error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
 
         finally:
-            if isinstance(body, bytes):
-                if error:
-                    status_code = connect_code_to_http(error.code)
+            if error:
+                status_code = connect_code_to_http(error.code)
 
-                    response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
-                    if not error.wire_error:
-                        response_headers.update(error.metadata)
+                response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
+                if not error.wire_error:
+                    response_headers.update(error.metadata)
 
-                    body = error_to_json_bytes(error)
+                body = error_to_json_bytes(error)
 
-                for key, value in response_trailers.items():
-                    response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+            for key, value in response_trailers.items():
+                response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
-                response = Response(content=body, headers=response_headers, status_code=status_code)
-            else:
-                assert isinstance(conn, StreamingHandlerConn)
-
-                body = achain(body, conn.finally_send(error))
-                response = StreamingResponse(content=body, headers=response_headers, status_code=status_code)
+            response = Response(content=body, headers=response_headers, status_code=status_code)
+            await writer.write(response)
 
         return response
 

@@ -23,6 +23,7 @@ from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
 from connect.session import AsyncClientSession
+from connect.writer import ServerResponseWriter
 
 PROTOCOL_CONNECT = "connect"
 
@@ -151,7 +152,7 @@ class ProtocolHandler(abc.ABC):
 
     @abc.abstractmethod
     async def conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> UnaryHandlerConn | StreamingHandlerConn:
         """Handle the connection for a given request and response headers.
 
@@ -218,7 +219,7 @@ def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HTTPMethod, 
 
 def negotiate_compression(
     available: list[Compression], sent: str | None, accept: str | None
-) -> tuple[Compression | None, Compression | None]:
+) -> tuple[Compression | None, Compression | None, ConnectError | None]:
     """Negotiate the compression method to be used based on the available options.
 
     The compression method sent by the client, and the compression methods accepted
@@ -243,9 +244,13 @@ def negotiate_compression(
         if found:
             request = found
         else:
-            raise ConnectError(
-                f"unknown compression {sent}: supported encodings are {', '.join(c.name for c in available)}",
-                Code.UNIMPLEMENTED,
+            return (
+                None,
+                None,
+                ConnectError(
+                    f"unknown compression {sent}: supported encodings are {', '.join(c.name for c in available)}",
+                    Code.UNIMPLEMENTED,
+                ),
             )
 
     if accept is None or accept == "":
@@ -258,7 +263,7 @@ def negotiate_compression(
                 response = found
                 break
 
-    return request, response
+    return request, response, None
 
 
 def sorted_allow_method_value(handlers: list[ProtocolHandler]) -> str:

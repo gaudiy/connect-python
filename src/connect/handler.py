@@ -1,8 +1,9 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
+import inspect
 from collections.abc import AsyncIterator, Awaitable, Callable
 from http import HTTPMethod, HTTPStatus
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 import anyio
 from starlette.responses import PlainTextResponse, StreamingResponse
@@ -34,13 +35,18 @@ from connect.protocol import (
     ProtocolHandlerParams,
     exclude_protocol_headers,
     mapped_method_handlers,
+    negotiate_compression,
     sorted_accept_post_value,
     sorted_allow_method_value,
 )
 from connect.protocol_connect import (
     CONNECT_HEADER_TIMEOUT,
+    CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION,
+    CONNECT_STREAMING_HEADER_COMPRESSION,
     CONNECT_UNARY_CONTENT_TYPE_JSON,
     CONNECT_UNARY_TRAILER_PREFIX,
+    EndStreamMarshaler,
+    EnvelopeMarshaler,
     ProtocolConnect,
     connect_code_to_http,
     error_to_json_bytes,
@@ -156,6 +162,7 @@ class Handler:
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
+    protocol_handler: ProtocolHandler
 
     def __init__(
         self,
@@ -206,6 +213,8 @@ class Handler:
             response_headers["Accept-Post"] = self.accept_post
             status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
             return PlainTextResponse(content=status.phrase, headers=response_headers, status_code=status.value)
+
+        self.protocol_handler = protocol_handler
 
         if HTTPMethod(request.method) == HTTPMethod.GET:
             content_length = request.headers.get(HEADER_CONTENT_LENGTH, None)
@@ -274,6 +283,111 @@ class Handler:
 
                 body = achain(body, conn.finally_send(error))
                 response = StreamingResponse(content=body, headers=response_headers, status_code=status_code)
+
+        return response
+
+    def is_stream(self, conn: UnaryHandlerConn | StreamingHandlerConn) -> TypeGuard[StreamingHandlerConn]:
+        return isinstance(conn, StreamingHandlerConn)
+
+    def is_unary(self, conn: UnaryHandlerConn | StreamingHandlerConn) -> TypeGuard[UnaryHandlerConn]:
+        return isinstance(conn, UnaryHandlerConn)
+
+    def is_stream_impl(
+        self, impl: UnaryImplementationFunc | StreamImplementationFunc
+    ) -> TypeGuard[StreamImplementationFunc]:
+        signature = inspect.signature(impl)
+        parameters = list(signature.parameters.values())
+        return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == StreamingHandlerConn)
+
+    def is_unary_impl(
+        self, impl: UnaryImplementationFunc | StreamImplementationFunc
+    ) -> TypeGuard[UnaryImplementationFunc]:
+        signature = inspect.signature(impl)
+        parameters = list(signature.parameters.values())
+        return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == UnaryHandlerConn)
+
+    async def stream_handle(self, request: Request, response_headers: Headers, response_trailers: Headers) -> Response:
+        status_code = HTTPStatus.OK.value
+        body: AsyncIterator[bytes]
+        error: ConnectError | None = None
+
+        content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+        accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
+
+        _, response_compression = negotiate_compression(
+            self.protocol_handler.params.compressions, content_encoding, accept_encoding
+        )
+
+        end_stream_marshaler = EndStreamMarshaler(
+            marshaler=EnvelopeMarshaler(
+                compression=response_compression,
+                send_max_bytes=self.protocol_handler.params.send_max_bytes,
+                compress_min_bytes=self.protocol_handler.params.compress_min_bytes,
+            )
+        )
+
+        try:
+            conn = await self.protocol_handler.conn(request, response_headers, response_trailers)
+
+            implementation = self.implementation
+            if self.is_stream(conn) and self.is_stream_impl(implementation):
+                _conn = conn
+                body = await implementation(conn)
+
+        except Exception as e:
+            error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+
+        finally:
+            assert isinstance(conn, StreamingHandlerConn)
+            body = achain(body, end_stream_marshaler.marshal(error, response_headers))
+            response = StreamingResponse(content=body, headers=conn.response_headers, status_code=status_code)
+
+        return response
+
+    async def unary_handle(self, request: Request, response_headers: Headers, response_trailers: Headers) -> Response:
+        status_code = HTTPStatus.OK.value
+        body: bytes
+        error: ConnectError | None = None
+        try:
+            timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
+            timeout_sec = None
+            if timeout is not None:
+                try:
+                    timeout_ms = float(timeout)
+                except ValueError as e:
+                    raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+
+                timeout_sec = timeout_ms / 1000
+
+            conn = await self.protocol_handler.conn(request, response_headers, response_trailers)
+
+            implementation = self.implementation
+            with anyio.fail_after(delay=timeout_sec):
+                if self.is_unary(conn) and self.is_unary_impl(implementation):
+                    body = await implementation(conn)
+                else:
+                    raise ValueError(f"Invalid function type for unary handler: {implementation}")
+
+        except Exception as e:
+            error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+
+            if isinstance(e, TimeoutError):
+                error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
+
+        finally:
+            if error:
+                status_code = connect_code_to_http(error.code)
+
+                conn.response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
+                if not error.wire_error:
+                    conn.response_headers.update(error.metadata)
+
+                body = error_to_json_bytes(error)
+
+            for key, value in conn.response_trailers.items():
+                conn.response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+
+            response = Response(content=body, headers=conn.response_headers, status_code=status_code)
 
         return response
 

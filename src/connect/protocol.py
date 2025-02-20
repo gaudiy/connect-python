@@ -119,6 +119,17 @@ class ProtocolHandler(abc.ABC):
         """
         raise NotImplementedError()
 
+    @property
+    @abc.abstractmethod
+    def params(self) -> ProtocolHandlerParams:
+        """Retrieve the parameters for the protocol handler.
+
+        Returns:
+            ProtocolHandlerParams: The parameters for the protocol handler.
+
+        """
+        raise NotImplementedError
+
     @abc.abstractmethod
     def content_types(self) -> list[str]:
         """Handle content types.

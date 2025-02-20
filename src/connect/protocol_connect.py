@@ -113,6 +113,117 @@ def connect_content_type_from_codec_name(stream_type: StreamType, codec_name: st
     return CONNECT_STREAMING_CONTENT_TYPE_PREFIX + codec_name
 
 
+class ConnectStreamingHandler(ProtocolHandler):
+    """A handler for managing protocol connections.
+
+    Attributes:
+        params (ProtocolHandlerParams): Parameters for the protocol handler.
+        __methods (list[HTTPMethod]): List of HTTP methods supported by the handler.
+        accept (list[str]): List of accepted content types.
+
+    """
+
+    params: ProtocolHandlerParams
+    _methods: list[HTTPMethod]
+    accept: list[str]
+
+    def __init__(self, params: ProtocolHandlerParams, methods: list[HTTPMethod], accept: list[str]) -> None:
+        """Initialize the ProtocolConnect instance.
+
+        Args:
+            params (ProtocolHandlerParams): The parameters for the protocol handler.
+            methods (list[HTTPMethod]): A list of HTTP methods.
+            accept (list[str]): A list of accepted content types.
+
+        """
+        self.params = params
+        self._methods = methods
+        self.accept = accept
+
+    @property
+    def methods(self) -> list[HTTPMethod]:
+        """Return the list of HTTP methods.
+
+        Returns:
+            list[HTTPMethod]: A list of HTTP methods.
+
+        """
+        return self._methods
+
+    def content_types(self) -> list[str]:
+        """Handle content types.
+
+        This method currently does nothing and serves as a placeholder for future
+        implementation related to content types.
+
+        """
+        return self.accept
+
+    def can_handle_payload(self, request: Request, content_type: str) -> bool:
+        """Check if the handler can handle the payload."""
+        return content_type in self.accept
+
+    async def conn(
+        self, request: Request, response_headers: Headers, response_trailers: Headers
+    ) -> UnaryHandlerConn | StreamingHandlerConn:
+        content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+        accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
+
+        request_compression, response_compression = negotiate_compression(
+            self.params.compressions, content_encoding, accept_encoding
+        )
+
+        connect_check_protocol_version(request, False)
+
+        request_stream = AsyncByteStream(aiterator=request.stream())
+        content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
+        codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
+
+        codec = self.params.codecs.get(codec_name)
+        if codec is None:
+            raise ConnectError(
+                f"invalid message encoding: {codec_name}",
+                Code.INVALID_ARGUMENT,
+            )
+
+        response_headers[HEADER_CONTENT_TYPE] = content_type
+
+        accept_compression_header = CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION
+        if response_compression and response_compression.name != COMPRESSION_IDENTITY:
+            response_headers[CONNECT_STREAMING_HEADER_COMPRESSION] = response_compression.name
+
+        response_headers[accept_compression_header] = f"{', '.join(c.name for c in self.params.compressions)}"
+
+        peer = Peer(
+            address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
+            protocol=PROTOCOL_CONNECT,
+            query=request.query_params,
+        )
+
+        stream_conn = ConnectStreamingHandlerConn(
+            request=request,
+            peer=peer,
+            spec=self.params.spec,
+            marshaler=ConnectStreamingMarshaler(
+                codec=codec,
+                compress_min_bytes=self.params.compress_min_bytes,
+                send_max_bytes=self.params.send_max_bytes,
+                compression=response_compression,
+            ),
+            unmarshaler=ConnectStreamingUnmarshaler(
+                stream=request_stream,
+                codec=codec,
+                compression=request_compression,
+                read_max_bytes=self.params.read_max_bytes,
+            ),
+            request_headers=Headers(request.headers, encoding="latin-1"),
+            response_headers=response_headers,
+            response_trailers=response_trailers,
+        )
+
+        return stream_conn
+
+
 class ConnectHandler(ProtocolHandler):
     """A handler for managing protocol connections.
 
@@ -218,7 +329,7 @@ class ConnectHandler(ProtocolHandler):
                     f"missing {CONNECT_UNARY_ENCODING_QUERY_PARAMETER} parameter",
                     Code.INVALID_ARGUMENT,
                 )
-            elif message is None:
+            if message is None:
                 raise ConnectError(
                     f"missing {CONNECT_UNARY_MESSAGE_QUERY_PARAMETER} parameter",
                     Code.INVALID_ARGUMENT,
@@ -1257,6 +1368,59 @@ class ConnectStreamingUnmarshaler:
         return self._end_stream_error
 
 
+class EnvelopeMarshaler:
+    compress_min_bytes: int
+    send_max_bytes: int
+    compression: Compression | None
+
+    def __init__(self, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int) -> None:
+        self.compress_min_bytes = compress_min_bytes
+        self.send_max_bytes = send_max_bytes
+        self.compression = compression
+
+    def write(self, env: Envelope) -> Envelope:
+        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(env.data) < self.compress_min_bytes:
+            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"message size {len(env.data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                )
+            compressed_data = env.data
+            flags = env.flags
+        else:
+            compressed_data = self.compression.compress(env.data)
+            flags = EnvelopeFlags(env.flags | EnvelopeFlags.compressed)
+
+            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"compressed message size {len(env.data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                    Code.RESOURCE_EXHAUSTED,
+                )
+
+        return Envelope(
+            data=compressed_data,
+            flags=flags,
+        )
+
+    def marshal_end_stream(self, data: bytes) -> bytes:
+        env = Envelope(data, EnvelopeFlags(EnvelopeFlags.end_stream))
+        env = self.write(env)
+
+        return env.encode()
+
+
+class EndStreamMarshaler:
+    marshaler: EnvelopeMarshaler
+
+    def __init__(self, marshaler: EnvelopeMarshaler) -> None:
+        self.marshaler = marshaler
+
+    async def marshal(self, error: ConnectError | None, trailers: Headers) -> AsyncIterator[bytes]:
+        json_obj = end_stream_to_json(error, trailers)
+        json_str = json.dumps(json_obj)
+
+        yield self.marshaler.marshal_end_stream(json_str.encode())
+
+
 class ConnectStreamingHandlerConn(StreamingHandlerConn):
     request: Request
     _peer: Peer
@@ -1574,8 +1738,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
         )
 
         await self._validate_response(response)
-
-        return
 
     async def _validate_response(self, response: httpcore.Response) -> None:
         response_headers = Headers(response.headers)

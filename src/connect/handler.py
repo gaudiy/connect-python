@@ -281,7 +281,11 @@ class Handler:
                 break
 
         except asyncio.CancelledError:
+<<<<<<< HEAD
             pass
+=======
+            raise
+>>>>>>> ea0ed11 (connect: fix server streaming impl)
 
         finally:
             if not task.done():

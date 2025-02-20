@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -75,6 +76,12 @@ func init() {
 	}
 }
 
+func asError(err error) (*connect.Error, bool) {
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
+	return connectErr, ok
+}
+
 func main() {
 	switch runMode {
 	case modeClient:
@@ -142,4 +149,5 @@ func runClient() error {
 	}
 
 	return nil
+	j
 }

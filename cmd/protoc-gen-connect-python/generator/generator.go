@@ -171,7 +171,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P()
 	p.P(`from connect.client import Client`)
 	p.P(`from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse`)
-	p.P(`from connect.handler import ServerStreamHander, UnaryHandler`)
+	p.P(`from connect.handler import Handler, ServerStreamHandler, UnaryHandler`)
 	p.P(`from connect.options import ClientOptions, ConnectOptions`)
 	p.P(`from connect.session import AsyncClientSession`)
 	p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
@@ -213,6 +213,11 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P()
 	serviceDescriptor := svcNameService + `_service_descriptor`
 	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, svcNamePB+`.DESCRIPTOR.services_by_name[`, strconv.Quote(svcNameService), `]`)
+	p.P()
+	for meth := range p.services {
+		methodDescriptor := svcNameService + meth.Method + `_method_descriptor`
+		p.P(methodDescriptor+`: `, `MethodDescriptor = `, serviceDescriptor+`.methods_by_name[`, strconv.Quote(meth.Method), `]`)
+	}
 	p.P()
 	p.P()
 	p.P(`class `, upperSvcName, `Client:`)
@@ -259,9 +264,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	}
 	p.P()
 	p.P()
-	p.P(`def create_`, svcNameService, `_handlers`, `(`)
-	p.P(`    service: `, handler, `, options: ConnectOptions | None = None`)
-	p.P(`) -> list[UnaryHandler]:`)
+	p.P(`def create_`, svcNameService, `_handlers`, `(`, `service: `, handler, `, options: ConnectOptions | None = None`, `) -> list[Handler]:`)
 	p.P(`    handlers = [`)
 	for meth, svc := range p.services {
 		var (
@@ -274,7 +277,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 			rpcHandler = `UnaryHandler`
 			call = fmt.Sprintf("            unary=service.%s,", meth.Method)
 		case ServerStreaming:
-			rpcHandler = `ServerStreamHander`
+			rpcHandler = `ServerStreamHandler`
 			call = fmt.Sprintf("            stream=service.%s,", meth.Method)
 		}
 

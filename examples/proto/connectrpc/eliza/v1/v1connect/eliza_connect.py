@@ -9,7 +9,7 @@ from enum import Enum
 
 from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
-from connect.handler import ServerStreamHander, UnaryHandler
+from connect.handler import Handler, ServerStreamHandler, UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -23,13 +23,18 @@ from ..eliza_pb2 import SayRequest, SayResponse, ConverseRequest, ConverseRespon
 class ElizaServiceProcedures(Enum):
     """Procedures for the eliza service."""
 
+    Say = "/connectrpc.eliza.v1.ElizaService/Say"
     Converse = "/connectrpc.eliza.v1.ElizaService/Converse"
     IntroduceServer = "/connectrpc.eliza.v1.ElizaService/IntroduceServer"
     IntroduceClient = "/connectrpc.eliza.v1.ElizaService/IntroduceClient"
-    Say = "/connectrpc.eliza.v1.ElizaService/Say"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]
+
+ElizaServiceSay_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
+ElizaServiceConverse_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Converse"]
+ElizaServiceIntroduceServer_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["IntroduceServer"]
+ElizaServiceIntroduceClient_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["IntroduceClient"]
 
 
 class ElizaClient:
@@ -54,18 +59,16 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
     @abc.abstractmethod
-    async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
-    @abc.abstractmethod
-    async def Converse(self, request: StreamRequest[ConverseRequest]) -> StreamResponse[ConverseResponse]: ...
-    @abc.abstractmethod
     async def IntroduceServer(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
     @abc.abstractmethod
     async def IntroduceClient(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
+    @abc.abstractmethod
+    async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
+    @abc.abstractmethod
+    async def Converse(self, request: StreamRequest[ConverseRequest]) -> StreamResponse[ConverseResponse]: ...
 
 
-def create_ElizaService_handlers(
-    service: ElizaServiceHandler, options: ConnectOptions | None = None
-) -> list[UnaryHandler]:
+def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
     handlers = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
@@ -74,14 +77,14 @@ def create_ElizaService_handlers(
             output=SayResponse,
             options=options,
         ),
-        ServerStreamHander(
+        ServerStreamHandler(
             procedure=ElizaServiceProcedures.Converse.value,
             stream=service.Converse,
             input=ConverseRequest,
             output=ConverseResponse,
             options=options,
         ),
-        ServerStreamHander(
+        ServerStreamHandler(
             procedure=ElizaServiceProcedures.IntroduceServer.value,
             stream=service.IntroduceServer,
             input=IntroduceRequest,

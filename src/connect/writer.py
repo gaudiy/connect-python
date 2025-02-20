@@ -1,59 +1,53 @@
+"""Module containing the ServerResponseWriter class."""
+
 import asyncio
 
 from connect.response import Response
 
 
 class ServerResponseWriter:
-    loop: asyncio.AbstractEventLoop
-    queue: asyncio.Queue[Response]
-    stop_event: asyncio.Event
+    """A class to handle writing and receiving server responses asynchronously.
+
+    Attributes:
+        _future (asyncio.Future[Response]): A future object to hold the server response.
+
+    """
+
+    _future: asyncio.Future[Response]
 
     def __init__(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
-        self.loop = loop or asyncio.get_event_loop()
-        self.queue = asyncio.Queue(maxsize=1)
-        # self.stop_event = asyncio.Event()
+        """Initialize the writer instance.
 
-        # self.worker_task = self.loop.create_task(self.send())
+        Args:
+            loop (asyncio.AbstractEventLoop | None, optional): The event loop to use. If None, the default event loop is used.
+
+        Returns:
+            None
+
+        """
+        loop = loop or asyncio.get_event_loop()
+        self._future = loop.create_future()
 
     async def write(self, response: Response) -> None:
-        await self.queue.put(response)
+        """Asynchronously writes the given response to the future result if it is not already done.
+
+        Args:
+            response (Response): The response object to be written.
+
+        Returns:
+            None
+
+        """
+        if not self._future.done():
+            self._future.set_result(response)
 
     async def receive(self) -> Response:
-        return await self.queue.get()
+        """Asynchronously receives a response.
 
-    # async def send(self) -> Response:
-    #     try:
-    #         while not self.stop_event.is_set():
-    #             try:
-    #                 res = await asyncio.wait_for(self.queue.get(), timeout=0.1)
-    #             except TimeoutError:
-    #                 continue
+        This method awaits the completion of a future and returns the response.
 
-    #             self.queue.task_done()
-    #             return res
-    #     except asyncio.CancelledError:
-    #         pass
+        Returns:
+            Response: The response object awaited from the future.
 
-    #     return Response()
-
-    # async def close(self) -> None:
-    #     await self.queue.join()
-
-    #     if not self.stop_event.is_set():
-    #         self.stop_event.set()
-
-    #     if not self.worker_task.done():
-    #         self.worker_task.cancel()
-
-    #     if self.worker_task:
-    #         done, _ = await asyncio.wait(
-    #             [self.worker_task],
-    #             return_when=asyncio.ALL_COMPLETED,
-    #         )
-    #         for d in done:
-    #             exc = d.exception()
-    #             if exc and not isinstance(exc, asyncio.CancelledError):
-    #                 logger.error(f"Task raised an exception: {exc}")
-
-    #     if not self.queue.empty():
-    #         logger.warning("Response queue is not empty")
+        """
+        return await self._future

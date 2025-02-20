@@ -9,7 +9,7 @@ from enum import Enum
 
 from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
-from connect.handler import ServerStreamHander, UnaryHandler
+from connect.handler import Handler, ServerStreamHandler, UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -71,10 +71,8 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
     async def IntroduceClient(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
 
 
-def create_ElizaService_handlers(
-    service: ElizaServiceHandler, options: ConnectOptions | None = None
-) -> list[UnaryHandler]:
-    handlers = [
+def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+    handlers: list[Handler] = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
             unary=service.Say,
@@ -82,7 +80,7 @@ def create_ElizaService_handlers(
             output=SayResponse,
             options=options,
         ),
-        ServerStreamHander(
+        ServerStreamHandler(
             procedure=ElizaServiceProcedures.IntroduceServer.value,
             stream=service.IntroduceServer,
             input=IntroduceRequest,

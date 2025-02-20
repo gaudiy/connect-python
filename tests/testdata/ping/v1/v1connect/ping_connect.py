@@ -6,7 +6,7 @@ from enum import Enum
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from connect.connect import UnaryRequest, UnaryResponse
-from connect.handler import UnaryHandler
+from connect.handler import Handler, UnaryHandler
 from connect.options import ConnectOptions
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -30,10 +30,8 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
     async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]: ...
 
 
-def create_PingService_handlers(
-    service: PingServiceHandler, options: ConnectOptions | None = None
-) -> list[UnaryHandler]:
-    rpc_handlers = [
+def create_PingService_handlers(service: PingServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+    rpc_handlers: list[Handler] = [
         UnaryHandler(
             procedure=PingServiceProcedures.Ping.value,
             unary=service.Ping,

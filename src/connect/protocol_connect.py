@@ -18,7 +18,7 @@ from typing import Any
 import google.protobuf.any_pb2 as any_pb2
 import httpcore
 from google.protobuf import json_format
-from starlette.responses import StreamingResponse
+from starlette.responses import Response, StreamingResponse
 from yarl import URL
 
 from connect.code import Code
@@ -44,12 +44,14 @@ from connect.protocol import (
     HEADER_CONTENT_TYPE,
     HEADER_USER_AGENT,
     PROTOCOL_CONNECT,
+    HanderConn,
     Protocol,
     ProtocolClient,
     ProtocolClientParams,
     ProtocolHandler,
     ProtocolHandlerParams,
     code_from_http_status,
+    exclude_protocol_headers,
     negotiate_compression,
 )
 from connect.request import Request
@@ -171,25 +173,24 @@ class ConnectHandler(ProtocolHandler):
 
     async def conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> UnaryHandlerConn | StreamingHandlerConn:
-        """Handle the connection for the given request and response headers.
+    ) -> HanderConn | None:
+        """Handle the connection for a given request and response.
 
         Args:
             request (Request): The incoming request object.
-            response_headers (Headers): The headers for the response.
-            response_trailers (Headers): The headers for the response trailers.
+            response_headers (Headers): Headers to be included in the response.
+            response_trailers (Headers): Trailers to be included in the response.
+            writer (ServerResponseWriter): The writer to send the response.
 
         Returns:
-            UnaryHandlerConn: The connection handler for the request.
+            HanderConn | None: Returns a handler connection object if no error occurs, otherwise None.
 
         Raises:
-            ValueError: If the request method is not supported or if the codec is not found.
+            ConnectError: If there is an issue with the message encoding or other validation errors.
 
-        Note:
-            - This method currently supports only Unary stream type.
-            - Compression negotiation is performed based on request headers.
-            - The actual request body is read for non-GET methods.
-            - Streaming support is not yet implemented.
+        This method negotiates compression, checks protocol version, and processes the request based on the stream type
+        (Unary or Streaming). It sets up the appropriate handler connection (ConnectUnaryHandlerConn or ConnectStreamingHandlerConn)
+        and handles errors by sending them through the connection.
 
         """
         query_params = request.query_params
@@ -209,13 +210,9 @@ class ConnectHandler(ProtocolHandler):
             self.params.compressions, content_encoding, accept_encoding
         )
 
-        error = ConnectError(
-            "unsupported compression",
-            Code.UNIMPLEMENTED,
-        )
-
-        required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
-        connect_check_protocol_version(request, required)
+        if error is None:
+            required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
+            error = connect_check_protocol_version(request, required)
 
         if HTTPMethod(request.method) == HTTPMethod.GET:
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER, "")
@@ -271,6 +268,7 @@ class ConnectHandler(ProtocolHandler):
 
         if self.params.spec.stream_type == StreamType.Unary:
             unary_conn = ConnectUnaryHandlerConn(
+                writer=writer,
                 request=request,
                 peer=peer,
                 spec=self.params.spec,
@@ -291,9 +289,14 @@ class ConnectHandler(ProtocolHandler):
                 response_headers=response_headers,
                 response_trailers=response_trailers,
             )
+            if error:
+                await unary_conn.send_error(error)
+                return None
+
             return unary_conn
         else:
             stream_conn = ConnectStreamingHandlerConn(
+                writer=writer,
                 request=request,
                 peer=peer,
                 spec=self.params.spec,
@@ -315,13 +318,8 @@ class ConnectHandler(ProtocolHandler):
             )
 
             if error:
-                await writer.write(
-                    StreamingResponse(
-                        content=aiterate([stream_conn.send_error(error)]),
-                        headers=response_headers,
-                        status_code=connect_code_to_http(error.code),
-                    )
-                )
+                await stream_conn.send_error(error)
+                return None
 
             return stream_conn
 
@@ -573,6 +571,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
 
     """
 
+    writer: ServerResponseWriter
     request: Request
     _peer: Peer
     _spec: Spec
@@ -584,6 +583,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
 
     def __init__(
         self,
+        writer: ServerResponseWriter,
         request: Request,
         peer: Peer,
         spec: Spec,
@@ -596,6 +596,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         """Initialize the protocol connection.
 
         Args:
+            writer (ServerResponseWriter): The writer to send the response.
             request (Request): The incoming request object.
             peer (Peer): The peer information.
             spec (Spec): The specification object.
@@ -606,6 +607,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
             response_trailers (Headers, optional): The trailers for the response.
 
         """
+        self.writer = writer
         self.request = request
         self._peer = peer
         self._spec = spec
@@ -657,7 +659,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         """
         return self._request_headers
 
-    def send(self, message: Any) -> bytes:
+    async def send(self, message: Any) -> None:
         """Send a message by marshaling it into bytes.
 
         Args:
@@ -668,7 +670,8 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
 
         """
         data = self.marshaler.marshal(message)
-        return data
+        response = Response(content=data, headers=self.response_headers, status_code=HTTPStatus.OK)
+        await self.writer.write(response)
 
     @property
     def response_headers(self) -> Headers:
@@ -701,6 +704,32 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
 
         """
         return HTTPMethod(self.request.method)
+
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error response.
+
+        This method updates the response headers with the error metadata,
+        sets the response trailers, converts the error code to an HTTP status code,
+        serializes the error to JSON, and writes the response.
+
+        Args:
+            error (ConnectError): The error to be sent in the response.
+
+        Returns:
+            None
+
+        """
+        if not error.wire_error:
+            self.response_headers.update(exclude_protocol_headers(error.metadata))
+
+        for key, value in self.response_trailers.items():
+            self.response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+
+        status_code = connect_code_to_http(error.code)
+
+        body = error_to_json_bytes(error)
+
+        await self.writer.write(Response(content=body, headers=self.response_headers, status_code=status_code))
 
 
 class ConnectClient(ProtocolClient):
@@ -1121,6 +1150,18 @@ class ConnectStreamingMarshaler:
             yield env.encode()
 
     def write_envelope(self, env: Envelope) -> Envelope:
+        """Write an envelope, optionally compressing its data if certain conditions are met.
+
+        Args:
+            env (Envelope): The envelope to be written.
+
+        Returns:
+            Envelope: The envelope with possibly compressed data and updated flags.
+
+        Raises:
+            ConnectError: If the size of the envelope data exceeds the maximum allowed size.
+
+        """
         if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(env.data) < self.compress_min_bytes:
             if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
                 raise ConnectError(
@@ -1144,6 +1185,15 @@ class ConnectStreamingMarshaler:
         )
 
     def marshal_end_stream(self, data: bytes) -> bytes:
+        """Marshal the given data into an envelope with the end_stream flag set and encodes it.
+
+        Args:
+            data (bytes): The data to be marshaled.
+
+        Returns:
+            bytes: The encoded envelope containing the marshaled data.
+
+        """
         env = Envelope(data, EnvelopeFlags(EnvelopeFlags.end_stream))
         env = self.write_envelope(env)
 
@@ -1292,6 +1342,22 @@ class ConnectStreamingUnmarshaler:
 
 
 class ConnectStreamingHandlerConn(StreamingHandlerConn):
+    """ConnectStreamingHandlerConn is a class that handles streaming connections for the Connect protocol.
+
+    Attributes:
+        writer (ServerResponseWriter): The writer used to send responses.
+        request (Request): The incoming request object.
+        _peer (Peer): The peer associated with this connection.
+        _spec (Spec): The specification object.
+        marshaler (ConnectStreamingMarshaler): The marshaler used to serialize messages.
+        unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler used to deserialize messages.
+        _request_headers (Headers): The headers from the request.
+        _response_headers (Headers): The headers for the response.
+        _response_trailers (Headers): The trailers for the response.
+
+    """
+
+    writer: ServerResponseWriter
     request: Request
     _peer: Peer
     _spec: Spec
@@ -1303,6 +1369,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
     def __init__(
         self,
+        writer: ServerResponseWriter,
         request: Request,
         peer: Peer,
         spec: Spec,
@@ -1312,6 +1379,21 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         response_headers: Headers,
         response_trailers: Headers | None = None,
     ) -> None:
+        """Initialize the protocol connection.
+
+        Args:
+            writer (ServerResponseWriter): The writer for server responses.
+            request (Request): The request object.
+            peer (Peer): The peer information.
+            spec (Spec): The specification details.
+            marshaler (ConnectStreamingMarshaler): The marshaler for streaming.
+            unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler for streaming.
+            request_headers (Headers): The headers for the request.
+            response_headers (Headers): The headers for the response.
+            response_trailers (Headers, optional): The trailers for the response. Defaults to None.
+
+        """
+        self.writer = writer
         self.request = request
         self._peer = peer
         self._spec = spec
@@ -1363,8 +1445,45 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._request_headers
 
-    def send(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
-        return self.marshaler.marshal(messages)
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        """Send a stream of messages asynchronously.
+
+        This method marshals the provided messages and sends them using the writer.
+        If an error occurs during the marshaling process, it captures the error,
+        converts it to a JSON object, and sends it as the final message in the stream.
+
+        Args:
+            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+
+        Returns:
+            None
+
+        Raises:
+            ConnectError: If an error occurs during the marshaling process.
+
+        """
+
+        async def iterator() -> AsyncIterator[bytes]:
+            error: ConnectError | None = None
+            try:
+                async for message in self.marshaler.marshal(messages):
+                    yield message
+            except Exception as e:
+                error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+            finally:
+                json_obj = end_stream_to_json(error, self.response_trailers)
+                json_str = json.dumps(json_obj)
+
+                body = self.marshaler.marshal_end_stream(json_str.encode())
+                yield body
+
+        await self.writer.write(
+            StreamingResponse(
+                content=iterator(),
+                headers=self.response_headers,
+                status_code=200,
+            )
+        )
 
     @property
     def response_headers(self) -> Headers:
@@ -1389,18 +1508,23 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._response_trailers
 
-    async def finally_send(self, error: ConnectError | None) -> AsyncIterator[bytes]:
-        json_obj = end_stream_to_json(error, self.response_trailers)
-        json_str = json.dumps(json_obj)
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error response in the form of a JSON object.
 
-        yield self.marshaler.marshal_end_stream(json_str.encode())
+        Args:
+            error (ConnectError): The error object to be sent.
 
-    def send_error(self, error: ConnectError) -> bytes:
+        Returns:
+            None
+
+        """
         json_obj = end_stream_to_json(error, self.response_trailers)
         json_str = json.dumps(json_obj)
 
         body = self.marshaler.marshal_end_stream(json_str.encode())
-        return body
+
+        response = StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
+        await self.writer.write(response)
 
 
 EventHook = Callable[..., Any]
@@ -1987,7 +2111,7 @@ def connect_validate_unary_response_content_type(
     )
 
 
-def connect_check_protocol_version(request: Request, required: bool) -> None:
+def connect_check_protocol_version(request: Request, required: bool) -> ConnectError | None:
     """Check the protocol version in the request headers for POST requests.
 
     Args:
@@ -2004,27 +2128,29 @@ def connect_check_protocol_version(request: Request, required: bool) -> None:
         case HTTPMethod.GET:
             version = request.query_params.get(CONNECT_UNARY_CONNECT_QUERY_PARAMETER)
             if required and version is None:
-                raise ConnectError(
+                return ConnectError(
                     f'missing required parameter: set {CONNECT_UNARY_CONNECT_QUERY_PARAMETER} to "{CONNECT_UNARY_CONNECT_QUERY_VALUE}"'
                 )
             elif version is not None and version != CONNECT_UNARY_CONNECT_QUERY_VALUE:
-                raise ConnectError(
+                return ConnectError(
                     f'{CONNECT_UNARY_CONNECT_QUERY_PARAMETER} must be "{CONNECT_UNARY_CONNECT_QUERY_VALUE}": get "{version}"',
                 )
         case HTTPMethod.POST:
             version = request.headers.get(CONNECT_HEADER_PROTOCOL_VERSION, None)
             if required and version is None:
-                raise ConnectError(
+                return ConnectError(
                     f'missing required header: set {CONNECT_HEADER_PROTOCOL_VERSION} to "{CONNECT_PROTOCOL_VERSION}"',
                     Code.INVALID_ARGUMENT,
                 )
             elif version is not None and version != CONNECT_PROTOCOL_VERSION:
-                raise ConnectError(
+                return ConnectError(
                     f'{CONNECT_HEADER_PROTOCOL_VERSION} must be "{CONNECT_PROTOCOL_VERSION}": get "{version}"',
                     Code.INVALID_ARGUMENT,
                 )
         case _:
-            raise ConnectError(f"unsupported method: {request.method}", Code.INVALID_ARGUMENT)
+            return ConnectError(f"unsupported method: {request.method}", Code.INVALID_ARGUMENT)
+
+    return None
 
 
 def connect_code_to_http(code: Code) -> int:
@@ -2205,6 +2331,16 @@ def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
 
 
 def end_stream_to_json(error: ConnectError | None, trailers: Headers) -> dict[str, Any]:
+    """Convert the end of a stream to a JSON-serializable dictionary.
+
+    Args:
+        error (ConnectError | None): An optional error object that may contain metadata.
+        trailers (Headers): Headers object containing metadata.
+
+    Returns:
+        dict[str, Any]: A dictionary containing the error and metadata information in JSON-serializable format.
+
+    """
     json_dict = {}
 
     metadata = Headers(trailers.copy())

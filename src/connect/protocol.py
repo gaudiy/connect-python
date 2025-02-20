@@ -106,6 +106,9 @@ class ProtocolClient(abc.ABC):
         raise NotImplementedError()
 
 
+HanderConn = UnaryHandlerConn | StreamingHandlerConn
+
+
 class ProtocolHandler(abc.ABC):
     """Abstract base class for handling different protocols."""
 
@@ -153,16 +156,20 @@ class ProtocolHandler(abc.ABC):
     @abc.abstractmethod
     async def conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> UnaryHandlerConn | StreamingHandlerConn:
-        """Handle the connection for a given request and response headers.
+    ) -> HanderConn | None:
+        """Handle an incoming connection request.
 
         Args:
-            request (Request): The request object containing the details of the request.
-            response_headers (Headers): The mutable headers for the response.
-            response_trailers (Headers): The mutable headers for the response trailers.
+            request (Request): The incoming request object.
+            response_headers (Headers): Headers to be included in the response.
+            response_trailers (Headers): Trailers to be included in the response.
+            writer (ServerResponseWriter): The writer to send the response.
 
         Returns:
-            UnaryHandlerConn: The connection handler for streaming.
+            HanderConn | None: The connection handler or None if not implemented.
+
+        Raises:
+            NotImplementedError: If the method is not implemented.
 
         """
         raise NotImplementedError()

@@ -352,14 +352,17 @@ class UnaryHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def send(self, message: Any) -> bytes:
-        """Send a message and returns the response as bytes.
+    async def send(self, message: Any) -> None:
+        """Send a message.
+
+        This method should be implemented by subclasses to define how the message
+        should be sent.
 
         Args:
             message (Any): The message to be sent.
 
-        Returns:
-            bytes: The response received after sending the message.
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
 
         """
         raise NotImplementedError()
@@ -385,6 +388,22 @@ class UnaryHandlerConn(abc.ABC):
 
         Returns:
             Any: The return type is not specified as this is a placeholder method.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error message.
+
+        This method should be implemented to handle the sending of error messages
+        in a specific manner defined by the subclass.
+
+        Args:
+            error (ConnectError): The error to be sent.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by the subclass.
 
         """
         raise NotImplementedError()
@@ -447,7 +466,16 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def send(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        """Send a stream of messages asynchronously.
+
+        Args:
+            messages (AsyncIterator[Any]): An asynchronous iterator that yields messages to be sent.
+
+        Raises:
+            NotImplementedError: This method should be implemented by subclasses.
+
+        """
         raise NotImplementedError()
 
     @property
@@ -476,7 +504,19 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def finally_send(self, error: ConnectError | None) -> AsyncIterator[bytes]:
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error message.
+
+        This method should be implemented to handle the process of sending an error message
+        when a ConnectError occurs.
+
+        Args:
+            error (ConnectError): The error that needs to be sent.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+
+        """
         raise NotImplementedError()
 
 
@@ -643,6 +683,17 @@ async def receive_unary_request[T](conn: UnaryHandlerConn, t: type[T]) -> UnaryR
 
 
 async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> StreamRequest[T]:
+    """Receive a stream request and returns a StreamRequest object.
+
+    Args:
+        conn (StreamingHandlerConn): The connection handler for the streaming request.
+        t (type[T]): The type of the messages expected in the stream.
+
+    Returns:
+        StreamRequest[T]: An object containing the stream messages, connection specifications,
+                          peer information, request headers, and HTTP method.
+
+    """
     return StreamRequest(
         messages=receive_stream_message(conn, t),
         spec=conn.spec,
@@ -653,9 +704,20 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
 
 
 async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> AsyncIterator[T]:
+    """Asynchronously receives and yields messages from a streaming connection.
+
+    This function listens to a streaming connection and yields messages of the specified type.
+
+    Args:
+        conn (StreamingHandlerConn): The streaming connection handler.
+        t (type[T]): The type of messages to receive.
+
+    Yields:
+        AsyncIterator[T]: An asynchronous iterator of messages of type T.
+
+    """
     async for message in conn.receive(t):
-        # TODO(tsubakiky): Add validation for message type
-        yield cast(T, message)
+        yield message
 
 
 async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:

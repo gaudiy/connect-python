@@ -252,6 +252,19 @@ def map_httpcore_exceptions() -> Iterator[None]:
 
 
 async def achain[T](*itrs: typing.AsyncIterable[T]) -> typing.AsyncIterator[T]:
+    """Asynchronously chains multiple async iterables into a single async iterator.
+
+    Args:
+        *itrs (typing.AsyncIterable[T]): A variable number of async iterables to be chained.
+
+    Yields:
+        T: Items from the provided async iterables, in the order they are received.
+
+    Example:
+        async for item in achain(async_iterable1, async_iterable2):
+            print(item)
+
+    """
     for itr in itrs:
         async for item in itr:
             yield item

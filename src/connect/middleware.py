@@ -1,13 +1,12 @@
 """Middleware for handling HTTP requests."""
 
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from connect.handler import UnaryHandler
+from connect.handler import Handler
 from connect.utils import get_route_path, request_response
 
 HandleFunc = Callable[[Request], Awaitable[Response]]
@@ -18,19 +17,19 @@ class ConnectMiddleware:
 
     Attributes:
         app (ASGIApp): The ASGI application to wrap.
-        handlers (list[UnaryHandler]): A list of unary handlers to process requests.
+        handlers (list[Handler]): A list of unary handlers to process requests.
 
     """
 
     app: ASGIApp
-    handlers: list[UnaryHandler[Any, Any]]
+    handlers: list[Handler]
 
-    def __init__(self, app: ASGIApp, handlers: list[UnaryHandler[Any, Any]]) -> None:
+    def __init__(self, app: ASGIApp, handlers: list[Handler]) -> None:
         """Initialize the middleware with the given ASGI application and handlers.
 
         Args:
             app (ASGIApp): The ASGI application instance.
-            handlers (list[UnaryHandler]): A list of unary handlers to process requests.
+            handlers (list[Handler]): A list of unary handlers to process requests.
 
         """
         self.app = app
@@ -63,7 +62,7 @@ class ConnectMiddleware:
 
         await self.app(scope, receive, send)
 
-    def _match_handler(self, route_path: str) -> UnaryHandler[Any, Any] | None:
+    def _match_handler(self, route_path: str) -> Handler | None:
         if route_path == "":
             return None
 

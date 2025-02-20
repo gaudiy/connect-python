@@ -74,18 +74,6 @@ func init() {
 	default: // throw
 		log.Fatal("please enable any rpc type. [-u, -ss, -cs, -bidi]")
 	}
-
-	if err := stream.Err(); err != nil {
-		log.Fatalln(err)
-	}
-
-	stream.Close()
-}
-
-func asError(err error) (*connect.Error, bool) {
-	var connectErr *connect.Error
-	ok := errors.As(err, &connectErr)
-	return connectErr, ok
 }
 
 func main() {
@@ -97,6 +85,12 @@ func main() {
 	case modeServer:
 		// TODO(tsubakiky): not implemented yet
 	}
+}
+
+func asError(err error) (*connect.Error, bool) {
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
+	return connectErr, ok
 }
 
 func runClient() error {

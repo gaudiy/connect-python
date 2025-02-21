@@ -141,6 +141,11 @@ func runClient() error {
 		}
 
 		if err := stream.Err(); err != nil {
+			if connectErr, ok := asError(err); ok {
+				fmt.Printf("Error: %s\n", connectErr.Message())
+				fmt.Printf("Error code: %d\n", connectErr.Code())
+				fmt.Printf("Error details: %v\n", connectErr.Details())
+			}
 			return err
 		}
 
@@ -149,5 +154,4 @@ func runClient() error {
 	}
 
 	return nil
-	j
 }

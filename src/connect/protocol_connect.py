@@ -44,7 +44,6 @@ from connect.protocol import (
     HEADER_CONTENT_TYPE,
     HEADER_USER_AGENT,
     PROTOCOL_CONNECT,
-    HanderConn,
     Protocol,
     ProtocolClient,
     ProtocolClientParams,
@@ -171,40 +170,116 @@ class ConnectHandler(ProtocolHandler):
 
         return content_type in self.accept
 
-    async def conn(
+    async def stream_conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> HanderConn | None:
-        """Handle the connection for a given request and response.
+    ) -> StreamingHandlerConn | None:
+        """Establish a streaming connection for the given request and response.
 
         Args:
             request (Request): The incoming request object.
-            response_headers (Headers): Headers to be included in the response.
-            response_trailers (Headers): Trailers to be included in the response.
+            response_headers (Headers): Headers to be sent in the response.
+            response_trailers (Headers): Trailers to be sent in the response.
             writer (ServerResponseWriter): The writer to send the response.
 
         Returns:
-            HanderConn | None: Returns a handler connection object if no error occurs, otherwise None.
+            StreamingHandlerConn | None: The streaming connection handler if no error occurs, otherwise None.
 
         Raises:
-            ConnectError: If there is an issue with the message encoding or other validation errors.
+            ConnectError: If there is an error in negotiating compression, protocol version, or message encoding.
 
-        This method negotiates compression, checks protocol version, and processes the request based on the stream type
-        (Unary or Streaming). It sets up the appropriate handler connection (ConnectUnaryHandlerConn or ConnectStreamingHandlerConn)
-        and handles errors by sending them through the connection.
+        """
+        content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+        accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
+
+        request_compression, response_compression, error = negotiate_compression(
+            self.params.compressions, content_encoding, accept_encoding
+        )
+
+        if error is None:
+            required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
+            error = connect_check_protocol_version(request, required)
+
+        request_stream = AsyncByteStream(aiterator=request.stream())
+        content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
+        codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
+
+        codec = self.params.codecs.get(codec_name)
+        if error is None and codec is None:
+            error = ConnectError(
+                f"invalid message encoding: {codec_name}",
+                Code.INVALID_ARGUMENT,
+            )
+
+        response_headers[HEADER_CONTENT_TYPE] = content_type
+
+        if response_compression and response_compression.name != COMPRESSION_IDENTITY:
+            response_headers[CONNECT_STREAMING_HEADER_COMPRESSION] = response_compression.name
+
+        response_headers[CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION] = (
+            f"{', '.join(c.name for c in self.params.compressions)}"
+        )
+
+        peer = Peer(
+            address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
+            protocol=PROTOCOL_CONNECT,
+            query=request.query_params,
+        )
+
+        stream_conn = ConnectStreamingHandlerConn(
+            writer=writer,
+            request=request,
+            peer=peer,
+            spec=self.params.spec,
+            marshaler=ConnectStreamingMarshaler(
+                codec=codec,
+                compress_min_bytes=self.params.compress_min_bytes,
+                send_max_bytes=self.params.send_max_bytes,
+                compression=response_compression,
+            ),
+            unmarshaler=ConnectStreamingUnmarshaler(
+                stream=request_stream,
+                codec=codec,
+                compression=request_compression,
+                read_max_bytes=self.params.read_max_bytes,
+            ),
+            request_headers=Headers(request.headers, encoding="latin-1"),
+            response_headers=response_headers,
+            response_trailers=response_trailers,
+        )
+
+        if error:
+            await stream_conn.send_error(error)
+            return None
+
+        return stream_conn
+
+    async def conn(
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> UnaryHandlerConn | None:
+        """Handle an incoming connection request and returns a UnaryHandlerConn object if successful.
+
+        Args:
+            request (Request): The incoming request object.
+            response_headers (Headers): The headers to be included in the response.
+            response_trailers (Headers): The trailers to be included in the response.
+            writer (ServerResponseWriter): The writer object to send the response.
+
+        Returns:
+            UnaryHandlerConn | None: A UnaryHandlerConn object if the connection is successfully established,
+            otherwise None if an error occurs.
+
+        Raises:
+            ConnectError: If there are issues with the request parameters, encoding, or protocol version.
 
         """
         query_params = request.query_params
 
-        if self.params.spec.stream_type == StreamType.Unary:
-            if HTTPMethod(request.method) == HTTPMethod.GET:
-                content_encoding = query_params.get(CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER, None)
-            else:
-                content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
-
-            accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
+        if HTTPMethod(request.method) == HTTPMethod.GET:
+            content_encoding = query_params.get(CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER, None)
         else:
-            content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
-            accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
+            content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
+
+        accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
 
         request_compression, response_compression, error = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
@@ -246,19 +321,16 @@ class ConnectHandler(ProtocolHandler):
 
         codec = self.params.codecs.get(codec_name)
         if error is None and codec is None:
-            raise ConnectError(
+            error = ConnectError(
                 f"invalid message encoding: {codec_name}",
                 Code.INVALID_ARGUMENT,
             )
 
         response_headers[HEADER_CONTENT_TYPE] = content_type
-        accept_compression_header = CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION
-        if self.params.spec.stream_type != StreamType.Unary:
-            accept_compression_header = CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION
-            if response_compression and response_compression.name != COMPRESSION_IDENTITY:
-                response_headers[CONNECT_STREAMING_HEADER_COMPRESSION] = response_compression.name
 
-        response_headers[accept_compression_header] = f"{', '.join(c.name for c in self.params.compressions)}"
+        response_headers[CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION] = (
+            f"{', '.join(c.name for c in self.params.compressions)}"
+        )
 
         peer = Peer(
             address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
@@ -266,62 +338,33 @@ class ConnectHandler(ProtocolHandler):
             query=request.query_params,
         )
 
-        if self.params.spec.stream_type == StreamType.Unary:
-            unary_conn = ConnectUnaryHandlerConn(
-                writer=writer,
-                request=request,
-                peer=peer,
-                spec=self.params.spec,
-                marshaler=ConnectUnaryMarshaler(
-                    codec=codec,
-                    compress_min_bytes=self.params.compress_min_bytes,
-                    send_max_bytes=self.params.send_max_bytes,
-                    compression=response_compression,
-                    headers=response_headers,
-                ),
-                unmarshaler=ConnectUnaryUnmarshaler(
-                    stream=request_stream,
-                    codec=codec,
-                    compression=request_compression,
-                    read_max_bytes=self.params.read_max_bytes,
-                ),
-                request_headers=Headers(request.headers, encoding="latin-1"),
-                response_headers=response_headers,
-                response_trailers=response_trailers,
-            )
-            if error:
-                await unary_conn.send_error(error)
-                return None
+        conn = ConnectUnaryHandlerConn(
+            writer=writer,
+            request=request,
+            peer=peer,
+            spec=self.params.spec,
+            marshaler=ConnectUnaryMarshaler(
+                codec=codec,
+                compress_min_bytes=self.params.compress_min_bytes,
+                send_max_bytes=self.params.send_max_bytes,
+                compression=response_compression,
+                headers=response_headers,
+            ),
+            unmarshaler=ConnectUnaryUnmarshaler(
+                stream=request_stream,
+                codec=codec,
+                compression=request_compression,
+                read_max_bytes=self.params.read_max_bytes,
+            ),
+            request_headers=Headers(request.headers, encoding="latin-1"),
+            response_headers=response_headers,
+            response_trailers=response_trailers,
+        )
+        if error:
+            await conn.send_error(error)
+            return None
 
-            return unary_conn
-        else:
-            stream_conn = ConnectStreamingHandlerConn(
-                writer=writer,
-                request=request,
-                peer=peer,
-                spec=self.params.spec,
-                marshaler=ConnectStreamingMarshaler(
-                    codec=codec,
-                    compress_min_bytes=self.params.compress_min_bytes,
-                    send_max_bytes=self.params.send_max_bytes,
-                    compression=response_compression,
-                ),
-                unmarshaler=ConnectStreamingUnmarshaler(
-                    stream=request_stream,
-                    codec=codec,
-                    compression=request_compression,
-                    read_max_bytes=self.params.read_max_bytes,
-                ),
-                request_headers=Headers(request.headers, encoding="latin-1"),
-                response_headers=response_headers,
-                response_trailers=response_trailers,
-            )
-
-            if error:
-                await stream_conn.send_error(error)
-                return None
-
-            return stream_conn
+        return conn
 
 
 class ProtocolConnect(Protocol):

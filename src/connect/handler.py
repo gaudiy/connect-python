@@ -33,7 +33,6 @@ from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
-    HanderConn,
     ProtocolHandler,
     ProtocolHandlerParams,
     exclude_protocol_headers,
@@ -303,36 +302,12 @@ class Handler:
     async def _handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> None:
-        if self.is_stream_impl(self.implementation):
+        if self.is_stream(self.implementation):
             await self.stream_handle(request, response_headers, response_trailers, writer)
         else:
             await self.unary_handle(request, response_headers, response_trailers, writer)
 
-    def is_stream(self, conn: HanderConn) -> TypeGuard[StreamingHandlerConn]:
-        """Check if the given connection is a streaming connection.
-
-        Args:
-            conn (HandlerConn): The connection to check.
-
-        Returns:
-            TypeGuard[StreamingHandlerConn]: True if the connection is a StreamingHandlerConn, False otherwise.
-
-        """
-        return isinstance(conn, StreamingHandlerConn)
-
-    def is_unary(self, conn: HanderConn) -> TypeGuard[UnaryHandlerConn]:
-        """Check if the given connection is a UnaryHandlerConn.
-
-        Args:
-            conn (HandlerConn): The connection to check.
-
-        Returns:
-            TypeGuard[UnaryHandlerConn]: True if the connection is a UnaryHandlerConn, False otherwise.
-
-        """
-        return isinstance(conn, UnaryHandlerConn)
-
-    def is_stream_impl(
+    def is_stream(
         self, impl: UnaryImplementationFunc | StreamImplementationFunc
     ) -> TypeGuard[StreamImplementationFunc]:
         """Determine if the given implementation function is a stream implementation.
@@ -348,9 +323,7 @@ class Handler:
         parameters = list(signature.parameters.values())
         return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == StreamingHandlerConn)
 
-    def is_unary_impl(
-        self, impl: UnaryImplementationFunc | StreamImplementationFunc
-    ) -> TypeGuard[UnaryImplementationFunc]:
+    def is_unary(self, impl: UnaryImplementationFunc | StreamImplementationFunc) -> TypeGuard[UnaryImplementationFunc]:
         """Determine if the given implementation function is a unary implementation.
 
         Args:
@@ -383,12 +356,12 @@ class Handler:
             ConnectError: If an internal error occurs during the handling of the stream.
 
         """
-        conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
+        conn = await self.protocol_handler.stream_conn(request, response_headers, response_trailers, writer)
         if conn is None:
             return
 
         implementation = self.implementation
-        if not self.is_stream(conn) or not self.is_stream_impl(implementation):
+        if not self.is_stream(implementation):
             raise ValueError(f"Invalid function type for stream handler: {implementation}")
         try:
             await implementation(conn)
@@ -421,7 +394,7 @@ class Handler:
             return
 
         implementation = self.implementation
-        if not self.is_unary(conn) or not self.is_unary_impl(implementation):
+        if not self.is_unary(implementation):
             raise ValueError(f"Invalid function type for unary handler: {implementation}")
 
         try:

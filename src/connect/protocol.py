@@ -156,17 +156,38 @@ class ProtocolHandler(abc.ABC):
     @abc.abstractmethod
     async def conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> HanderConn | None:
-        """Handle an incoming connection request.
+    ) -> UnaryHandlerConn | None:
+        """Handle a unary connection request.
 
         Args:
             request (Request): The incoming request object.
-            response_headers (Headers): Headers to be included in the response.
-            response_trailers (Headers): Trailers to be included in the response.
-            writer (ServerResponseWriter): The writer to send the response.
+            response_headers (Headers): The headers to be sent in the response.
+            response_trailers (Headers): The trailers to be sent in the response.
+            writer (ServerResponseWriter): The writer used to send the response.
 
         Returns:
-            HanderConn | None: The connection handler or None if not implemented.
+            UnaryHandlerConn | None: The connection handler or None if not implemented.
+
+        Raises:
+            NotImplementedError: If the method is not implemented.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def stream_conn(
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> StreamingHandlerConn | None:
+        """Handle a streaming connection.
+
+        Args:
+            request (Request): The incoming request object.
+            response_headers (Headers): The headers to be sent in the response.
+            response_trailers (Headers): The trailers to be sent in the response.
+            writer (ServerResponseWriter): The writer object to send the response.
+
+        Returns:
+            StreamingHandlerConn | None: The streaming handler connection object or None if not implemented.
 
         Raises:
             NotImplementedError: If the method is not implemented.

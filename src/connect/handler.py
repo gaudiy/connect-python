@@ -255,40 +255,33 @@ class Handler:
 
         writer = ServerResponseWriter()
 
-        loop = asyncio.get_event_loop()
-
-        task = loop.create_task(self._handle(request, response_headers, response_trailers, writer))
-        writer_task = loop.create_task(writer.receive())
+        main_task = asyncio.create_task(self._handle(request, response_headers, response_trailers, writer))
+        writer_task = asyncio.create_task(writer.receive())
 
         response: Response | None = None
         try:
-            while True:
-                done, _ = await asyncio.wait(
-                    [task, writer_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
+            done, _ = await asyncio.wait(
+                [main_task, writer_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
 
-                for future in done:
-                    if future is task:
-                        exc = task.exception()
-                        if exc:
-                            raise exc
+            if main_task in done:
+                exc = main_task.exception()
+                if exc:
+                    raise exc
 
-                    if future is writer_task and not response:
-                        response = writer_task.result()
-
-                break
+            if writer_task in done:
+                response = writer_task.result()
 
         except asyncio.CancelledError:
             raise
 
         finally:
-            if not task.done():
-                task.cancel()
-            if not writer_task.done():
-                writer_task.cancel()
+            for t in (main_task, writer_task):
+                if not t.done():
+                    t.cancel()
 
-            await asyncio.gather(task, writer_task, return_exceptions=True)
+            await asyncio.gather(main_task, writer_task, return_exceptions=True)
 
         if not response:
             response = PlainTextResponse(content="Internal Server Error", status_code=500)

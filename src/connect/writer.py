@@ -38,8 +38,13 @@ class ServerResponseWriter:
             None
 
         """
-        if not self._future.done():
-            self._future.set_result(response)
+        if self._future.cancelled():
+            raise RuntimeError("Cannot write response; the future has already been cancelled.")
+
+        if self._future.done():
+            raise RuntimeError("Cannot write response; the future is already done.")
+
+        self._future.set_result(response)
 
     async def receive(self) -> Response:
         """Asynchronously receives a response.
@@ -51,3 +56,13 @@ class ServerResponseWriter:
 
         """
         return await self._future
+
+    async def cancel(self) -> None:
+        """Cancel the future if it is not already done.
+
+        Returns:
+            None
+
+        """
+        if not self._future.done():
+            self._future.cancel()

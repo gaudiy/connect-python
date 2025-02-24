@@ -1,6 +1,7 @@
 import gzip
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 
@@ -9,6 +10,8 @@ from connect.connect import StreamRequest, StreamResponse
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
 from connect.headers import Headers
+from connect.interceptor import Interceptor, StreamFunc
+from connect.options import ConnectOptions
 from tests.conftest import AsyncClient
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import (
@@ -28,14 +31,14 @@ async def test_server_streaming() -> None:
 
             return StreamResponse(iterator())
 
-    async def iter_bytes() -> AsyncIterator[bytes]:
+    def to_bytes() -> bytes:
         env = Envelope(PingRequest(name="test").SerializeToString(), EnvelopeFlags(0))
-        yield env.encode()
+        return env.encode()
 
     async with AsyncClient(PingService()) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingServerStream",
-            data=iter_bytes(),
+            data=to_bytes(),
             headers={
                 "content-type": "application/connect+proto",
                 "connect-accept-encoding": "identity",
@@ -83,14 +86,14 @@ async def test_server_streaming_end_stream_error() -> None:
 
             return StreamResponse(iterator())
 
-    async def iter_bytes() -> AsyncIterator[bytes]:
+    def to_bytes() -> bytes:
         env = Envelope(PingRequest(name="test").SerializeToString(), EnvelopeFlags(0))
-        yield env.encode()
+        return env.encode()
 
     async with AsyncClient(PingService()) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingServerStream",
-            data=iter_bytes(),
+            data=to_bytes(),
             headers={
                 "content-type": "application/connect+proto",
                 "connect-accept-encoding": "identity",
@@ -128,14 +131,14 @@ async def test_server_streaming_response_envelope_message_compression() -> None:
 
             return StreamResponse(iterator())
 
-    async def iter_bytes() -> AsyncIterator[bytes]:
+    def to_bytes() -> bytes:
         env = Envelope(PingRequest(name="test").SerializeToString(), EnvelopeFlags(0))
-        yield env.encode()
+        return env.encode()
 
     async with AsyncClient(PingService()) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingServerStream",
-            data=iter_bytes(),
+            data=to_bytes(),
             headers={
                 "content-type": "application/connect+proto",
                 "connect-accept-encoding": "gzip",
@@ -187,16 +190,18 @@ async def test_server_streaming_request_envelope_message_compression() -> None:
 
             return StreamResponse(iterator())
 
-    async def iter_bytes() -> AsyncIterator[bytes]:
+    def to_bytes() -> bytes:
         ping_request = PingRequest(name="test").SerializeToString()
         compressed_ping_request = gzip.compress(ping_request)
         env = Envelope(compressed_ping_request, EnvelopeFlags(0) | EnvelopeFlags.compressed)
-        yield env.encode()
+        return env.encode()
+
+        return env.encode()
 
     async with AsyncClient(PingService()) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingServerStream",
-            data=iter_bytes(),
+            data=to_bytes(),
             headers={
                 "content-type": "application/connect+proto",
                 "connect-accept-encoding": "gzip",
@@ -249,18 +254,18 @@ async def test_server_streaming_invalid_request_envelope_message_compression() -
 
             return StreamResponse(iterator())
 
-    async def iter_bytes() -> AsyncIterator[bytes]:
+    def to_bytes() -> bytes:
         ping_request = PingRequest(name="test").SerializeToString()
         compressed_ping_request = gzip.compress(ping_request)
 
         # Invalid flags
         env = Envelope(compressed_ping_request, EnvelopeFlags(0))
-        yield env.encode()
+        return env.encode()
 
     async with AsyncClient(PingService()) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingServerStream",
-            data=iter_bytes(),
+            data=to_bytes(),
             headers={
                 "content-type": "application/connect+proto",
                 "connect-accept-encoding": "gzip",
@@ -298,3 +303,73 @@ async def test_server_streaming_invalid_request_envelope_message_compression() -
                 assert v == "gzip"
             if k == "connect-content-encoding":
                 assert v == "gzip"
+
+
+@pytest.mark.asyncio()
+async def test_server_streaming_interceptor() -> None:
+    import io
+    import tempfile
+
+    class PingService(PingServiceHandler):
+        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+            async def iterator() -> AsyncIterator[PingResponse]:
+                for i in range(3):
+                    yield PingResponse(name=f"Hello {i}!")
+
+            return StreamResponse(iterator())
+
+    def to_bytes() -> bytes:
+        env = Envelope(PingRequest(name="test").SerializeToString(), EnvelopeFlags(0))
+        return env.encode()
+
+    ephemeral_files: list[io.BufferedRandom] = []
+
+    class FileInterceptor1(Interceptor):
+        def wrap_stream(self, next: StreamFunc) -> StreamFunc:
+            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 1")
+
+                return await next(request)
+
+            return _wrapped
+
+    class FileInterceptor2(Interceptor):
+        def wrap_stream(self, next: StreamFunc) -> StreamFunc:
+            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+                nonlocal ephemeral_files
+                fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                ephemeral_files.append(fp)
+                fp.write(b"interceptor: 2")
+
+                return await next(request)
+
+            return _wrapped
+
+    async with AsyncClient(
+        PingService(), ConnectOptions(interceptors=[FileInterceptor1(), FileInterceptor2()])
+    ) as client:
+        response = await client.post(
+            path="/tests.testdata.ping.v1.PingService/PingServerStream",
+            data=to_bytes(),
+            headers={
+                "content-type": "application/connect+proto",
+                "connect-accept-encoding": "identity",
+            },
+            stream=True,
+        )
+
+        # Consume the response stream to ensure interceptors are triggered
+        async for _ in response.iter_content(CHUNK_SIZE):
+            pass
+
+        assert len(ephemeral_files) == 2
+        for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+            ephemeral_file.seek(0)
+            assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
+
+            ephemeral_file.close()

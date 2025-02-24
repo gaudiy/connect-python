@@ -521,10 +521,17 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ServerStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
+        async def _untyped(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+            response = await stream(request)
+
+            return response
+
+        untyped = apply_interceptors(_untyped, options.interceptors)
+
         async def implementation(conn: StreamingHandlerConn) -> None:
             request = await receive_stream_request(conn, input)
 
-            response = await stream(request)
+            response = await untyped(request)
 
             await conn.send(response.messages)
 

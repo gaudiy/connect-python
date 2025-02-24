@@ -34,7 +34,7 @@ class IPRestrictionInterceptor(Interceptor):
             if not ip_allow_list:
                 raise Exception("White list not found")
 
-            address = request.peer().address
+            address = request.peer.address
             if not address:
                 raise Exception("Address not found")
 

@@ -63,11 +63,10 @@ class ElizaServiceClient:
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
-    @abc.abstractmethod
     async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
-    @abc.abstractmethod
+
     async def IntroduceServer(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
-    @abc.abstractmethod
+
     async def IntroduceClient(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
 
 

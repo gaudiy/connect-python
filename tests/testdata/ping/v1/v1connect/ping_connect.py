@@ -36,7 +36,7 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
 
 
 def create_PingService_handlers(service: PingServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
-    rpc_handlers: list[Handler] = [
+    handlers: list[Handler] = [
         UnaryHandler(
             procedure=PingServiceProcedures.Ping.value,
             unary=service.Ping,
@@ -52,4 +52,4 @@ def create_PingService_handlers(service: PingServiceHandler, options: ConnectOpt
             options=options,
         ),
     ]
-    return rpc_handlers
+    return handlers

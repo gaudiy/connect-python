@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!tests/testdata/ping/v1/ping.proto\x12\x16tests.testdata.ping.v1\"\x1b\n\x0bPingRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\"\x1c\n\x0cPingResponse\x12\x0c\n\x04name\x18\x01 \x01(\t2b\n\x0bPingService\x12S\n\x04Ping\x12#.tests.testdata.ping.v1.PingRequest\x1a$.tests.testdata.ping.v1.PingResponse\"\x00\x42\x36\n\x07ping.v1B\tPingProtoP\x01Z\x16tests/testdata/ping/v1\xf8\x01\x01\xa2\x02\x02PPb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n!tests/testdata/ping/v1/ping.proto\x12\x16tests.testdata.ping.v1\"\x1b\n\x0bPingRequest\x12\x0c\n\x04name\x18\x01 \x01(\t\"\x1c\n\x0cPingResponse\x12\x0c\n\x04name\x18\x01 \x01(\t2\x8b\x03\n\x0bPingService\x12S\n\x04Ping\x12#.tests.testdata.ping.v1.PingRequest\x1a$.tests.testdata.ping.v1.PingResponse\"\x00\x12\x61\n\x10PingServerStream\x12#.tests.testdata.ping.v1.PingRequest\x1a$.tests.testdata.ping.v1.PingResponse\"\x00\x30\x01\x12\x61\n\x10PingClientStream\x12#.tests.testdata.ping.v1.PingRequest\x1a$.tests.testdata.ping.v1.PingResponse\"\x00(\x01\x12\x61\n\x0ePingBidiStream\x12#.tests.testdata.ping.v1.PingRequest\x1a$.tests.testdata.ping.v1.PingResponse\"\x00(\x01\x30\x01\x42\x36\n\x07ping.v1B\tPingProtoP\x01Z\x16tests/testdata/ping/v1\xf8\x01\x01\xa2\x02\x02PPb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -36,6 +36,6 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_PINGREQUEST']._serialized_end=88
   _globals['_PINGRESPONSE']._serialized_start=90
   _globals['_PINGRESPONSE']._serialized_end=118
-  _globals['_PINGSERVICE']._serialized_start=120
-  _globals['_PINGSERVICE']._serialized_end=218
+  _globals['_PINGSERVICE']._serialized_start=121
+  _globals['_PINGSERVICE']._serialized_end=516
 # @@protoc_insertion_point(module_scope)

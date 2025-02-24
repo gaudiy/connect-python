@@ -36,7 +36,6 @@ import (
 
 	eliza "github.com/gaudiy/connect-python/examples/cmd/examples-go/internal/eliza"
 	elizav1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
-	v1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
 	elizav1connect "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1/v1connect"
 )
 
@@ -114,7 +113,7 @@ func (e *elizaServer) IntroduceServer(
 	return nil
 }
 
-func (e *elizaServer) IntroduceClient(ctx context.Context, stream *connect.ClientStream[v1.IntroduceRequest]) (*connect.Response[v1.IntroduceResponse], error) {
+func (e *elizaServer) IntroduceClient(ctx context.Context, stream *connect.ClientStream[elizav1.IntroduceRequest]) (*connect.Response[elizav1.IntroduceResponse], error) {
 	var messages string
 	for stream.Receive() {
 		messages += " " + stream.Msg().GetName()
@@ -122,7 +121,7 @@ func (e *elizaServer) IntroduceClient(ctx context.Context, stream *connect.Clien
 	if stream.Err() != nil {
 		return nil, stream.Err()
 	}
-	return connect.NewResponse(&v1.IntroduceResponse{
+	return connect.NewResponse(&elizav1.IntroduceResponse{
 		Sentence: messages,
 	}), nil
 }

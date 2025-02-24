@@ -14,6 +14,9 @@ option objc_class_prefix = "PP";
  */
 service PingService {
   rpc Ping(PingRequest) returns (PingResponse) {}
+  rpc PingServerStream(PingRequest) returns (stream PingResponse) {}
+  rpc PingClientStream(stream PingRequest) returns (PingResponse) {}
+  rpc PingBidiStream(stream PingRequest) returns (stream PingResponse) {}
 }
 
 // PingRequest request of Ping.

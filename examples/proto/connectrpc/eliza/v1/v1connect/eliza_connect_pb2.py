@@ -5,12 +5,11 @@
 """Generated connect code."""
 
 import abc
-from collections.abc import AsyncIterator
 from enum import Enum
 
 from connect.client import Client
-from connect.connect import StreamRequest, UnaryRequest, UnaryResponse
-from connect.handler import UnaryHandler
+from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from connect.handler import Handler, ServerStreamHandler, UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -64,28 +63,28 @@ class ElizaServiceClient:
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
-    @abc.abstractmethod
     async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
-    @abc.abstractmethod
-    async def IntroduceServer(
-        self, request: UnaryRequest[IntroduceRequest]
-    ) -> AsyncIterator[UnaryResponse[IntroduceResponse]]: ...
-    @abc.abstractmethod
-    async def IntroduceClient(
-        self, request: StreamRequest[IntroduceRequest]
-    ) -> AsyncIterator[UnaryResponse[IntroduceResponse]]: ...
+
+    async def IntroduceServer(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
+
+    async def IntroduceClient(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
 
 
-def create_ElizaService_handlers(
-    service: ElizaServiceHandler, options: ConnectOptions | None = None
-) -> list[UnaryHandler]:
-    handlers = [
+def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+    handlers: list[Handler] = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
             unary=service.Say,
             input=SayRequest,
             output=SayResponse,
             options=options,
-        )
+        ),
+        ServerStreamHandler(
+            procedure=ElizaServiceProcedures.IntroduceServer.value,
+            stream=service.IntroduceServer,
+            input=IntroduceRequest,
+            output=IntroduceResponse,
+            options=options,
+        ),
     ]
     return handlers

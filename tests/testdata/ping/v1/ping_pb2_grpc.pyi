@@ -28,12 +28,42 @@ class PingServiceStub:
         tests.testdata.ping.v1.ping_pb2.PingResponse,
     ]
 
+    PingServerStream: grpc.UnaryStreamMultiCallable[
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
+    ]
+
+    PingClientStream: grpc.StreamUnaryMultiCallable[
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
+    ]
+
+    PingBidiStream: grpc.StreamStreamMultiCallable[
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
+    ]
+
 class PingServiceAsyncStub:
     """*
     PingService defines example RPCs.
     """
 
     Ping: grpc.aio.UnaryUnaryMultiCallable[
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
+    ]
+
+    PingServerStream: grpc.aio.UnaryStreamMultiCallable[
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
+    ]
+
+    PingClientStream: grpc.aio.StreamUnaryMultiCallable[
+        tests.testdata.ping.v1.ping_pb2.PingRequest,
+        tests.testdata.ping.v1.ping_pb2.PingResponse,
+    ]
+
+    PingBidiStream: grpc.aio.StreamStreamMultiCallable[
         tests.testdata.ping.v1.ping_pb2.PingRequest,
         tests.testdata.ping.v1.ping_pb2.PingResponse,
     ]
@@ -49,5 +79,26 @@ class PingServiceServicer(metaclass=abc.ABCMeta):
         request: tests.testdata.ping.v1.ping_pb2.PingRequest,
         context: _ServicerContext,
     ) -> typing.Union[tests.testdata.ping.v1.ping_pb2.PingResponse, collections.abc.Awaitable[tests.testdata.ping.v1.ping_pb2.PingResponse]]: ...
+
+    @abc.abstractmethod
+    def PingServerStream(
+        self,
+        request: tests.testdata.ping.v1.ping_pb2.PingRequest,
+        context: _ServicerContext,
+    ) -> typing.Union[collections.abc.Iterator[tests.testdata.ping.v1.ping_pb2.PingResponse], collections.abc.AsyncIterator[tests.testdata.ping.v1.ping_pb2.PingResponse]]: ...
+
+    @abc.abstractmethod
+    def PingClientStream(
+        self,
+        request_iterator: _MaybeAsyncIterator[tests.testdata.ping.v1.ping_pb2.PingRequest],
+        context: _ServicerContext,
+    ) -> typing.Union[tests.testdata.ping.v1.ping_pb2.PingResponse, collections.abc.Awaitable[tests.testdata.ping.v1.ping_pb2.PingResponse]]: ...
+
+    @abc.abstractmethod
+    def PingBidiStream(
+        self,
+        request_iterator: _MaybeAsyncIterator[tests.testdata.ping.v1.ping_pb2.PingRequest],
+        context: _ServicerContext,
+    ) -> typing.Union[collections.abc.Iterator[tests.testdata.ping.v1.ping_pb2.PingResponse], collections.abc.AsyncIterator[tests.testdata.ping.v1.ping_pb2.PingResponse]]: ...
 
 def add_PingServiceServicer_to_server(servicer: PingServiceServicer, server: typing.Union[grpc.Server, grpc.aio.Server]) -> None: ...

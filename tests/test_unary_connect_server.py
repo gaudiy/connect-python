@@ -11,10 +11,11 @@ from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 
 from .main import app
 
-client = TestClient(app)
+# client = TestClient(app)
 
 
 def test_post_application_proto() -> None:
+    client = TestClient(app)
     content = PingRequest(name="test").SerializeToString()
     response = client.post(
         "/tests.testdata.ping.v1.PingService/Ping",
@@ -28,6 +29,7 @@ def test_post_application_proto() -> None:
 
 
 def test_post_application_json() -> None:
+    client = TestClient(app)
     response = client.post(
         "/tests.testdata.ping.v1.PingService/Ping",
         json={"name": "test"},
@@ -39,6 +41,7 @@ def test_post_application_json() -> None:
 
 
 def test_post_gzip_compression() -> None:
+    client = TestClient(app)
     content = PingRequest(name="test").SerializeToString()
     compressed_content = gzip.compress(content)
 
@@ -54,6 +57,7 @@ def test_post_gzip_compression() -> None:
 
 
 def test_post_only_accept_encoding_gzip() -> None:
+    client = TestClient(app)
     content = PingRequest(name="test").SerializeToString()
     response = client.post(
         "/tests.testdata.ping.v1.PingService/Ping",
@@ -67,6 +71,7 @@ def test_post_only_accept_encoding_gzip() -> None:
 
 
 def test_get() -> None:
+    client = TestClient(app)
     encoded_message = urllib.parse.quote(json.dumps({"name": "test"}))
     response = client.get(
         f"/tests.testdata.ping.v1.PingService/Ping?encoding=json&message={encoded_message}",
@@ -78,6 +83,7 @@ def test_get() -> None:
 
 
 def test_get_base64() -> None:
+    client = TestClient(app)
     encoded_message = base64.b64encode(json.dumps({"name": "test"}).encode()).decode()
     response = client.get(
         f"/tests.testdata.ping.v1.PingService/Ping?encoding=json&message={encoded_message}&base64=1",
@@ -89,6 +95,7 @@ def test_get_base64() -> None:
 
 
 def test_unsupported_raw_deflate_compression() -> None:
+    client = TestClient(app)
     compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
     content = PingRequest(name="test").SerializeToString()
     compressed_content = compressor.compress(content) + compressor.flush()

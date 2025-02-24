@@ -9,12 +9,21 @@ from yarl import URL
 from connect.code import Code
 from connect.codec import Codec, ReadOnlyCodecs
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Peer, Spec, StreamingClientConn, StreamingHandlerConn, StreamType, UnaryClientConn
+from connect.connect import (
+    Peer,
+    Spec,
+    StreamingClientConn,
+    StreamingHandlerConn,
+    StreamType,
+    UnaryClientConn,
+    UnaryHandlerConn,
+)
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
 from connect.session import AsyncClientSession
+from connect.writer import ServerResponseWriter
 
 PROTOCOL_CONNECT = "connect"
 
@@ -97,6 +106,9 @@ class ProtocolClient(abc.ABC):
         raise NotImplementedError()
 
 
+HanderConn = UnaryHandlerConn | StreamingHandlerConn
+
+
 class ProtocolHandler(abc.ABC):
     """Abstract base class for handling different protocols."""
 
@@ -143,17 +155,42 @@ class ProtocolHandler(abc.ABC):
 
     @abc.abstractmethod
     async def conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers
-    ) -> StreamingHandlerConn:
-        """Handle the connection for a given request and response headers.
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> UnaryHandlerConn | None:
+        """Handle a unary connection request.
 
         Args:
-            request (Request): The request object containing the details of the request.
-            response_headers (Headers): The mutable headers for the response.
-            response_trailers (Headers): The mutable headers for the response trailers.
+            request (Request): The incoming request object.
+            response_headers (Headers): The headers to be sent in the response.
+            response_trailers (Headers): The trailers to be sent in the response.
+            writer (ServerResponseWriter): The writer used to send the response.
 
         Returns:
-            StreamingHandlerConn: The connection handler for streaming.
+            UnaryHandlerConn | None: The connection handler or None if not implemented.
+
+        Raises:
+            NotImplementedError: If the method is not implemented.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def stream_conn(
+        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
+    ) -> StreamingHandlerConn | None:
+        """Handle a streaming connection.
+
+        Args:
+            request (Request): The incoming request object.
+            response_headers (Headers): The headers to be sent in the response.
+            response_trailers (Headers): The trailers to be sent in the response.
+            writer (ServerResponseWriter): The writer object to send the response.
+
+        Returns:
+            StreamingHandlerConn | None: The streaming handler connection object or None if not implemented.
+
+        Raises:
+            NotImplementedError: If the method is not implemented.
 
         """
         raise NotImplementedError()
@@ -210,7 +247,7 @@ def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HTTPMethod, 
 
 def negotiate_compression(
     available: list[Compression], sent: str | None, accept: str | None
-) -> tuple[Compression | None, Compression | None]:
+) -> tuple[Compression | None, Compression | None, ConnectError | None]:
     """Negotiate the compression method to be used based on the available options.
 
     The compression method sent by the client, and the compression methods accepted
@@ -235,9 +272,13 @@ def negotiate_compression(
         if found:
             request = found
         else:
-            raise ConnectError(
-                f"unknown compression {sent}: supported encodings are {', '.join(c.name for c in available)}",
-                Code.UNIMPLEMENTED,
+            return (
+                None,
+                None,
+                ConnectError(
+                    f"unknown compression {sent}: supported encodings are {', '.join(c.name for c in available)}",
+                    Code.UNIMPLEMENTED,
+                ),
             )
 
     if accept is None or accept == "":
@@ -250,7 +291,7 @@ def negotiate_compression(
                 response = found
                 break
 
-    return request, response
+    return request, response, None
 
 
 def sorted_allow_method_value(handlers: list[ProtocolHandler]) -> str:

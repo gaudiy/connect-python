@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 
 from pydantic import BaseModel
 
+from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.utils import aiterate, get_callable_attribute
@@ -294,7 +295,7 @@ class StreamResponse[T](ResponseCommon):
         return self._messages
 
 
-class StreamingHandlerConn(abc.ABC):
+class UnaryHandlerConn(abc.ABC):
     """Abstract base class for a streaming handler connection.
 
     This class defines the interface for handling streaming connections, including
@@ -351,14 +352,17 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def send(self, message: Any) -> bytes:
-        """Send a message and returns the response as bytes.
+    async def send(self, message: Any) -> None:
+        """Send a message.
+
+        This method should be implemented by subclasses to define how the message
+        should be sent.
 
         Args:
             message (Any): The message to be sent.
 
-        Returns:
-            bytes: The response received after sending the message.
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
 
         """
         raise NotImplementedError()
@@ -384,6 +388,133 @@ class StreamingHandlerConn(abc.ABC):
 
         Returns:
             Any: The return type is not specified as this is a placeholder method.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error message.
+
+        This method should be implemented to handle the sending of error messages
+        in a specific manner defined by the subclass.
+
+        Args:
+            error (ConnectError): The error to be sent.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by the subclass.
+
+        """
+        raise NotImplementedError()
+
+
+class StreamingHandlerConn(abc.ABC):
+    """Abstract base class for a streaming handler connection.
+
+    This class defines the interface for handling streaming connections, including
+    methods for specifying the connection, handling peer communication, receiving
+    and sending messages, and managing request and response headers and trailers.
+
+    """
+
+    @property
+    @abc.abstractmethod
+    def spec(self) -> Spec:
+        """Return the specification details.
+
+        Returns:
+            Spec: The specification details.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def peer(self) -> Peer:
+        """Establish a connection to a peer in the network.
+
+        Returns:
+            Any: The result of the connection attempt. The exact type and structure
+            of the return value will depend on the implementation details.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Receives a message and processes it.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            Any: The result of processing the message.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def request_headers(self) -> Headers:
+        """Generate and return the request headers.
+
+        Returns:
+            Any: The request headers.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def send(self, messages: AsyncIterator[Any]) -> None:
+        """Send a stream of messages asynchronously.
+
+        Args:
+            messages (AsyncIterator[Any]): An asynchronous iterator that yields messages to be sent.
+
+        Raises:
+            NotImplementedError: This method should be implemented by subclasses.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_headers(self) -> Headers:
+        """Retrieve the response headers.
+
+        Returns:
+            Any: The response headers.
+
+        """
+        raise NotImplementedError()
+
+    @property
+    @abc.abstractmethod
+    def response_trailers(self) -> Headers:
+        """Handle response trailers.
+
+        This method is intended to be overridden in subclasses to provide
+        specific functionality for processing response trailers.
+
+        Returns:
+            Any: The return type is not specified as this is a placeholder method.
+
+        """
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def send_error(self, error: ConnectError) -> None:
+        """Send an error message.
+
+        This method should be implemented to handle the process of sending an error message
+        when a ConnectError occurs.
+
+        Args:
+            error (ConnectError): The error that needs to be sent.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
 
         """
         raise NotImplementedError()
@@ -524,11 +655,11 @@ class ReceiveConn(Protocol):
         raise NotImplementedError()
 
 
-async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> UnaryRequest[T]:
+async def receive_unary_request[T](conn: UnaryHandlerConn, t: type[T]) -> UnaryRequest[T]:
     """Receives a unary request from the given connection and returns a UnaryRequest object.
 
     Args:
-        conn (StreamingHandlerConn): The connection from which to receive the unary request.
+        conn (UnaryHandlerConn): The connection from which to receive the unary request.
         t (type[T]): The type of the message to be received.
 
     Returns:
@@ -549,6 +680,44 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Un
         headers=conn.request_headers,
         method=method.value,
     )
+
+
+async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> StreamRequest[T]:
+    """Receive a stream request and returns a StreamRequest object.
+
+    Args:
+        conn (StreamingHandlerConn): The connection handler for the streaming request.
+        t (type[T]): The type of the messages expected in the stream.
+
+    Returns:
+        StreamRequest[T]: An object containing the stream messages, connection specifications,
+                          peer information, request headers, and HTTP method.
+
+    """
+    return StreamRequest(
+        messages=receive_stream_message(conn, t),
+        spec=conn.spec,
+        peer=conn.peer,
+        headers=conn.request_headers,
+        method=HTTPMethod.POST,
+    )
+
+
+async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> AsyncIterator[T]:
+    """Asynchronously receives and yields messages from a streaming connection.
+
+    This function listens to a streaming connection and yields messages of the specified type.
+
+    Args:
+        conn (StreamingHandlerConn): The streaming connection handler.
+        t (type[T]): The type of messages to receive.
+
+    Yields:
+        AsyncIterator[T]: An asynchronous iterator of messages of type T.
+
+    """
+    async for message in conn.receive(t):
+        yield message
 
 
 async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:

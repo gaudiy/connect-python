@@ -3,7 +3,7 @@
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
-from connect.connect import UnaryRequest, UnaryResponse
+from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.idempotency_level import IdempotencyLevel
 from connect.middleware import ConnectMiddleware
 from connect.options import ConnectOptions
@@ -22,6 +22,14 @@ class PingService(PingServiceHandler):
         """Return a ping response."""
         data = request.message
         return UnaryResponse(PingResponse(name=data.name))
+
+    async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        """Return a ping response."""
+        messsages = ""
+        async for data in request.messages:
+            messsages += " " + data.name
+
+        return StreamResponse(PingResponse(name=messsages))
 
 
 middleware = [

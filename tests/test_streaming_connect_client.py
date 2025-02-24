@@ -29,7 +29,6 @@ async def server_streaming(scope: Scope, receive: Receive, send: Send) -> None:
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 
@@ -85,7 +84,6 @@ async def server_streaming_end_stream_error(scope: Scope, receive: Receive, send
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 
@@ -144,7 +142,6 @@ async def server_streaming_received_message_after_end_stream(scope: Scope, recei
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 
@@ -206,7 +203,6 @@ async def server_streaming_received_extra_end_stream(scope: Scope, receive: Rece
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 
@@ -272,7 +268,6 @@ async def server_streaming_not_received_end_stream(scope: Scope, receive: Receiv
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 
@@ -441,7 +436,6 @@ async def client_streaming(scope: Scope, receive: Receive, send: Send) -> None:
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 
@@ -539,7 +533,6 @@ async def server_streaming_not_httpstatus_200(scope: Scope, receive: Receive, se
         "headers": [
             [b"content-type", b"application/connect+proto"],
             [b"connect-accept-encoding", b"identity"],
-            [b"connect-content-encoding", b"identity"],
         ],
     })
 

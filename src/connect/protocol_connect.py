@@ -1566,8 +1566,9 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
         body = self.marshaler.marshal_end_stream(json_str.encode())
 
-        response = StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
-        await self.writer.write(response)
+        await self.writer.write(
+            StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
+        )
 
 
 EventHook = Callable[..., Any]

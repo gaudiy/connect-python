@@ -41,6 +41,21 @@ class PingServiceStub(object):
                 request_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
                 response_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
                 _registered_method=True)
+        self.PingServerStream = channel.unary_stream(
+                '/tests.testdata.ping.v1.PingService/PingServerStream',
+                request_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+                response_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+                _registered_method=True)
+        self.PingClientStream = channel.stream_unary(
+                '/tests.testdata.ping.v1.PingService/PingClientStream',
+                request_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+                response_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+                _registered_method=True)
+        self.PingBidiStream = channel.stream_stream(
+                '/tests.testdata.ping.v1.PingService/PingBidiStream',
+                request_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+                response_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+                _registered_method=True)
 
 
 class PingServiceServicer(object):
@@ -54,11 +69,44 @@ class PingServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PingServerStream(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PingClientStream(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def PingBidiStream(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_PingServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
+                    request_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.FromString,
+                    response_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.SerializeToString,
+            ),
+            'PingServerStream': grpc.unary_stream_rpc_method_handler(
+                    servicer.PingServerStream,
+                    request_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.FromString,
+                    response_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.SerializeToString,
+            ),
+            'PingClientStream': grpc.stream_unary_rpc_method_handler(
+                    servicer.PingClientStream,
+                    request_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.FromString,
+                    response_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.SerializeToString,
+            ),
+            'PingBidiStream': grpc.stream_stream_rpc_method_handler(
+                    servicer.PingBidiStream,
                     request_deserializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.FromString,
                     response_serializer=tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.SerializeToString,
             ),
@@ -90,6 +138,87 @@ class PingService(object):
             request,
             target,
             '/tests.testdata.ping.v1.PingService/Ping',
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PingServerStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_stream(
+            request,
+            target,
+            '/tests.testdata.ping.v1.PingService/PingServerStream',
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PingClientStream(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_unary(
+            request_iterator,
+            target,
+            '/tests.testdata.ping.v1.PingService/PingClientStream',
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
+            tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PingBidiStream(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/tests.testdata.ping.v1.PingService/PingBidiStream',
             tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingRequest.SerializeToString,
             tests_dot_testdata_dot_ping_dot_v1_dot_ping__pb2.PingResponse.FromString,
             options,

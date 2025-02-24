@@ -15,13 +15,23 @@ import hypercorn.logging
 import hypercorn.typing
 import pytest
 from anyio import from_thread, sleep
+from async_asgi_testclient import TestClient as AsyncTestClient
 from google.protobuf import json_format
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from uvicorn.config import Config
 from uvicorn.server import Server
 from yarl import URL
 
 from connect.envelope import Envelope, EnvelopeFlags
+from connect.middleware import ConnectMiddleware
+from connect.options import ConnectOptions
 from tests.testdata.ping.v1.ping_pb2 import PingResponse
+from tests.testdata.ping.v1.v1connect.ping_connect import (
+    PingService_service_descriptor,
+    PingServiceHandler,
+    create_PingService_handlers,
+)
 
 Message = typing.MutableMapping[str, typing.Any]
 Receive = typing.Callable[[], typing.Awaitable[Message]]
@@ -291,3 +301,38 @@ def hypercorn_server(request: pytest.FixtureRequest) -> typing.Iterator[ServerCo
     config = hypercorn.config.Config()
 
     yield from run_hypercorn_in_thread(typing.cast(hypercorn.typing.ASGIFramework, app), config)
+
+
+class AsyncClient:
+    service: PingServiceHandler
+    client: AsyncTestClient
+
+    def __init__(self, service: PingServiceHandler, options: ConnectOptions | None = None) -> None:
+        self.service = service
+        self.options = options
+
+    async def __aenter__(self) -> AsyncTestClient:
+        assert isinstance(self.service, PingServiceHandler)
+
+        options = self.options or ConnectOptions()
+        options.descriptor = PingService_service_descriptor
+
+        middleware = [
+            Middleware(
+                ConnectMiddleware,
+                create_PingService_handlers(
+                    service=self.service,
+                    options=options,
+                ),
+            )
+        ]
+
+        app = Starlette(middleware=middleware)
+
+        self.client = AsyncTestClient(app)
+        await self.client.__aenter__()
+
+        return self.client
+
+    async def __aexit__(self, exc_type: typing.Any, exc_value: typing.Any, traceback: typing.Any) -> None:
+        await self.client.__aexit__(exc_type, exc_value, traceback)

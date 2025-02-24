@@ -179,7 +179,7 @@ class Handler:
         protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]],
         allow_methods: str,
         accept_post: str,
-    ):
+    ) -> None:
         """Initialize a new handler instance.
 
         Args:

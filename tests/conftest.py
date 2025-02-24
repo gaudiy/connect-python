@@ -329,6 +329,7 @@ class AsyncClient:
 
         app = Starlette(middleware=middleware)
 
+        # TODO(tsubakiky): Implement a new ASGI client for testing instead of using the AsyncTestClient.
         self.client = AsyncTestClient(app)
         await self.client.__aenter__()
 

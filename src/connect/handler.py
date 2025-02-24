@@ -476,7 +476,7 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
 
 class ServerStreamHandler[T_Request, T_Response](Handler):
-    """A handler for server-side streaming in a Connect-based application.
+    """A handler for server-side streaming RPCs.
 
     This handler manages the server-side streaming procedure, including receiving
     requests, processing them, and sending responses.
@@ -525,6 +525,82 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
             request = await receive_stream_request(conn, input)
 
             response = await untyped(request)
+
+            conn.response_headers.update(response.headers)
+            conn.response_trailers.update(response.trailers)
+
+            await conn.send(response.messages)
+
+        super().__init__(
+            procedure=procedure,
+            implementation=implementation,
+            protocol_handlers=mapped_method_handlers(protocol_handlers),
+            allow_methods=sorted_allow_method_value(protocol_handlers),
+            accept_post=sorted_accept_post_value(protocol_handlers),
+        )
+
+
+class ClientStreamHandler[T_Request, T_Response](Handler):
+    """A handler for client-side streaming RPCs.
+
+    Args:
+        procedure (str): The name of the RPC procedure.
+        stream (StreamFunc[T_Request, T_Response]): The function that handles the streaming request.
+        input (type[T_Request]): The type of the request message.
+        output (type[T_Response]): The type of the response message.
+        options (ConnectOptions | None, optional): Configuration options for the handler. Defaults to None.
+
+    Methods:
+        implementation(conn: StreamingHandlerConn): Handles the streaming connection, receiving requests and sending responses.
+
+    Attributes:
+        procedure (str): The name of the RPC procedure.
+        implementation (Callable): The function that implements the streaming logic.
+        protocol_handlers (Dict): Handlers for different protocols.
+        allow_methods (List[str]): Allowed HTTP methods.
+        accept_post (List[str]): Accepted POST values.
+
+    """
+
+    def __init__(
+        self,
+        procedure: str,
+        stream: StreamFunc[T_Request, T_Response],
+        input: type[T_Request],
+        output: type[T_Response],  # noqa: ARG002
+        options: ConnectOptions | None = None,
+    ) -> None:
+        """Initialize a new instance of the handler.
+
+        Args:
+            procedure (str): The name of the procedure to handle.
+            stream (StreamFunc[T_Request, T_Response]): The stream function to handle requests and responses.
+            input (type[T_Request]): The type of the request message.
+            output (type[T_Response]): The type of the response message.
+            options (ConnectOptions | None, optional): Additional options for the handler. Defaults to None.
+
+        Returns:
+            None
+
+        """
+        options = options if options is not None else ConnectOptions()
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.ClientStream, options=options)
+        protocol_handlers = create_protocol_handlers(config)
+
+        async def _untyped(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+            response = await stream(request)
+
+            return response
+
+        untyped = apply_interceptors(_untyped, options.interceptors)
+
+        async def implementation(conn: StreamingHandlerConn) -> None:
+            request = await receive_stream_request(conn, input)
+
+            response = await untyped(request)
+
+            conn.response_headers.update(response.headers)
+            conn.response_trailers.update(response.trailers)
 
             await conn.send(response.messages)
 

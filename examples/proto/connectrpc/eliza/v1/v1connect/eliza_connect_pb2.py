@@ -9,7 +9,7 @@ from enum import Enum
 
 from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
-from connect.handler import Handler, ServerStreamHandler, UnaryHandler
+from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -82,6 +82,13 @@ def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectO
         ServerStreamHandler(
             procedure=ElizaServiceProcedures.IntroduceServer.value,
             stream=service.IntroduceServer,
+            input=IntroduceRequest,
+            output=IntroduceResponse,
+            options=options,
+        ),
+        ClientStreamHandler(
+            procedure=ElizaServiceProcedures.IntroduceClient.value,
+            stream=service.IntroduceClient,
             input=IntroduceRequest,
             output=IntroduceResponse,
             options=options,

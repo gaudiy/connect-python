@@ -10,7 +10,7 @@ import pytest
 
 from connect.client import Client
 from connect.code import Code
-from connect.connect import StreamRequest, StreamResponse
+from connect.connect import StreamRequest, StreamResponse, StreamType
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
 from connect.interceptor import Interceptor, StreamFunc
@@ -484,6 +484,9 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
+                assert request.spec.stream_type == StreamType.ServerStream
+                assert request.peer.protocol == "connect"
+
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
@@ -496,6 +499,9 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
             async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                assert request.spec.stream_type == StreamType.ServerStream
+                assert request.peer.protocol == "connect"
 
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")
@@ -596,6 +602,9 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
+                assert request.spec.stream_type == StreamType.ClientStream
+                assert request.peer.protocol == "connect"
+
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
@@ -608,6 +617,9 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
             async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                assert request.spec.stream_type == StreamType.ClientStream
+                assert request.peer.protocol == "connect"
 
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")

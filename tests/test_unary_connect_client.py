@@ -9,7 +9,7 @@ import pytest
 
 from connect.client import Client
 from connect.code import Code
-from connect.connect import UnaryRequest, UnaryResponse
+from connect.connect import StreamType, UnaryRequest, UnaryResponse
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import Interceptor, UnaryFunc
@@ -349,6 +349,9 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
+                assert request.spec.stream_type == StreamType.Unary
+                assert request.peer.protocol == "connect"
+
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
@@ -363,6 +366,9 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
             async def _wrapped(request: UnaryRequest[Any]) -> UnaryResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
+
+                assert request.spec.stream_type == StreamType.Unary
+                assert request.peer.protocol == "connect"
 
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")

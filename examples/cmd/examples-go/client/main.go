@@ -122,6 +122,12 @@ func runClient() error {
 		}
 		res, err := stream.CloseAndReceive()
 		if err != nil {
+			if connectErr, ok := asError(err); ok {
+				fmt.Printf("Error: %s\n", connectErr.Message())
+				fmt.Printf("Error code: %d\n", connectErr.Code())
+				fmt.Printf("Error details: %v\n", connectErr.Details())
+				fmt.Printf("Error metadata: %v\n", connectErr.Meta())
+			}
 			return err
 		}
 		fmt.Printf("res.Msg: %v\n", res.Msg)
@@ -145,6 +151,7 @@ func runClient() error {
 				fmt.Printf("Error: %s\n", connectErr.Message())
 				fmt.Printf("Error code: %d\n", connectErr.Code())
 				fmt.Printf("Error details: %v\n", connectErr.Details())
+				fmt.Printf("Error metadata: %v\n", connectErr.Meta())
 			}
 			return err
 		}

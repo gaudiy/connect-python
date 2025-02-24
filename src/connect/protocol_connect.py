@@ -2385,17 +2385,17 @@ def end_stream_to_json(error: ConnectError | None, trailers: Headers) -> dict[st
         dict[str, Any]: A dictionary containing the error and metadata information in JSON-serializable format.
 
     """
-    json_dict = {}
+    json_obj = {}
 
     metadata = Headers(trailers.copy())
     if error:
-        json_dict["error"] = error_to_json(error)
+        json_obj["error"] = error_to_json(error)
         metadata.update(error.metadata.copy())
 
     if len(metadata) > 0:
-        json_dict["metadata"] = {k: v.split(", ") for k, v in metadata.items()}
+        json_obj["metadata"] = {k: v.split(", ") for k, v in metadata.items()}
 
-    return json_dict
+    return json_obj
 
 
 def error_to_json(error: ConnectError) -> dict[str, Any]:

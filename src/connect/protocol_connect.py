@@ -4,7 +4,6 @@ import base64
 import contextlib
 import json
 from collections.abc import (
-    AsyncGenerator,
     AsyncIterable,
     AsyncIterator,
     Awaitable,
@@ -199,7 +198,6 @@ class ConnectHandler(ProtocolHandler):
             required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
             error = connect_check_protocol_version(request, required)
 
-        request_stream = AsyncByteStream(aiterator=request.stream())
         content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
         codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
@@ -237,7 +235,7 @@ class ConnectHandler(ProtocolHandler):
                 compression=response_compression,
             ),
             unmarshaler=ConnectStreamingUnmarshaler(
-                stream=request_stream,
+                stream=request.stream(),
                 codec=codec,
                 compression=request_compression,
                 read_max_bytes=self.params.read_max_bytes,
@@ -308,14 +306,11 @@ class ConnectHandler(ProtocolHandler):
             else:
                 decoded = message.encode("utf-8")
 
-            async def stream() -> AsyncGenerator[bytes]:
-                yield decoded
-
-            request_stream = AsyncByteStream(aiterator=stream())
+            request_stream = aiterate([decoded])
             codec_name = encoding
             content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
         else:
-            request_stream = AsyncByteStream(aiterator=request.stream())
+            request_stream = request.stream()
             content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
@@ -429,12 +424,12 @@ class ConnectUnaryUnmarshaler:
         codec: Codec | None,
         read_max_bytes: int,
         compression: Compression | None = None,
-        stream: AsyncByteStream | None = None,
+        stream: AsyncIterable[bytes] | None = None,
     ) -> None:
         """Initialize the ProtocolConnect object.
 
         Args:
-            stream (Callable[..., AsyncGenerator[bytes]]): The stream of data to be unmarshaled.
+            stream (AsyncIterable[bytes] | None): The stream of bytes to be unmarshaled.
             codec (Codec): The codec used for encoding/decoding the message.
             read_max_bytes (int): The maximum number of bytes to read.
             compression (Compression | None): The compression method to use, if any.
@@ -1081,7 +1076,7 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
 
-class ResponseAsyncByteStream:
+class ResponseAsyncByteStream(AsyncByteStream):
     """An asynchronous byte stream for reading and writing byte chunks."""
 
     aiterator: AsyncIterable[bytes] | None
@@ -1250,7 +1245,7 @@ class ConnectStreamingUnmarshaler:
     Attributes:
         codec (Codec): The codec used for unmarshaling data.
         compression (Compression | None): The compression method used, if any.
-        stream (AsyncByteStream | None): The asynchronous byte stream to read data from.
+        stream (AsyncIteratorByteStream | None): The asynchronous byte stream to read data from.
         buffer (bytes): The buffer to store incoming data chunks.
 
     """
@@ -1267,7 +1262,7 @@ class ConnectStreamingUnmarshaler:
         self,
         codec: Codec | None,
         read_max_bytes: int,
-        stream: AsyncByteStream | None = None,
+        stream: AsyncIterable[bytes] | None = None,
         compression: Compression | None = None,
     ) -> None:
         """Initialize the protocol connection.
@@ -1275,7 +1270,7 @@ class ConnectStreamingUnmarshaler:
         Args:
             codec (Codec): The codec to use for encoding and decoding data.
             read_max_bytes (int): The maximum number of bytes to read from the stream.
-            stream (AsyncByteStream | None, optional): The asynchronous byte stream to read from. Defaults to None.
+            stream (AsyncIterable[bytes] | None, optional): The asynchronous byte stream to read from. Defaults to None.
             compression (Compression | None, optional): The compression method to use. Defaults to None.
 
         """
@@ -1783,8 +1778,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         await self._validate_response(response)
 
-        return
-
     async def _validate_response(self, response: httpcore.Response) -> None:
         response_headers = Headers(response.headers)
 
@@ -2001,7 +1994,6 @@ class ConnectUnaryClientConn(UnaryClientConn):
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        assert isinstance(response.stream, AsyncIterable)
         self.unmarshaler.stream = AsyncIteratorByteStream(
             ResponseAsyncByteStream(response.aiter_stream(), response.aclose)
         )

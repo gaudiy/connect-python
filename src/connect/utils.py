@@ -158,30 +158,30 @@ def request_response(func: Callable[[Request], Awaitable[Response] | Response]) 
 
 
 class AsyncByteStream(typing.AsyncIterable[bytes]):
-    """An asynchronous byte stream for reading and writing byte chunks."""
+    """An abstract base class for asynchronous byte streams.
 
-    aiterator: typing.AsyncIterable[bytes] | None
-    aclose_func: typing.Callable[..., typing.Awaitable[None]] | None
+    This class defines the interface for an asynchronous byte stream, which
+    includes methods for iterating over the stream and closing it.
 
-    def __init__(
-        self,
-        aiterator: typing.AsyncIterable[bytes] | None = None,
-        aclose_func: typing.Callable[..., typing.Awaitable[None]] | None = None,
-    ) -> None:
-        """Initialize the asynchronous byte stream with the given iterator and close function."""
-        self.aiterator = aiterator
-        self.aclose_func = aclose_func
+    """
 
     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
-        """Asynchronous iterator method to read byte chunks from the stream."""
-        if self.aiterator is not None:
-            async for chunk in self.aiterator:
-                yield chunk
+        """Asynchronous iterator method.
+
+        This method should be implemented to provide asynchronous iteration
+        over the object. It must return an asynchronous iterator that yields
+        bytes.
+
+        Raises:
+            NotImplementedError: If the method is not implemented.
+
+        """
+        raise NotImplementedError("The '__aiter__' method must be implemented.")  # pragma: no cover
+        yield b""
 
     async def aclose(self) -> None:
         """Asynchronously close the byte stream."""
-        if self.aclose_func:
-            await self.aclose_func()
+        pass
 
 
 class StreamConsumedError(Exception):
@@ -244,8 +244,8 @@ class AsyncIteratorByteStream:
             None
 
         """
-        if hasattr(self._stream, "aclose"):
-            await self._stream.aclose()  # type: ignore
+        if isinstance(self._stream, AsyncByteStream):
+            await self._stream.aclose()
 
 
 async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:

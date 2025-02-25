@@ -79,6 +79,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "async-asgi-testclient", specifier = ">=1.4.11" },
     { name = "grpcio-tools", specifier = "==1.68.1" },
     { name = "hypercorn", extras = ["trio", "uvloop"], specifier = ">=0.17.3" },
     { name = "mypy", specifier = ">=1.13.0" },

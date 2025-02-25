@@ -5,9 +5,12 @@
 package generator
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -92,6 +95,7 @@ const (
 )
 
 type Method struct {
+	idx      int
 	Method   string
 	FullName string
 	RPCType  RPCType
@@ -125,10 +129,11 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		services:      make(map[Method]*service),
 	}
 	for _, svc := range f.Services {
-		for _, meth := range svc.Methods {
+		for i, meth := range svc.Methods {
 			fullname := string(meth.Desc.FullName())
 			idx := strings.LastIndex(fullname, ".")
 			method := Method{
+				idx:      i,
 				Method:   meth.GoName,
 				FullName: fullname[:idx],
 			}
@@ -166,12 +171,11 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	}
 	p.P(`"""Generated connect code."""`)
 	p.P()
-	p.P(`import abc`)
 	p.P(`from enum import Enum`)
 	p.P()
 	p.P(`from connect.client import Client`)
 	p.P(`from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse`)
-	p.P(`from connect.handler import Handler, ServerStreamHandler, UnaryHandler`)
+	p.P(`from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler`)
 	p.P(`from connect.options import ClientOptions, ConnectOptions`)
 	p.P(`from connect.session import AsyncClientSession`)
 	p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
@@ -185,28 +189,39 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	var sb strings.Builder
 	numSvc := len(p.services)
 	if numSvc > 0 {
-		fmt.Fprintln(&sb, "# TODO(zchee): duplicate imports")
 		fmt.Fprintf(&sb, "from ..%s import ", svcNamePB)
 	}
+	seem := make(map[string]bool)
 	i := 0
-	for _, svc := range p.services {
-		fmt.Fprintf(&sb, "%s, %s", svc.input.method, svc.output.method)
+	for _, meth := range sortedMap(p.services) {
+		svc := p.services[meth]
+		switch {
+		case seem[svc.input.method] && seem[svc.output.method]:
+			continue
+		case !seem[svc.input.method] && seem[svc.output.method]:
+			fmt.Fprintf(&sb, "%s", svc.input.method)
+			seem[svc.input.method] = true
+		case seem[svc.input.method] && !seem[svc.output.method]:
+			fmt.Fprintf(&sb, "%s", svc.output.method)
+			seem[svc.output.method] = true
+		default:
+			fmt.Fprintf(&sb, "%s, %s", svc.input.method, svc.output.method)
+			seem[svc.input.method] = true
+			seem[svc.output.method] = true
+		}
 		if i <= numSvc-2 {
 			fmt.Fprint(&sb, ", ")
 		}
 		i++
 	}
-	if numSvc > 0 {
-		fmt.Fprintf(&sb, "\n")
-	}
-	p.P(sb.String())
+	p.P(strings.TrimSuffix(sb.String(), ", "))
 	p.P()
 	p.P()
 	procedures := svcNameService + `Procedures`
 	p.P(`class `, procedures, `(Enum):`)
 	p.P(`    """Procedures for the `, svcName, ` service."""`)
 	p.P()
-	for meth := range p.services {
+	for _, meth := range sortedMap(p.services) {
 		p.P(`    `, meth.Method, ` = `, strconv.Quote(`/`+filepath.Join(meth.FullName, meth.Method)))
 	}
 	p.P()
@@ -214,7 +229,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	serviceDescriptor := svcNameService + `_service_descriptor`
 	p.P(serviceDescriptor, `: `, `ServiceDescriptor`, ` = `, svcNamePB+`.DESCRIPTOR.services_by_name[`, strconv.Quote(svcNameService), `]`)
 	p.P()
-	for meth := range p.services {
+	for _, meth := range sortedMap(p.services) {
 		methodDescriptor := svcNameService + meth.Method + `_method_descriptor`
 		p.P(methodDescriptor+`: `, `MethodDescriptor = `, serviceDescriptor+`.methods_by_name[`, strconv.Quote(meth.Method), `]`)
 	}
@@ -224,7 +239,8 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P(`    def __init__(self, base_url: str, session: AsyncClientSession, options: ClientOptions | None = None) -> None:`)
 	p.P(`        base_url = base_url.removesuffix("/")`)
 	p.P()
-	for meth, svc := range p.services {
+	for _, meth := range sortedMap(p.services) {
+		svc := p.services[meth]
 		p.P(`        `, `self.`, meth.Method, ` = `, `Client[`, svc.input.method, `, `, svc.output.method, `](`)
 		p.P(`            `, `session, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, options`)
 		switch meth.RPCType {
@@ -239,12 +255,13 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 	p.P()
 	p.P()
 	handler := svcNameService + `Handler`
-	p.P(`class `, handler, `(metaclass=abc.ABCMeta):`)
+	p.P(`class `, handler, `:`)
 	p.P(`    `, `"""Handler for the `, lowerCamelCase(upperSvcName), ` service."""`)
 	p.P()
-	for meth, svc := range p.services {
+	j := 0
+	for _, meth := range sortedMap(p.services) {
+		svc := p.services[meth]
 		sb.Reset()
-		p.P(`    `, `@abc.abstractmethod`)
 		fmt.Fprintf(&sb, "    async def %s(self, request: ", meth.Method)
 		var (
 			reqRPCType  string
@@ -261,17 +278,22 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		}
 		fmt.Fprintf(&sb, "%s[%s]) -> %s[%s]: ...", reqRPCType, svc.input.method, respRPCType, svc.output.method)
 		p.P(sb.String())
+		if j <= len(p.services)-2 {
+			p.P()
+		}
+		j++
 	}
 	p.P()
 	p.P()
 	p.P(`def create_`, svcNameService, `_handlers`, `(`, `service: `, handler, `, options: ConnectOptions | None = None`, `) -> list[Handler]:`)
 	p.P(`    handlers = [`)
-	for meth, svc := range p.services {
+	for _, meth := range sortedMap(p.services) {
+		svc := p.services[meth]
 		var (
 			rpcHandler string
 			call       string
 		)
-		// TODO(zchee): ClientStreaming and BidirectionalStreaming?
+		// TODO(zchee): BidirectionalStreaming?
 		switch meth.RPCType {
 		case Unary:
 			rpcHandler = `UnaryHandler`
@@ -279,10 +301,14 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		case ServerStreaming:
 			rpcHandler = `ServerStreamHandler`
 			call = fmt.Sprintf("            stream=service.%s,", meth.Method)
+		case ClientStreaming:
+			rpcHandler = `ClientStreamHandler`
+			call = fmt.Sprintf("            stream=service.%s,", meth.Method)
 		}
 
-		// TODO(zchee): ClientStreaming and BidirectionalStreaming?
-		if meth.RPCType == Unary || meth.RPCType == ServerStreaming {
+		// TODO(zchee): BidirectionalStreaming?
+		switch meth.RPCType {
+		case Unary, ServerStreaming, ClientStreaming:
 			p.P(`        `, rpcHandler, `(`)
 			p.P(`            procedure=`, procedures+`.`+meth.Method+`.value,`)
 			p.P(call)
@@ -356,4 +382,8 @@ func isASCIILower(c byte) bool {
 
 func isASCIIDigit(c byte) bool {
 	return '0' <= c && c <= '9'
+}
+
+func sortedMap(m map[Method]*service) []Method {
+	return slices.SortedFunc(maps.Keys(m), func(x, y Method) int { return cmp.Compare(x.idx, y.idx) })
 }

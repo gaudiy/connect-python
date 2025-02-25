@@ -359,11 +359,7 @@ class ConnectHandler(ProtocolHandler):
             await conn.send_error(error)
             return None
 
-            if error:
-                await stream_conn.send_error(error)
-                return None
-
-            return stream_conn
+        return conn
 
 
 class ProtocolConnect(Protocol):
@@ -1567,13 +1563,6 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         await self.writer.write(
             StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
         )
-        json_obj = end_stream_to_json(error, self.response_trailers)
-        json_str = json.dumps(json_obj)
-
-        body = self.marshaler.marshal_end_stream(json_str.encode())
-
-        response = StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)
-        await self.writer.write(response)
 
 
 EventHook = Callable[..., Any]

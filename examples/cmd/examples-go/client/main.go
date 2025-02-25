@@ -76,6 +76,12 @@ func init() {
 	}
 }
 
+func asError(err error) (*connect.Error, bool) {
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
+	return connectErr, ok
+}
+
 func main() {
 	switch runMode {
 	case modeClient:
@@ -85,12 +91,6 @@ func main() {
 	case modeServer:
 		// TODO(tsubakiky): not implemented yet
 	}
-}
-
-func asError(err error) (*connect.Error, bool) {
-	var connectErr *connect.Error
-	ok := errors.As(err, &connectErr)
-	return connectErr, ok
 }
 
 func runClient() error {

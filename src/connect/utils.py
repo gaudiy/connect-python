@@ -162,6 +162,7 @@ class AsyncByteStream(typing.AsyncIterable[bytes]):
 
     aiterator: typing.AsyncIterable[bytes] | None
     aclose_func: typing.Callable[..., typing.Awaitable[None]] | None
+    _is_stream_consumed: bool
 
     def __init__(
         self,
@@ -171,10 +172,15 @@ class AsyncByteStream(typing.AsyncIterable[bytes]):
         """Initialize the asynchronous byte stream with the given iterator and close function."""
         self.aiterator = aiterator
         self.aclose_func = aclose_func
+        self._is_stream_consumed = False
 
     async def __aiter__(self) -> typing.AsyncIterator[bytes]:
         """Asynchronous iterator method to read byte chunks from the stream."""
         if self.aiterator is not None:
+            if self._is_stream_consumed:
+                raise RuntimeError("Stream has already been consumed.")
+
+            self._is_stream_consumed = True
             async for chunk in self.aiterator:
                 yield chunk
 

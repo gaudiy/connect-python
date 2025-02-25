@@ -42,6 +42,9 @@ async def post_response_gzip(scope: Scope, receive: Receive, send: Send) -> None
         "headers": [[b"content-type", b"application/proto"], [b"content-encoding", b"gzip"]],
     })
 
+    request = ASGIRequest(scope, receive)
+    _ = await request.body()
+
     response = PingResponse(name="test").SerializeToString()
     response = gzip.compress(response)
 
@@ -111,6 +114,7 @@ async def get_application_proto(scope: Scope, receive: Receive, send: Send) -> N
     assert scope["method"] == "GET"
 
     request = ASGIRequest(scope, receive)
+    _ = await request.body()
 
     for k, v in request.headers.items():
         assert k not in [
@@ -171,6 +175,9 @@ async def post_not_found(scope: Scope, receive: Receive, send: Send) -> None:
         "headers": [[b"content-type", b"text/plain"]],
     })
 
+    request = ASGIRequest(scope, receive)
+    _ = await request.body()
+
     await send({"type": "http.response.body", "body": b"Not Found"})
 
 
@@ -197,6 +204,9 @@ async def post_invalid_content_type_prefix(scope: Scope, receive: Receive, send:
         "status": 200,
         "headers": [[b"content-type", b"text/plain"]],
     })
+
+    request = ASGIRequest(scope, receive)
+    _ = await request.body()
 
     await send({"type": "http.response.body", "body": b"Not Found"})
 
@@ -244,6 +254,9 @@ async def post_error_details(scope: Scope, receive: Receive, send: Send) -> None
         "status": 503,
         "headers": [[b"content-type", b"application/json"]],
     })
+
+    request = ASGIRequest(scope, receive)
+    _ = await request.body()
 
     await send({"type": "http.response.body", "body": json.dumps(content).encode()})
 
@@ -299,6 +312,9 @@ async def post_compressed_error_details(scope: Scope, receive: Receive, send: Se
         "status": 503,
         "headers": [[b"content-type", b"application/json"], [b"content-encoding", b"gzip"]],
     })
+
+    request = ASGIRequest(scope, receive)
+    _ = await request.body()
 
     await send({"type": "http.response.body", "body": compressed_content})
 

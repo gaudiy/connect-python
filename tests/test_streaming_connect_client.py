@@ -428,46 +428,6 @@ async def test_server_streaming_request_envelope_message_compression(hypercorn_s
             want.remove(message.name)
 
 
-async def client_streaming(scope: Scope, receive: Receive, send: Send) -> None:
-    assert scope["type"] == "http"
-    await send({
-        "type": "http.response.start",
-        "status": 200,
-        "headers": [
-            [b"content-type", b"application/connect+proto"],
-            [b"connect-accept-encoding", b"identity"],
-        ],
-    })
-
-    request = ASGIRequest(scope, receive)
-    ping_requests: list[PingRequest] = []
-    async for body in request.iter_bytes():
-        env, _ = Envelope.decode(body)
-        if env:
-            ping_request = PingRequest()
-            ping_request.ParseFromString(env.data)
-            ping_requests.append(ping_request)
-
-    for k, v in request.headers.items():
-        if k == "content-type":
-            assert v == "application/connect+proto"
-        if k == "connect-accept-encoding":
-            assert v == "gzip"
-        if k == "connect-protocol-version":
-            assert v == "1"
-
-        assert k not in ["connect-content-encoding"]
-
-    assert len(ping_requests) == 3
-    assert " ".join([ping_request.name for ping_request in ping_requests]) == "Hello. My name is Bob. How are you?"
-
-    env = Envelope(PingResponse(name="I'm fine.").SerializeToString(), EnvelopeFlags(0))
-    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
-
-    env = Envelope(json.dumps({}).encode(), EnvelopeFlags.end_stream)
-    await send({"type": "http.response.body", "body": env.encode(), "more_body": False})
-
-
 @pytest.mark.asyncio()
 @pytest.mark.parametrize(["hypercorn_server"], [pytest.param(None)], indirect=["hypercorn_server"])
 async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> None:
@@ -542,6 +502,9 @@ async def server_streaming_not_httpstatus_200(scope: Scope, receive: Receive, se
         ],
     })
 
+    request = ASGIRequest(scope, receive)
+    _ = await request.body()
+
     await send({"type": "http.response.body", "body": b"", "more_body": False})
 
 
@@ -556,13 +519,53 @@ async def test_server_streaming_not_httpstatus_200(hypercorn_server: ServerConfi
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-    with pytest.raises(ConnectError) as excinfo:
-        await client.call_server_stream(ping_request)
+        with pytest.raises(ConnectError) as excinfo:
+            await client.call_server_stream(ping_request)
 
-    assert excinfo.value.code == Code.UNAVAILABLE
-    assert len(excinfo.value.details) == 0
-    assert excinfo.value.wire_error is False
-    assert excinfo.value.metadata == {}
+            assert excinfo.value.code == Code.UNAVAILABLE
+            assert len(excinfo.value.details) == 0
+            assert excinfo.value.wire_error is False
+            assert excinfo.value.metadata == {}
+
+
+async def client_streaming(scope: Scope, receive: Receive, send: Send) -> None:
+    assert scope["type"] == "http"
+    await send({
+        "type": "http.response.start",
+        "status": 200,
+        "headers": [
+            [b"content-type", b"application/connect+proto"],
+            [b"connect-accept-encoding", b"identity"],
+        ],
+    })
+
+    request = ASGIRequest(scope, receive)
+    ping_requests: list[PingRequest] = []
+    async for body in request.iter_bytes():
+        env, _ = Envelope.decode(body)
+        if env:
+            ping_request = PingRequest()
+            ping_request.ParseFromString(env.data)
+            ping_requests.append(ping_request)
+
+    for k, v in request.headers.items():
+        if k == "content-type":
+            assert v == "application/connect+proto"
+        if k == "connect-accept-encoding":
+            assert v == "gzip"
+        if k == "connect-protocol-version":
+            assert v == "1"
+
+        assert k not in ["connect-content-encoding"]
+
+    assert len(ping_requests) == 3
+    assert " ".join([ping_request.name for ping_request in ping_requests]) == "Hello. My name is Bob. How are you?"
+
+    env = Envelope(PingResponse(name="I'm fine.").SerializeToString(), EnvelopeFlags(0))
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": True})
+
+    env = Envelope(json.dumps({}).encode(), EnvelopeFlags.end_stream)
+    await send({"type": "http.response.body", "body": env.encode(), "more_body": False})
 
 
 @pytest.mark.asyncio()

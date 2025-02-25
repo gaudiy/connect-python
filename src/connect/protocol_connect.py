@@ -1308,7 +1308,6 @@ class ConnectStreamingUnmarshaler:
 
         try:
             async for chunk in self.stream:
-                end_stream_received = False
                 self.buffer += chunk
 
                 while True:
@@ -1325,13 +1324,10 @@ class ConnectStreamingUnmarshaler:
                     self.buffer = self.buffer[5 + data_len :]
 
                     if env.is_set(EnvelopeFlags.end_stream):
-                        if end_stream_received:
-                            raise ConnectError("protocol error: multiple end stream flags", Code.INTERNAL)
-
                         error, trailers = end_stream_from_bytes(env.data)
                         self._end_stream_error = error
                         self._trailers = trailers
-                        end_stream_received = True
+                        end = True
                         obj = None
                     else:
                         if env.is_set(EnvelopeFlags.compressed):
@@ -1350,7 +1346,9 @@ class ConnectStreamingUnmarshaler:
                                 Code.INVALID_ARGUMENT,
                             ) from e
 
-                    yield obj, end_stream_received
+                        end = False
+
+                    yield obj, end
         finally:
             await self.stream.aclose()
 

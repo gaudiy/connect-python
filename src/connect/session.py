@@ -64,7 +64,7 @@ class AsyncClientSession(AbstractAsyncContextManager):
         max_connections: int | None = 10,
         max_keepalive_connections: int | None = None,
         keepalive_expiry: float | None = None,
-        http1: bool = True,
+        http1: bool = False,
         http2: bool = True,  # because bidi-streams are not supported in HTTP/1
         retries: int = 0,
         local_address: str | None = None,

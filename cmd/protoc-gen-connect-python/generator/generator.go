@@ -55,6 +55,10 @@ func (g *Generator) Generate() {
 			continue
 		}
 
+		if len(file.Services) == 0 {
+			continue
+		}
+
 		file.GoPackageName += "connect"
 		generatedFilenamePrefix := filepath.ToSlash(file.GeneratedFilenamePrefix)
 		file.GeneratedFilenamePrefix = filepath.Join(

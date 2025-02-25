@@ -7,7 +7,7 @@ name = "connect-python"
 description = "The Python implementation of Connect: Protobuf RPC that works."
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [{ name = "zchee" }]
+authors = [{ name = "tsubakiky", email = "salovers1205@gmail.com" }]
 requires-python = ">=3.13"
 dynamic = ["version"]
 dependencies = [

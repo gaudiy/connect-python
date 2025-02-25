@@ -11,11 +11,11 @@ authors = [{ name = "tsubakiky", email = "salovers1205@gmail.com" }]
 requires-python = ">=3.13"
 dynamic = ["version"]
 dependencies = [
-  "anyio>=4.7.0",
-  "protobuf>=5.29.1",
-  "pydantic>=2.10.4",
-  "starlette[full]>=0.42.0",
-  "types-protobuf>=5.29.1.20241207",
+  "anyio>=4.8.0",
+  "protobuf>=5.29.3",
+  "pydantic>=2.10.6",
+  "starlette[full]>=0.46.0",
+  "types-protobuf>=5.29.1.20250208",
   "yarl>=1.18.3",
 ]
 
@@ -28,13 +28,13 @@ path = "src/connect/version.py"
 [tool.uv]
 dev-dependencies = [
   "mypy>=1.13.0",
-  "pyright>=1.1.390",
+  "pyright>=1.1.394",
   "pytest>=8.3.4",
-  "ruff>=0.8.2",
-  "grpcio-tools==1.68.1",
+  "ruff>=0.9.7",
+  "grpcio-tools==1.70.0",
   "mypy-protobuf>=3.6.0",
   "hypercorn[trio,uvloop]>=0.17.3",
-  "pytest-asyncio>=0.25.1",
+  "pytest-asyncio>=0.25.3",
   "uvicorn>=0.34.0",
   "async-asgi-testclient>=1.4.11",
 ]

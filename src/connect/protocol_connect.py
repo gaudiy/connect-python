@@ -55,7 +55,7 @@ from connect.protocol import (
 )
 from connect.request import Request
 from connect.session import AsyncClientSession
-from connect.utils import AsyncByteStream, aiterate, map_httpcore_exceptions
+from connect.utils import AsyncByteStream, AsyncIteratorByteStream, aiterate, map_httpcore_exceptions
 from connect.version import __version__
 from connect.writer import ServerResponseWriter
 
@@ -422,7 +422,7 @@ class ConnectUnaryUnmarshaler:
     codec: Codec | None
     read_max_bytes: int
     compression: Compression | None
-    stream: AsyncByteStream | None
+    stream: AsyncIteratorByteStream | None
 
     def __init__(
         self,
@@ -443,7 +443,7 @@ class ConnectUnaryUnmarshaler:
         self.codec = codec
         self.read_max_bytes = read_max_bytes
         self.compression = compression
-        self.stream = stream
+        self.stream = AsyncIteratorByteStream(stream) if stream else None
 
     async def unmarshal(self, message: Any) -> Any:
         """Asynchronously unmarshals a given message using the provided unmarshal function and codec.
@@ -1081,7 +1081,7 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
 
-class ResponseAsyncByteStream(AsyncByteStream):
+class ResponseAsyncByteStream:
     """An asynchronous byte stream for reading and writing byte chunks."""
 
     aiterator: AsyncIterable[bytes] | None
@@ -1102,7 +1102,8 @@ class ResponseAsyncByteStream(AsyncByteStream):
             None
 
         """
-        super().__init__(aiterator=aiterator, aclose_func=aclose_func)
+        self.aiterator = aiterator
+        self.aclose_func = aclose_func
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         """Asynchronous iterator method to read byte chunks from the stream."""
@@ -1113,7 +1114,7 @@ class ResponseAsyncByteStream(AsyncByteStream):
 
     async def aclose(self) -> None:
         """Asynchronously close the stream."""
-        if self.aclose_func is not None:
+        if self.aclose_func:
             with map_httpcore_exceptions():
                 await self.aclose_func()
 
@@ -1257,7 +1258,7 @@ class ConnectStreamingUnmarshaler:
     codec: Codec | None
     read_max_bytes: int
     compression: Compression | None
-    stream: AsyncByteStream | None
+    stream: AsyncIteratorByteStream | None
     buffer: bytes
     _end_stream_error: ConnectError | None
     _trailers: Headers
@@ -1281,7 +1282,7 @@ class ConnectStreamingUnmarshaler:
         self.codec = codec
         self.read_max_bytes = read_max_bytes
         self.compression = compression
-        self.stream = stream
+        self.stream = AsyncIteratorByteStream(stream) if stream else None
         self.buffer = b""
         self._end_stream_error = None
         self._trailers = Headers()
@@ -1776,8 +1777,8 @@ class ConnectStreamingClientConn(StreamingClientConn):
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        self.unmarshaler.stream = ResponseAsyncByteStream(
-            aiterator=response.aiter_stream(), aclose_func=response.aclose
+        self.unmarshaler.stream = AsyncIteratorByteStream(
+            ResponseAsyncByteStream(aiterator=response.aiter_stream(), aclose_func=response.aclose)
         )
 
         await self._validate_response(response)
@@ -2001,7 +2002,9 @@ class ConnectUnaryClientConn(UnaryClientConn):
             hook(response)
 
         assert isinstance(response.stream, AsyncIterable)
-        self.unmarshaler.stream = ResponseAsyncByteStream(response.stream)
+        self.unmarshaler.stream = AsyncIteratorByteStream(
+            ResponseAsyncByteStream(response.aiter_stream(), response.aclose)
+        )
 
         await self._validate_response(response)
 

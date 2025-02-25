@@ -25,6 +25,10 @@ CHUNK_SIZE = 65_536
 async def test_server_streaming() -> None:
     class PingService(PingServiceHandler):
         async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+            messages = ""
+            async for data in request.messages:
+                messages += " " + data.name
+
             async def iterator() -> AsyncIterator[PingResponse]:
                 for i in range(3):
                     yield PingResponse(name=f"Hello {i}!")
@@ -51,7 +55,6 @@ async def test_server_streaming() -> None:
             assert isinstance(message, bytes)
 
             env, _ = Envelope.decode(message)
-
             if env:
                 if env.flags == EnvelopeFlags(0):
                     ping_response = PingResponse()
@@ -74,6 +77,10 @@ async def test_server_streaming() -> None:
 async def test_server_streaming_end_stream_error() -> None:
     class PingService(PingServiceHandler):
         async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+            messages = ""
+            async for data in request.messages:
+                messages += " " + data.name
+
             async def iterator() -> AsyncIterator[PingResponse]:
                 for i in range(3):
                     yield PingResponse(name=f"Hello {i}!")
@@ -125,6 +132,10 @@ async def test_server_streaming_end_stream_error() -> None:
 async def test_server_streaming_response_envelope_message_compression() -> None:
     class PingService(PingServiceHandler):
         async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+            messages = ""
+            async for data in request.messages:
+                messages += " " + data.name
+
             async def iterator() -> AsyncIterator[PingResponse]:
                 for i in range(3):
                     yield PingResponse(name=f"Hello {i}!")

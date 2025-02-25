@@ -89,6 +89,9 @@ class DefaultApp:
             "headers": [[b"content-type", b"application/proto"]],
         })
 
+        request = ASGIRequest(scope, receive)
+        _ = await request.body()
+
         content = json_format.MessageToDict(PingResponse(name="test"))
 
         await send({
@@ -110,6 +113,9 @@ class DefaultApp:
             "headers": [[b"content-type", b"application/proto"]],
         })
 
+        request = ASGIRequest(scope, receive)
+        _ = await request.body()
+
         content = PingResponse(name="test").SerializeToString()
 
         await send({"type": "http.response.body", "body": content})
@@ -125,6 +131,9 @@ class DefaultApp:
                 [b"connect-content-encoding", b"identity"],
             ],
         })
+
+        request = ASGIRequest(scope, receive)
+        _ = await request.body()
 
         env = Envelope(PingResponse(name="ping").SerializeToString(), EnvelopeFlags(0))
         await send({"type": "http.response.body", "body": env.encode(), "more_body": True})

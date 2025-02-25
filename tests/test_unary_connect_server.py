@@ -11,8 +11,6 @@ from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 
 from .main import app
 
-# client = TestClient(app)
-
 
 def test_post_application_proto() -> None:
     client = TestClient(app)

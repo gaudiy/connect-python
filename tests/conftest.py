@@ -1,4 +1,4 @@
-# ruff: noqa: ARG001 ARG002 D100 D101 D102 D103 D107
+# ruff: noqa: ARG001 ARG002 D100 D101 D102 D103 D105 D107
 
 import json
 import logging

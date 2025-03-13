@@ -238,12 +238,12 @@ class Handler:
             content_length = request.headers.get(HEADER_CONTENT_LENGTH, None)
             has_body = False
 
-            if content_length is not None:
-                has_body = int(content_length) > 0
+            if content_length and int(content_length) > 0:
+                has_body = True
             else:
                 try:
                     async for chunk in request.stream():
-                        if chunk != b"":
+                        if chunk:
                             has_body = True
                         break
                 except Exception:
@@ -309,8 +309,8 @@ class Handler:
 
         """
         signature = inspect.signature(impl)
-        parameters = list(signature.parameters.values())
-        return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == StreamingHandlerConn)
+        parameters = signature.parameters
+        return len(parameters) == 1 and next(iter(parameters.values())).annotation == StreamingHandlerConn
 
     def is_unary(self, impl: UnaryImplementationFunc | StreamImplementationFunc) -> TypeGuard[UnaryImplementationFunc]:
         """Determine if the given implementation function is a unary implementation.
@@ -323,8 +323,8 @@ class Handler:
 
         """
         signature = inspect.signature(impl)
-        parameters = list(signature.parameters.values())
-        return bool(callable(next) and len(parameters) == 1 and parameters[0].annotation == UnaryHandlerConn)
+        parameters = signature.parameters
+        return len(parameters) == 1 and next(iter(parameters.values())).annotation == UnaryHandlerConn
 
     async def stream_handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
@@ -386,18 +386,17 @@ class Handler:
         if not self.is_unary(implementation):
             raise ValueError(f"Invalid function type for unary handler: {implementation}")
 
+        timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
         try:
-            timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
-            timeout_sec = None
-            if timeout is not None:
+            if timeout:
                 try:
-                    timeout_ms = float(timeout)
+                    timeout_sec = float(timeout) / 1000
                 except ValueError as e:
                     raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
 
-                timeout_sec = timeout_ms / 1000
-
-            with anyio.fail_after(delay=timeout_sec):
+                with anyio.fail_after(delay=timeout_sec):
+                    await implementation(conn)
+            else:
                 await implementation(conn)
 
         except Exception as e:

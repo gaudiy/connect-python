@@ -2061,14 +2061,13 @@ class ConnectUnaryClientConn(UnaryClientConn):
             try:
                 data = await self.unmarshaler.unmarshal_func(None, json_ummarshal)
                 wire_error = error_from_json(data, validate_error)
+            except ConnectError as e:
+                raise e
             except Exception as e:
                 raise ConnectError(
                     f"HTTP {response.status}",
                     code_from_http_status(response.status),
                 ) from e
-
-            if wire_error.code == 0:
-                wire_error.code = code_from_http_status(response.status)
 
             wire_error.metadata = self._response_headers.copy()
             wire_error.metadata.update(self._response_trailers)
@@ -2259,11 +2258,59 @@ def connect_code_to_http(code: Code) -> int:
             return 500
 
 
+def code_to_string(value: Code) -> str:
+    """Convert a Code object to its string representation.
+
+    If the Code object has a 'name' attribute and it is not None, the method returns
+    the lowercase version of the 'name'. Otherwise, it returns the string representation
+    of the 'value' attribute.
+
+    Args:
+        value (Code): The Code object to be converted to a string.
+
+    Returns:
+        str: The string representation of the Code object.
+
+    """
+    if not hasattr(value, "name") or value.name is None:
+        return str(value.value)
+
+    return value.name.lower()
+
+
+_string_to_code: dict[str, Code] | None = None
+
+
+def code_from_string(value: str) -> Code | None:
+    """Convert a string representation of a code to its corresponding Code enum value.
+
+    This function uses a global dictionary to cache the mapping from string to Code enum values.
+    If the cache is not initialized, it populates the cache by iterating over all Code enum values
+    and mapping their string representations to the corresponding Code enum.
+
+    Args:
+        value (str): The string representation of the code.
+
+    Returns:
+        Code | None: The corresponding Code enum value if found, otherwise None.
+
+    """
+    global _string_to_code
+
+    if _string_to_code is None:
+        _string_to_code = {}
+        for code in Code:
+            _string_to_code[code_to_string(code)] = code
+
+    return _string_to_code.get(value)
+
+
 def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError:
     """Convert a JSON-serializable dictionary to a ConnectError object.
 
     Args:
         obj (dict[str, Any]): The dictionary representing the error in JSON format.
+        fallback (ConnectError): A fallback ConnectError object to use in case of missing or invalid fields.
 
     Returns:
         ConnectError: The ConnectError object converted from the dictionary.
@@ -2273,11 +2320,14 @@ def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError
                       a ConnectError is raised with an appropriate error message and code.
 
     """
-    code = obj.get("code")
+    code = fallback.code
+    if "code" in obj:
+        code = code_from_string(obj["code"]) or code
+
     message = obj.get("message", "")
     details = obj.get("details", [])
 
-    error = ConnectError(message, Code.from_string(code) if code else fallback.code, wire_error=True)
+    error = ConnectError(message, code, wire_error=True)
 
     for detail in details:
         type_name = detail.get("type", None)

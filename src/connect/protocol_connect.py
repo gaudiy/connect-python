@@ -1934,11 +1934,12 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def send(self, message: Any) -> bytes:
+    async def send(self, message: Any, timeout: float | None) -> bytes:
         """Send a message asynchronously and returns the marshaled data.
 
         Args:
             message (Any): The message to be sent.
+            timeout (float | None): The timeout for the request in seconds.
 
         Returns:
             bytes: The marshaled data of the message.
@@ -1947,6 +1948,11 @@ class ConnectUnaryClientConn(UnaryClientConn):
             Exception: If the response validation fails.
 
         """
+        extensions = {}
+        if timeout:
+            extensions["timeout"] = {"read": timeout}
+            self._request_headers[CONNECT_HEADER_TIMEOUT] = str(int(timeout * 1000))
+
         data = self.marshaler.marshal(message)
 
         if self.marshaler.enable_get:
@@ -1965,6 +1971,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
                         headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.GET
                     ).items()
                 ),
+                extensions=extensions,
             )
         else:
             self._request_headers[HEADER_CONTENT_LENGTH] = str(len(data))
@@ -1983,6 +1990,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
                     ).items()
                 ),
                 content=data,
+                extensions=extensions,
             )
 
         for hook in self._event_hooks["request"]:
@@ -2028,7 +2036,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         self._response_headers.update(Headers(response.headers))
 
         for key, value in self._response_headers.items():
-            if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX):
+            if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX.lower()):
                 self._response_headers[key] = value
                 continue
 

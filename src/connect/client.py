@@ -227,7 +227,7 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.message)
+            await conn.send(request.message, request.timeout)
 
             response = await recieve_unary_response(conn=conn, t=output)
             return response

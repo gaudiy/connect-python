@@ -65,18 +65,6 @@ def unpack_requests(request_messages: RepeatedCompositeFieldContainer[any_pb2.An
         yield req
 
 
-# def log_message(request: Any, response: Any) -> None:
-#     with open("messages.log", "a") as fp:
-#         json.dump(
-#             {
-#                 "case": request.test_name,
-#                 "request": json.loads(json_format.MessageToJson(request)),
-#                 "response": json.loads(json_format.MessageToJson(response)),
-#             },
-#             fp=fp,
-#         )
-
-
 def to_pb_headers(headers: Headers) -> list[service_pb2.Header]:
     h_dict: dict[str, list[str]] = collections.defaultdict(list)
     for key, value in headers.items():
@@ -129,10 +117,19 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
             client = service_connect.ConformanceServiceClient(base_url=url, session=session)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:
                 req = next(reqs)
+
+                header = Headers()
+                for h in msg.request_headers:
+                    if key := header.get(h.name.lower()):
+                        header[key] = f"{header[key]}, {', '.join(h.value)}"
+                    else:
+                        header[h.name.lower()] = ", ".join(h.value)
+
                 resp = await getattr(client, msg.method)(
                     UnaryRequest(
                         message=req,
-                        headers=Headers({h.name.lower(): value for h in msg.request_headers for value in h.value}),
+                        headers=header,
+                        timeout=msg.timeout_ms / 1000,
                     ),
                 )
                 payloads.append(resp.message.payload)

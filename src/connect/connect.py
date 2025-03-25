@@ -190,6 +190,7 @@ class UnaryRequest[T](RequestCommon):
     """
 
     _message: T
+    timeout: float | None
 
     def __init__(
         self,
@@ -198,6 +199,7 @@ class UnaryRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -214,6 +216,7 @@ class UnaryRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._message = message
+        self.timeout = timeout
 
     @property
     def message(self) -> T:
@@ -547,7 +550,7 @@ class UnaryClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, message: Any) -> bytes:
+    async def send(self, message: Any, timeout: float | None) -> bytes:
         """Send a message."""
         raise NotImplementedError()
 

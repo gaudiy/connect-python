@@ -12,6 +12,7 @@ from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, U
 from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
+from connect.idempotency_level import IdempotencyLevel
 
 from .. import service_pb2
 from ..service_pb2 import UnaryRequest, UnaryResponse, ServerStreamRequest, ServerStreamResponse, ClientStreamRequest, ClientStreamResponse, BidiStreamRequest, BidiStreamResponse, UnimplementedRequest, UnimplementedResponse, IdempotentUnaryRequest, IdempotentUnaryResponse
@@ -58,7 +59,7 @@ class ConformanceServiceClient:
             session, base_url + ConformanceServiceProcedures.Unimplemented.value, UnimplementedRequest, UnimplementedResponse, options
         ).call_unary
         self.IdempotentUnary = Client[IdempotentUnaryRequest, IdempotentUnaryResponse](
-            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, options
+            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True, **(options or {})),
         ).call_unary
 
 

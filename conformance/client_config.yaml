@@ -15,13 +15,6 @@
 #     - STREAM_TYPE_CLIENT_STREAM
 #     - STREAM_TYPE_SERVER_STREAM
 
-#   supports_h2c: true
-#   supports_tls: true
-#   supports_tls_client_certs: false
-#   supports_trailers: false
-#   supports_half_duplex_bidi_over_http1: true
-#   supports_connect_get: true
-#   supports_message_receive_limit: false
 features:
   versions:
     - HTTP_VERSION_1
@@ -34,8 +27,11 @@ features:
   stream_types:
     - STREAM_TYPE_UNARY
 
-  supports_trailers: false
-  supports_tls_client_certs: false
+
   supports_h2c: false
-  supports_connect_get: false
-  supports_message_receive_limit: false
+  supports_tls: true
+  supports_tls_client_certs: true
+  supports_trailers: true
+  supports_half_duplex_bidi_over_http1: true
+  supports_connect_get: true
+  supports_message_receive_limit: true

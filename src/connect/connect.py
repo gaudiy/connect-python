@@ -166,6 +166,7 @@ class StreamRequest[T](RequestCommon):
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
+            timeout (float): The timeout for the request.
 
         Returns:
             None
@@ -213,6 +214,7 @@ class UnaryRequest[T](RequestCommon):
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
+            timeout (float): The timeout for the request.
 
         Returns:
             None

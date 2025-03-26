@@ -1605,6 +1605,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             spec (Spec): The specification object.
             peer (Peer): The peer object.
             url (URL): The URL for the connection.
+            codec (Codec): The codec to be used for encoding and decoding.
             compressions (list[Compression]): List of compression methods.
             request_headers (Headers): The headers for the request.
             marshaler (ConnectStreamingMarshaler): The marshaler for streaming.

@@ -13,6 +13,7 @@ from gen.connectrpc.conformance.v1 import client_compat_pb2, config_pb2, service
 from gen.connectrpc.conformance.v1.conformancev1connect import service_connect
 from google.protobuf import any_pb2
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
+from tls import new_client_tls_config
 
 from connect.connect import StreamRequest, UnaryRequest
 from connect.error import ConnectError
@@ -99,12 +100,19 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
         config_pb2.HTTP_VERSION_2,
         config_pb2.HTTP_VERSION_UNSPECIFIED,
     ]
-    ssl_context = None
+
     if msg.server_tls_cert:
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.load_verify_locations(cadata=msg.server_tls_cert.decode("utf8"))
+        if msg.client_tls_creds:
+            ssl_context = new_client_tls_config(
+                msg.server_tls_cert, msg.client_tls_creds.cert, msg.client_tls_creds.key
+            )
+        else:
+            ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            ssl_context.load_verify_locations(cadata=msg.server_tls_cert.decode("utf-8"))
+
         proto = "https"
     else:
+        ssl_context = None
         proto = "http"
 
     url = f"{proto}://{msg.host}:{msg.port}"

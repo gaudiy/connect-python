@@ -6,7 +6,7 @@ import struct
 import sys
 import time
 import traceback
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from gen.connectrpc.conformance.v1 import client_compat_pb2, config_pb2, service_pb2
@@ -17,6 +17,7 @@ from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 from connect.connect import StreamRequest, UnaryRequest
 from connect.error import ConnectError
 from connect.headers import Headers
+from connect.options import ClientOptions
 from connect.session import AsyncClientSession
 
 logger = logging.getLogger("conformance.runner")
@@ -48,7 +49,7 @@ def write_response(msg: client_compat_pb2.ClientCompatResponse) -> None:
     sys.stdout.buffer.flush()
 
 
-def unpack_requests(request_messages: RepeatedCompositeFieldContainer[any_pb2.Any]) -> Generator[Any]:
+async def unpack_requests(request_messages: RepeatedCompositeFieldContainer[any_pb2.Any]) -> AsyncGenerator[Any]:
     for any in request_messages:
         req_types = {
             "connectrpc.conformance.v1.IdempotentUnaryRequest": service_pb2.IdempotentUnaryRequest,
@@ -114,9 +115,13 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
     async with AsyncClientSession(http1=http1, http2=http2, ssl_context=ssl_context) as session:
         payloads = []
         try:
-            client = service_connect.ConformanceServiceClient(base_url=url, session=session)
+            options = ClientOptions()
+            if msg.compression == config_pb2.COMPRESSION_GZIP:
+                options.request_compression_name = "gzip"
+
+            client = service_connect.ConformanceServiceClient(base_url=url, session=session, options=options)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:
-                req = next(reqs)
+                req = await anext(reqs)
 
                 header = Headers()
                 for h in msg.request_headers:
@@ -147,11 +152,15 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM
                 or msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM
             ):
+                header = Headers()
+                for h in msg.request_headers:
+                    if key := header.get(h.name.lower()):
+                        header[key] = f"{header[key]}, {', '.join(h.value)}"
+                    else:
+                        header[h.name.lower()] = ", ".join(h.value)
+
                 resp = await getattr(client, msg.method)(
-                    StreamRequest(
-                        messages=reqs,
-                        headers=Headers({h.name.lower(): value for h in msg.request_headers for value in h.value}),
-                    ),
+                    StreamRequest(messages=reqs, headers=header),
                 )
 
                 async for message in resp.messages:

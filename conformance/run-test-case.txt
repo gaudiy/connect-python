@@ -1,2 +1,2 @@
-Basic/**/unary/success
+Connect with GET/**/success
 

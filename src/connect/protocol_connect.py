@@ -1319,6 +1319,14 @@ class ConnectStreamingUnmarshaler:
 
                     self.buffer = self.buffer[5 + data_len :]
 
+                    if env.is_set(EnvelopeFlags.compressed):
+                        if not self.compression:
+                            raise ConnectError(
+                                "protocol error: sent compressed message without compression support", Code.INTERNAL
+                            )
+
+                        env.data = self.compression.decompress(env.data, self.read_max_bytes)
+
                     if env.is_set(EnvelopeFlags.end_stream):
                         error, trailers = end_stream_from_bytes(env.data)
                         self._end_stream_error = error
@@ -1326,14 +1334,6 @@ class ConnectStreamingUnmarshaler:
                         end = True
                         obj = None
                     else:
-                        if env.is_set(EnvelopeFlags.compressed):
-                            if not self.compression:
-                                raise ConnectError(
-                                    "protocol error: sent compressed message without compression support", Code.INTERNAL
-                                )
-
-                            env.data = self.compression.decompress(env.data, self.read_max_bytes)
-
                         try:
                             obj = self.codec.unmarshal(env.data, message)
                         except Exception as e:

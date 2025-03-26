@@ -63,3 +63,34 @@ class ClientOptions(BaseModel):
 
     enable_get: bool = Field(default=False)
     """A boolean indicating whether to enable GET requests."""
+
+
+def merge_options[T: BaseModel](base_options: T, override_options: T | None = None) -> T:
+    """Merge two instances of a class derived from `BaseModel`.
+
+    This function takes a base options object and an optional override options object.
+    It combines their attributes, with the override options taking precedence in case
+    of conflicts. The result is a new instance of the same type as the base options.
+
+    Args:
+        base_options (T): The base options object, an instance of a class derived from `BaseModel`.
+        override_options (T | None): An optional override options object. If `None`, the base options
+            are returned as is.
+
+    Returns:
+        T: A new instance of the same type as `base_options`, with attributes merged from
+        both `base_options` and `override_options`.
+
+    Raises:
+        TypeError: If the merged data cannot be used to create an instance of the same type
+        as `base_options`.
+
+    """
+    if override_options is None:
+        return base_options
+
+    merged_data = base_options.model_dump()
+    explicit_overrides = override_options.model_dump(exclude_unset=True)
+    merged_data.update(explicit_overrides)
+
+    return type(base_options)(**merged_data)

@@ -9,7 +9,7 @@ from enum import Enum
 from connect.client import Client
 import connect.connect
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
-from connect.options import ClientOptions, ConnectOptions
+from connect.options import ClientOptions, ConnectOptions, merge_options
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 from connect.idempotency_level import IdempotencyLevel
@@ -59,7 +59,7 @@ class ConformanceServiceClient:
             session, base_url + ConformanceServiceProcedures.Unimplemented.value, UnimplementedRequest, UnimplementedResponse, options
         ).call_unary
         self.IdempotentUnary = Client[IdempotentUnaryRequest, IdempotentUnaryResponse](
-            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True, **(options or {})),
+            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, merge_options(ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True), options),
         ).call_unary
 
 

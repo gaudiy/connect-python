@@ -892,6 +892,7 @@ class ConnectClient(ProtocolClient):
             spec=spec,
             peer=self.peer,
             url=self.params.url,
+            codec=self.params.codec,
             compressions=self.params.compressions,
             request_headers=headers,
             marshaler=ConnectStreamingMarshaler(
@@ -1575,6 +1576,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
     _spec: Spec
     _peer: Peer
     url: URL
+    codec: Codec
     compressions: list[Compression]
     marshaler: ConnectStreamingMarshaler
     unmarshaler: ConnectStreamingUnmarshaler
@@ -1589,6 +1591,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         spec: Spec,
         peer: Peer,
         url: URL,
+        codec: Codec,
         compressions: list[Compression],
         request_headers: Headers,
         marshaler: ConnectStreamingMarshaler,
@@ -1618,6 +1621,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self._spec = spec
         self._peer = peer
         self.url = url
+        self.codec = codec
         self.compressions = compressions
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
@@ -1788,6 +1792,20 @@ class ConnectStreamingClientConn(StreamingClientConn):
             raise ConnectError(
                 f"HTTP {response.status}",
                 code_from_http_status(response.status),
+            )
+
+        response_content_type = response_headers.get(HEADER_CONTENT_TYPE, "")
+        if not response_content_type.startswith(CONNECT_STREAMING_CONTENT_TYPE_PREFIX):
+            raise ConnectError(
+                f"invalid content-type: {response_content_type}; expecting {CONNECT_STREAMING_CONTENT_TYPE_PREFIX}",
+                Code.UNKNOWN,
+            )
+
+        response_codec_name = connect_codec_from_content_type(self.spec.stream_type, response_content_type)
+        if response_codec_name != self.codec.name:
+            raise ConnectError(
+                f"invalid content-type: {response_content_type}; expecting {CONNECT_STREAMING_CONTENT_TYPE_PREFIX + self.codec.name}",
+                Code.INTERNAL,
             )
 
         compression = response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)

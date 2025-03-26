@@ -211,6 +211,9 @@ if __name__ == "__main__":
         logging.debug("Debug mode enabled")
 
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    tasks = []
 
     async def run_message(req: client_compat_pb2.ClientCompatRequest) -> None:
         try:
@@ -225,7 +228,15 @@ if __name__ == "__main__":
 
     async def read_requests() -> None:
         while req := await loop.run_in_executor(None, read_request):
-            loop.create_task(run_message(req))
+            task = loop.create_task(run_message(req))
+            tasks.append(task)
 
     loop.run_until_complete(read_requests())
+
+    pending_tasks = [t for t in tasks if not t.done()]
+    if pending_tasks:
+        logger.info(f"Waiting for {len(pending_tasks)} pending tasks to complete...")
+        loop.run_until_complete(asyncio.gather(*pending_tasks))
+
     logger.info("All done")
+    loop.close()

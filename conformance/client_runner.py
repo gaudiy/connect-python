@@ -82,15 +82,6 @@ def to_pb_headers(headers: Headers) -> list[service_pb2.Header]:
 
 
 async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_compat_pb2.ClientCompatResponse:
-    if (
-        msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
-        or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
-    ):
-        return client_compat_pb2.ClientCompatResponse(
-            test_name=msg.test_name,
-            error=client_compat_pb2.ClientErrorResult(message="TODO STREAM TYPE NOT IMPLEMENTED"),
-        )
-
     reqs = unpack_requests(msg.request_messages)
     http1 = msg.http_version in [
         config_pb2.HTTP_VERSION_1,
@@ -159,6 +150,8 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
             elif (
                 msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM
                 or msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM
+                or msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
+                or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
             ):
                 header = Headers()
                 for h in msg.request_headers:
@@ -220,7 +213,6 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
 
     async def run_message(req: client_compat_pb2.ClientCompatRequest) -> None:
-        # async with semaphore:
         try:
             resp = await handle_message(req)
         except Exception as e:
@@ -229,13 +221,10 @@ if __name__ == "__main__":
                 error=client_compat_pb2.ClientErrorResult(message="".join(traceback.format_exception(e))),
             )
 
-            # log_message(req, resp)
-        # logger.info("Finishing request: %s", req.test_name)
         write_response(resp)
 
     async def read_requests() -> None:
         while req := await loop.run_in_executor(None, read_request):
-            # logger.info("Enqueuing request: %s", req.test_name)
             loop.create_task(run_message(req))
 
     loop.run_until_complete(read_requests())

@@ -1345,14 +1345,15 @@ class ConnectStreamingUnmarshaler:
                         end = False
 
                     yield obj, end
-        finally:
-            await self.stream.aclose()
 
             if len(self.buffer) > 0:
                 header = Envelope.decode_header(self.buffer)
                 if header:
                     message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
                     raise ConnectError(message, Code.INVALID_ARGUMENT)
+
+        finally:
+            await self.stream.aclose()
 
     @property
     def trailers(self) -> Headers:

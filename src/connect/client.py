@@ -269,7 +269,7 @@ class Client[T_Request, T_Response]:
 
             await conn.send(request.messages)
 
-            response = await recieve_stream_response(conn=conn, t=output)
+            response = await recieve_stream_response(conn, output, request.spec)
             return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)

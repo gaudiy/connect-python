@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 
 from pydantic import BaseModel
 
+from connect.code import Code
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
@@ -739,18 +740,37 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryR
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> StreamResponse[T]:
+async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T], spec: Spec) -> StreamResponse[T]:
     """Receive a stream response from a streaming client connection.
 
     Args:
         conn (StreamingClientConn): The streaming client connection.
         t (type[T]): The type of the response to be received.
+        spec (Spec): The specification for the request.
 
     Returns:
         StreamResponse[T]: The stream response containing the received data, response headers, and response trailers.
 
     """
-    return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
+    if spec.stream_type == StreamType.ClientStream:
+
+        async def iterator() -> AsyncIterator[T]:
+            count = 0
+            async for message in conn.receive(t):
+                yield message
+                count += 1
+
+            if count > 1:
+                raise ConnectError(
+                    "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
+                )
+
+            if count == 0:
+                raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
+
+        return StreamResponse(iterator(), conn.response_headers, conn.response_trailers)
+    else:
+        return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

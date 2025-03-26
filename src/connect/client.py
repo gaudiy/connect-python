@@ -267,7 +267,7 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.messages)
+            await conn.send(request.messages, request.timeout)
 
             response = await recieve_stream_response(conn, output, request.spec)
             return response

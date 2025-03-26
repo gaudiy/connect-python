@@ -147,6 +147,7 @@ class StreamRequest[T](RequestCommon):
     """
 
     _messages: AsyncIterator[T]
+    timeout: float | None
 
     def __init__(
         self,
@@ -155,6 +156,7 @@ class StreamRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -171,6 +173,7 @@ class StreamRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self.timeout = timeout
 
     @property
     def messages(self) -> AsyncIterator[T]:
@@ -600,7 +603,7 @@ class StreamingClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
         """Send a stream of messages."""
         raise NotImplementedError()
 

@@ -1733,7 +1733,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
-    async def send(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
         """Send a series of messages asynchronously.
 
         This method marshals the provided messages, constructs an HTTP POST request,
@@ -1742,6 +1742,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         Args:
             messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+            timeout (float | None): The timeout for the request in seconds.
 
         Returns:
             None
@@ -1750,6 +1751,11 @@ class ConnectStreamingClientConn(StreamingClientConn):
             Exception: If there is an error during the request or response handling.
 
         """
+        extensions = {}
+        if timeout:
+            extensions["timeout"] = {"read": timeout}
+            self._request_headers[CONNECT_HEADER_TIMEOUT] = str(int(timeout * 1000))
+
         content_iterator = self.marshaler.marshal(messages)
 
         request = httpcore.Request(
@@ -1766,6 +1772,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 ).items()
             ),
             content=content_iterator,
+            extensions=extensions,
         )
 
         for hook in self._event_hooks["request"]:

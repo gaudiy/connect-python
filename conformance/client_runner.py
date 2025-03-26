@@ -160,7 +160,11 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         header[h.name.lower()] = ", ".join(h.value)
 
                 resp = await getattr(client, msg.method)(
-                    StreamRequest(messages=reqs, headers=header),
+                    StreamRequest(
+                        messages=reqs,
+                        headers=header,
+                        timeout=msg.timeout_ms / 1000,
+                    ),
                 )
 
                 async for message in resp.messages:
@@ -182,6 +186,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
             return client_compat_pb2.ClientCompatResponse(
                 test_name=msg.test_name,
                 response=client_compat_pb2.ClientResponseResult(
+                    payloads=payloads,
                     error=service_pb2.Error(
                         code=getattr(config_pb2, f"CODE_{e.code.name.upper()}"),
                         message=e.raw_message,

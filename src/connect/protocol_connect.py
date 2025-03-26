@@ -2396,7 +2396,7 @@ def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
             value = ", ".join(values)
             metadata[key] = value
 
-    if "error" in obj:
+    if "error" in obj and obj["error"] is not None:
         error = error_from_json(obj["error"], parse_error)
         return error, metadata
     else:

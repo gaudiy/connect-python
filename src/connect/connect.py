@@ -94,7 +94,7 @@ class RequestCommon:
             )
         )
         self._peer = peer if peer else Peer(address=None, protocol="", query={})
-        self._headers = headers if headers else Headers()
+        self._headers = headers if headers is not None else Headers()
         self._method = method if method else HTTPMethod.POST.value
 
     @property
@@ -242,8 +242,8 @@ class ResponseCommon:
         trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
-        self._headers = headers if headers else Headers()
-        self._trailers = trailers if trailers else Headers()
+        self._headers = headers if headers is not None else Headers()
+        self._trailers = trailers if trailers is not None else Headers()
 
     @property
     def headers(self) -> Headers:

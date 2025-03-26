@@ -1,2 +1,2 @@
-Connect with GET/**/success
+Basic/**/client-stream/success
 

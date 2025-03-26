@@ -756,22 +756,21 @@ async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T], spec
 
     """
     if spec.stream_type == StreamType.ClientStream:
+        count = 0
+        single_message: T | None = None
+        async for message in conn.receive(t):
+            single_message = message
+            count += 1
 
-        async def iterator() -> AsyncIterator[T]:
-            count = 0
-            async for message in conn.receive(t):
-                yield message
-                count += 1
+        if single_message is None:
+            raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
 
-            if count > 1:
-                raise ConnectError(
-                    "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
-                )
+        if count > 1:
+            raise ConnectError(
+                "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
+            )
 
-            if count == 0:
-                raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
-
-        return StreamResponse(iterator(), conn.response_headers, conn.response_trailers)
+        return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
     else:
         return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
 

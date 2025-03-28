@@ -653,7 +653,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         self.unmarshaler = unmarshaler
         self._request_headers = request_headers
         self._response_headers = response_headers
-        self._response_trailers = response_trailers or Headers()
+        self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     @property
     def spec(self) -> Spec:
@@ -707,6 +707,8 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
             bytes: The marshaled message in bytes.
 
         """
+        self.merge_response_trailers()
+
         data = self.marshaler.marshal(message)
         response = Response(content=data, headers=self.response_headers, status_code=HTTPStatus.OK)
         await self.writer.write(response)
@@ -760,8 +762,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         if not error.wire_error:
             self.response_headers.update(exclude_protocol_headers(error.metadata))
 
-        for key, value in self.response_trailers.items():
-            self.response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+        self.merge_response_trailers()
 
         status_code = connect_code_to_http(error.code)
         self.response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
@@ -769,6 +770,20 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         body = error_to_json_bytes(error)
 
         await self.writer.write(Response(content=body, headers=self.response_headers, status_code=status_code))
+
+    def merge_response_trailers(self) -> None:
+        """Merge response trailers into the response headers.
+
+        This method iterates through the `_response_trailers` dictionary and adds
+        each trailer key-value pair to the `_response_headers` dictionary,
+        prefixing the trailer keys with `CONNECT_UNARY_TRAILER_PREFIX`.
+
+        Returns:
+            None
+
+        """
+        for key, value in self._response_trailers.items():
+            self._response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
 
 class ConnectClient(ProtocolClient):
@@ -1441,7 +1456,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         self.unmarshaler = unmarshaler
         self._request_headers = request_headers
         self._response_headers = response_headers
-        self._response_trailers = response_trailers or Headers()
+        self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     @property
     def spec(self) -> Spec:

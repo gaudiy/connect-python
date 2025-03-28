@@ -109,18 +109,25 @@ class ConformanceService(ConformanceServiceHandler):
                 ),
             )
 
-            if response_definition.error:
+            error = None
+            if response_definition.HasField("error"):
                 detail = any_pb2.Any()
                 detail.Pack(request_info)
                 response_definition.error.details.append(detail)
+
+                headers = headers_from_svc_headers(response_definition.response_headers)
+                trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+                metadata = Headers()
+                metadata.update(headers)
+                metadata.update(trailers)
 
                 error = ConnectError(
                     message=response_definition.error.message,
                     code=code_from_svc_code(response_definition.error.code),
                     details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
+                    metadata=metadata,
                 )
-                headers = headers_from_svc_headers(response_definition.response_headers)
-                trailers = headers_from_svc_headers(response_definition.response_trailers)
             else:
                 payload = service_pb2.ConformancePayload(
                     data=response_definition.response_data,

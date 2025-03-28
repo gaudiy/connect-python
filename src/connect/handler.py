@@ -405,6 +405,9 @@ class Handler:
             if isinstance(e, TimeoutError):
                 error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
 
+            if isinstance(e, NotImplementedError):
+                error = ConnectError("not implemented", Code.UNIMPLEMENTED)
+
             await conn.send_error(error)
 
 

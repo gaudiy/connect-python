@@ -66,17 +66,23 @@ class ConformanceServiceClient:
 class ConformanceServiceHandler:
     """Handler for the conformanceService service."""
 
-    async def Unary(self, request: connect.connect.UnaryRequest[UnaryRequest]) -> connect.connect.UnaryResponse[UnaryResponse]: ...
+    async def Unary(self, request: connect.connect.UnaryRequest[UnaryRequest]) -> connect.connect.UnaryResponse[UnaryResponse]:
+        raise NotImplementedError()
 
-    async def ServerStream(self, request: connect.connect.StreamRequest[ServerStreamRequest]) -> connect.connect.StreamResponse[ServerStreamResponse]: ...
+    async def ServerStream(self, request: connect.connect.StreamRequest[ServerStreamRequest]) -> connect.connect.StreamResponse[ServerStreamResponse]:
+        raise NotImplementedError()
 
-    async def ClientStream(self, request: connect.connect.StreamRequest[ClientStreamRequest]) -> connect.connect.StreamResponse[ClientStreamResponse]: ...
+    async def ClientStream(self, request: connect.connect.StreamRequest[ClientStreamRequest]) -> connect.connect.StreamResponse[ClientStreamResponse]:
+        raise NotImplementedError()
 
-    async def BidiStream(self, request: connect.connect.StreamRequest[BidiStreamRequest]) -> connect.connect.StreamResponse[BidiStreamResponse]: ...
+    async def BidiStream(self, request: connect.connect.StreamRequest[BidiStreamRequest]) -> connect.connect.StreamResponse[BidiStreamResponse]:
+        raise NotImplementedError()
 
-    async def Unimplemented(self, request: connect.connect.UnaryRequest[UnimplementedRequest]) -> connect.connect.UnaryResponse[UnimplementedResponse]: ...
+    async def Unimplemented(self, request: connect.connect.UnaryRequest[UnimplementedRequest]) -> connect.connect.UnaryResponse[UnimplementedResponse]:
+        raise NotImplementedError()
 
-    async def IdempotentUnary(self, request: connect.connect.UnaryRequest[IdempotentUnaryRequest]) -> connect.connect.UnaryResponse[IdempotentUnaryResponse]: ...
+    async def IdempotentUnary(self, request: connect.connect.UnaryRequest[IdempotentUnaryRequest]) -> connect.connect.UnaryResponse[IdempotentUnaryResponse]:
+        raise NotImplementedError()
 
 
 def create_ConformanceService_handlers(service: ConformanceServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:

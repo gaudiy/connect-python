@@ -764,6 +764,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
             self.response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
         status_code = connect_code_to_http(error.code)
+        self.response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
 
         body = error_to_json_bytes(error)
 

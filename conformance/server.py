@@ -110,6 +110,10 @@ class ConformanceService(ConformanceServiceHandler):
             )
 
             if response_definition.error:
+                detail = any_pb2.Any()
+                detail.Pack(request_info)
+                response_definition.error.details.append(detail)
+
                 error = ConnectError(
                     message=response_definition.error.message,
                     code=code_from_svc_code(response_definition.error.code),
@@ -134,14 +138,11 @@ class ConformanceService(ConformanceServiceHandler):
                 raise error
 
         except ConnectError:
-            logger.info(f"ConnectError: {error.raw_message}; Code: {error.code}")
             raise
 
-        except Exception as e:
-            logger.error(f"Error in Unary: {e}; Code: {response_definition.error.code}", exc_info=True)
+        except Exception:
             raise
 
-        logger.info(f"Unary response payload: {payload}; Headers: {headers}; Trailers: {trailers}")
         return UnaryResponse(message=service_pb2.UnaryResponse(payload=payload), headers=headers, trailers=trailers)
 
 

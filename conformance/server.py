@@ -241,6 +241,7 @@ class ConformanceService(ConformanceServiceHandler):
             )
 
             error = None
+            payload = None
             if response_definition and response_definition.HasField("error"):
                 detail = any_pb2.Any()
                 detail.Pack(request_info)
@@ -272,8 +273,8 @@ class ConformanceService(ConformanceServiceHandler):
                 if response_definition and response_definition.response_delay_ms:
                     await asyncio.sleep(response_definition.response_delay_ms / 1000)
 
-                if error:
-                    raise error
+            if error:
+                raise error
 
         except ConnectError:
             raise

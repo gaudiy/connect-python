@@ -296,7 +296,6 @@ class ConformanceService(ConformanceServiceHandler):
 
         try:
             async for message in request.messages:
-                logging.info(f"message: {message}")
                 if response_definition is None:
                     response_definition = message.response_definition
 

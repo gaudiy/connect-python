@@ -727,14 +727,19 @@ async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T], spec
 
     """
     if spec.stream_type == StreamType.ServerStream:
-        received_any_message = False
+        count = 0
         async for message in conn.receive(t):
-            received_any_message = True
+            count += 1
+            if count > 1:
+                raise ConnectError(
+                    f"received extra input message for {conn.spec.procedure} method",
+                    Code.UNIMPLEMENTED,
+                )
             yield message
 
-        if not received_any_message:
+        if count == 0:
             raise ConnectError(
-                f"Stream {spec.procedure} should receive at least one message, but received none.",
+                f"missing input message for {conn.spec.procedure} method",
                 Code.UNIMPLEMENTED,
             )
     else:

@@ -613,3 +613,95 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
             allow_methods=sorted_allow_method_value(protocol_handlers),
             accept_post=sorted_accept_post_value(protocol_handlers),
         )
+
+
+class BidiStreamHandler[T_Request, T_Response](Handler):
+    """A handler for bidirectional streaming RPCs in a Connect-based framework.
+
+    This class facilitates the implementation of bidirectional streaming
+    handlers by managing the lifecycle of the stream, applying interceptors,
+    and handling protocol-specific details.
+
+    Type Parameters:
+        T_Request: The type of the request messages in the stream.
+        T_Response: The type of the response messages in the stream.
+
+    Args:
+        procedure (str): The name of the RPC procedure being handled.
+        stream (StreamFunc[T_Request, T_Response]): The user-defined function
+            that processes the bidirectional stream of requests and responses.
+        input (type[T_Request]): The type of the request messages.
+        output (type[T_Response]): The type of the response messages.
+        options (ConnectOptions | None, optional): Configuration options for
+            the handler. Defaults to `None`.
+
+    Attributes:
+        procedure (str): The name of the RPC procedure.
+        implementation (Callable): The internal implementation of the handler
+            that manages the streaming connection.
+        protocol_handlers (dict): A mapping of protocol-specific handlers.
+        allow_methods (list): A sorted list of allowed HTTP methods for the
+            handler.
+        accept_post (list): A sorted list of accepted POST methods for the
+            handler.
+
+    Methods:
+        __init__: Initializes the handler with the provided procedure, stream
+            function, input/output types, and options.
+
+    """
+
+    def __init__(
+        self,
+        procedure: str,
+        stream: StreamFunc[T_Request, T_Response],
+        input: type[T_Request],
+        output: type[T_Response],  # noqa: ARG002
+        options: ConnectOptions | None = None,
+    ) -> None:
+        """Initialize a bidirectional streaming handler.
+
+        Args:
+            procedure (str): The name of the procedure being handled.
+            stream (StreamFunc[T_Request, T_Response]): The function to handle the bidirectional stream.
+            input (type[T_Request]): The type of the request messages.
+            output (type[T_Response]): The type of the response messages.
+            options (ConnectOptions | None, optional): Configuration options for the handler. Defaults to None.
+
+        Raises:
+            Any exceptions raised during the initialization of protocol handlers or interceptors.
+
+        Notes:
+            - This handler is designed for bidirectional streaming communication.
+            - Interceptors, if provided, are applied to the untyped stream function.
+            - The implementation processes incoming requests, applies the stream function, and sends responses.
+
+        """
+        options = options if options is not None else ConnectOptions()
+        config = HandlerConfig(procedure=procedure, stream_type=StreamType.BiDiStream, options=options)
+        protocol_handlers = create_protocol_handlers(config)
+
+        async def _untyped(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+            response = await stream(request)
+
+            return response
+
+        untyped = apply_interceptors(_untyped, options.interceptors)
+
+        async def implementation(conn: StreamingHandlerConn) -> None:
+            request = await receive_stream_request(conn, input)
+
+            response = await untyped(request)
+
+            conn.response_headers.update(response.headers)
+            conn.response_trailers.update(response.trailers)
+
+            await conn.send(response.messages)
+
+        super().__init__(
+            procedure=procedure,
+            implementation=implementation,
+            protocol_handlers=mapped_method_handlers(protocol_handlers),
+            allow_methods=sorted_allow_method_value(protocol_handlers),
+            accept_post=sorted_accept_post_value(protocol_handlers),
+        )

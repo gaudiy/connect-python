@@ -8,7 +8,7 @@ from enum import Enum
 
 from connect.client import Client
 import connect.connect
-from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
+from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
 from connect.options import ClientOptions, ConnectOptions, merge_options
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -108,7 +108,7 @@ def create_ConformanceService_handlers(service: ConformanceServiceHandler, optio
             output=ClientStreamResponse,
             options=options,
         ),
-        ServerStreamHandler(
+        BidiStreamHandler(
             procedure=ConformanceServiceProcedures.BidiStream.value,
             stream=service.BidiStream,
             input=BidiStreamRequest,

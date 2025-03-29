@@ -377,6 +377,96 @@ class ConformanceService(ConformanceServiceHandler):
             trailers=trailers,
         )
 
+    async def BidiStream(
+        self, request: StreamRequest[service_pb2.BidiStreamRequest]
+    ) -> StreamResponse[service_pb2.BidiStreamResponse]:
+        response_definition = None
+        messages = []
+        first_response = True
+        response_index = 0
+
+        try:
+            async for message in request.messages:
+                message_any = any_pb2.Any()
+                message_any.Pack(message)
+                messages.append(message_any)
+
+                if first_response:
+                    response_definition = message.response_definition
+                    first_response = False
+
+                    if response_definition:
+                        headers = headers_from_svc_headers(response_definition.response_headers)
+                        trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+            logger.info(f"Received {len(messages)} messages")
+
+            async def iterator() -> typing.AsyncIterator[service_pb2.BidiStreamResponse]:
+                nonlocal response_index
+
+                logger.info(f"Starting BidiStream iterator with {len(messages)} messages")
+                while response_definition and response_index < len(response_definition.response_data):
+                    if response_index == 0:
+                        request_info = service_pb2.ConformancePayload.RequestInfo(
+                            request_headers=svc_headers_from_headers(request.headers),
+                            requests=messages,
+                            timeout_ms=None,
+                        )
+                    else:
+                        request_info = None
+
+                    response = service_pb2.BidiStreamResponse(
+                        payload=service_pb2.ConformancePayload(
+                            request_info=request_info,
+                            data=response_definition.response_data[response_index],
+                        )
+                    )
+                    if response_definition.response_delay_ms:
+                        await asyncio.sleep(response_definition.response_delay_ms / 1000)
+
+                    response_index += 1
+                    yield response
+
+                if response_definition and response_definition.HasField("error"):
+                    headers = headers_from_svc_headers(response_definition.response_headers)
+                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+                    metadata = Headers()
+                    metadata.update(headers)
+                    metadata.update(trailers)
+
+                    if response_index == 0:
+                        request_info = service_pb2.ConformancePayload.RequestInfo(
+                            request_headers=svc_headers_from_headers(request.headers),
+                            requests=messages,
+                            timeout_ms=None,
+                        )
+
+                        detail = any_pb2.Any()
+                        detail.Pack(request_info)
+                        response_definition.error.details.append(detail)
+
+                    error = ConnectError(
+                        message=response_definition.error.message,
+                        code=code_from_svc_code(response_definition.error.code),
+                        details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
+                        metadata=metadata,
+                    )
+
+                    raise error
+
+        except ConnectError:
+            raise
+
+        except Exception:
+            raise
+
+        return StreamResponse(
+            messages=iterator(),
+            headers=headers,
+            trailers=trailers,
+        )
+
 
 middleware = [
     Middleware(

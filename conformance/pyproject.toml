@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "tsubakiky", email = "salovers1205@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
+  "anyio>=4.8.0",
   "connect-python",
   "cryptography>=44.0.2",
   "h2>=4.2.0",

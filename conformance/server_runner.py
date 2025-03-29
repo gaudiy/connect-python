@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import socket
@@ -7,13 +6,15 @@ import sys
 import tempfile
 import threading
 import time
+from concurrent.futures import as_completed
 from typing import cast
 
+import anyio
 import hypercorn
 import hypercorn.asyncio.run
+from anyio import from_thread
 from gen.connectrpc.conformance.v1 import config_pb2
 from gen.connectrpc.conformance.v1.server_compat_pb2 import ServerCompatRequest, ServerCompatResponse
-from hypercorn.typing import Framework
 from server import app
 
 logger = logging.getLogger("conformance.runner")
@@ -101,7 +102,30 @@ def start_server(request: ServerCompatRequest) -> ServerCompatResponse:
 
     threading.Thread(target=notify_caller).start()
 
-    asyncio.run(hypercorn.asyncio.serve(cast(Framework, app), config))
+    shutdown_event = anyio.Event()
+
+    async def _start_server(
+        config: hypercorn.config.Config,
+        app: hypercorn.typing.ASGIFramework,
+        shutdown_event: anyio.Event,
+    ) -> None:
+        if not shutdown_event.is_set():
+            await hypercorn.asyncio.serve(app, config, shutdown_trigger=shutdown_event.wait)
+
+    with from_thread.start_blocking_portal() as portal:
+        future = portal.start_task_soon(
+            _start_server,
+            config,
+            cast(hypercorn.typing.ASGIFramework, app),
+            shutdown_event,
+        )
+
+        for f in as_completed([future]):
+            try:
+                f.result()
+            except Exception as e:
+                logger.error(f"Error starting server: {e}", exc_info=True)
+                raise
 
     return response
 

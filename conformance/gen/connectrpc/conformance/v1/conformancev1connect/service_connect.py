@@ -127,7 +127,7 @@ def create_ConformanceService_handlers(service: ConformanceServiceHandler, optio
             unary=service.IdempotentUnary,
             input=IdempotentUnaryRequest,
             output=IdempotentUnaryResponse,
-            options=options,
+            options=merge_options(ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS), options),
         ),
     ]
     return handlers

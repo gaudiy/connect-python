@@ -7,13 +7,14 @@ features:
     - CODEC_PROTO
   compressions:
     - COMPRESSION_IDENTITY
+    - COMPRESSION_GZIP
   stream_types:
     - STREAM_TYPE_UNARY
 
   supports_trailers: false
-  supports_tls: false
-  supports_tls_client_certs: false
+  supports_tls: true
+  supports_tls_client_certs: true
   supports_half_duplex_bidi_over_http1: false
   supports_h2c: false
-  supports_connect_get: false
+  supports_connect_get: true
   supports_message_receive_limit: false

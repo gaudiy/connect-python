@@ -152,6 +152,70 @@ class ConformanceService(ConformanceServiceHandler):
 
         return UnaryResponse(message=service_pb2.UnaryResponse(payload=payload), headers=headers, trailers=trailers)
 
+    async def IdempotentUnary(
+        self, request: UnaryRequest[service_pb2.IdempotentUnaryRequest]
+    ) -> UnaryResponse[service_pb2.IdempotentUnaryResponse]:
+        """Handle an idempotent unary request."""
+        try:
+            response_definition = request.message.response_definition
+
+            request_any = any_pb2.Any()
+            request_any.Pack(request.message)
+
+            request_info = service_pb2.ConformancePayload.RequestInfo(
+                request_headers=svc_headers_from_headers(request.headers),
+                requests=[request_any],
+                timeout_ms=None,
+                connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
+                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                ),
+            )
+
+            error = None
+            if response_definition.HasField("error"):
+                detail = any_pb2.Any()
+                detail.Pack(request_info)
+                response_definition.error.details.append(detail)
+
+                headers = headers_from_svc_headers(response_definition.response_headers)
+                trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+                metadata = Headers()
+                metadata.update(headers)
+                metadata.update(trailers)
+
+                error = ConnectError(
+                    message=response_definition.error.message,
+                    code=code_from_svc_code(response_definition.error.code),
+                    details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
+                    metadata=metadata,
+                )
+            else:
+                payload = service_pb2.ConformancePayload(
+                    data=response_definition.response_data,
+                    request_info=request_info,
+                )
+
+                if response_definition:
+                    headers = headers_from_svc_headers(response_definition.response_headers)
+                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+            if response_definition.response_delay_ms:
+                await asyncio.sleep(response_definition.response_delay_ms / 1000)
+
+            if error:
+                raise error
+
+        except ConnectError:
+            raise
+
+        except Exception:
+            raise
+
+        return UnaryResponse(
+            message=service_pb2.IdempotentUnaryResponse(payload=payload), headers=headers, trailers=trailers
+        )
+
 
 middleware = [
     Middleware(

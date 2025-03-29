@@ -13,6 +13,7 @@ from collections.abc import (
 from http import HTTPMethod, HTTPStatus
 from sys import version
 from typing import Any
+from urllib.parse import unquote
 
 import google.protobuf.any_pb2 as any_pb2
 import httpcore
@@ -302,7 +303,12 @@ class ConnectHandler(ProtocolHandler):
                 )
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
-                decoded = base64.urlsafe_b64decode(message)
+                message_unquoted = unquote(message)
+                missing_padding = len(message_unquoted) % 4
+                if missing_padding:
+                    message_unquoted += "=" * (4 - missing_padding)
+
+                decoded = base64.urlsafe_b64decode(message_unquoted)
             else:
                 decoded = message.encode("utf-8")
 

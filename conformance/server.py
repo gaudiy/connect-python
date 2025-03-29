@@ -399,12 +399,9 @@ class ConformanceService(ConformanceServiceHandler):
                         headers = headers_from_svc_headers(response_definition.response_headers)
                         trailers = headers_from_svc_headers(response_definition.response_trailers)
 
-            logger.info(f"Received {len(messages)} messages")
-
             async def iterator() -> typing.AsyncIterator[service_pb2.BidiStreamResponse]:
                 nonlocal response_index
 
-                logger.info(f"Starting BidiStream iterator with {len(messages)} messages")
                 while response_definition and response_index < len(response_definition.response_data):
                     if response_index == 0:
                         request_info = service_pb2.ConformancePayload.RequestInfo(

@@ -288,6 +288,96 @@ class ConformanceService(ConformanceServiceHandler):
             trailers=trailers,
         )
 
+    async def ServerStream(
+        self, request: StreamRequest[service_pb2.ServerStreamRequest]
+    ) -> StreamResponse[service_pb2.ServerStreamResponse]:
+        response_definition = None
+        messages = []
+
+        try:
+            async for message in request.messages:
+                logging.info(f"message: {message}")
+                if response_definition is None:
+                    response_definition = message.response_definition
+
+                message_any = any_pb2.Any()
+                message_any.Pack(message)
+                messages.append(message_any)
+
+            headers = None
+            trailers = None
+            if response_definition:
+                headers = headers_from_svc_headers(response_definition.response_headers)
+                trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+            request_info = service_pb2.ConformancePayload.RequestInfo(
+                request_headers=svc_headers_from_headers(request.headers),
+                requests=messages,
+                timeout_ms=None,
+                connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
+                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                ),
+            )
+
+            async def iterator() -> typing.AsyncIterator[service_pb2.ServerStreamResponse]:
+                first_response = True
+
+                if response_definition is None:
+                    return
+
+                for response_data in response_definition.response_data:
+                    if first_response:
+                        payload = service_pb2.ConformancePayload(
+                            data=response_data,
+                            request_info=request_info,
+                        )
+                        first_response = False
+                    else:
+                        payload = service_pb2.ConformancePayload(
+                            data=response_data,
+                        )
+
+                    if response_definition.response_delay_ms:
+                        await asyncio.sleep(response_definition.response_delay_ms / 1000)
+
+                    yield service_pb2.ServerStreamResponse(
+                        payload=payload,
+                    )
+
+                if response_definition.HasField("error"):
+                    headers = headers_from_svc_headers(response_definition.response_headers)
+                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+                    metadata = Headers()
+                    metadata.update(headers)
+                    metadata.update(trailers)
+
+                    if first_response:
+                        detail = any_pb2.Any()
+                        detail.Pack(request_info)
+                        response_definition.error.details.append(detail)
+
+                    error = ConnectError(
+                        message=response_definition.error.message,
+                        code=code_from_svc_code(response_definition.error.code),
+                        details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
+                        metadata=metadata,
+                    )
+
+                    raise error
+
+        except ConnectError:
+            raise
+
+        except Exception:
+            raise
+
+        return StreamResponse(
+            messages=iterator(),
+            headers=headers,
+            trailers=trailers,
+        )
+
 
 middleware = [
     Middleware(

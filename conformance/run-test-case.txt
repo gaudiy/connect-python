@@ -1,2 +1,2 @@
-Duplicate Metadata/HTTPVersion:1/Protocol:PROTOCOL_CONNECT/Codec:CODEC_JSON/Compression:COMPRESSION_GZIP/TLS:false/client-stream/error
+Connect Unexpected Requests/HTTPVersion:2/TLS:true/server-stream/no-request
 

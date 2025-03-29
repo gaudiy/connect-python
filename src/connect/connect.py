@@ -704,7 +704,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
 
     """
     return StreamRequest(
-        messages=receive_stream_message(conn, t),
+        messages=receive_stream_message(conn, t, conn.spec),
         spec=conn.spec,
         peer=conn.peer,
         headers=conn.request_headers,
@@ -712,7 +712,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
     )
 
 
-async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> AsyncIterator[T]:
+async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T], spec: Spec) -> AsyncIterator[T]:
     """Asynchronously receives and yields messages from a streaming connection.
 
     This function listens to a streaming connection and yields messages of the specified type.
@@ -720,13 +720,26 @@ async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> A
     Args:
         conn (StreamingHandlerConn): The streaming connection handler.
         t (type[T]): The type of messages to receive.
+        spec (Spec): The specification for the request.
 
     Yields:
         AsyncIterator[T]: An asynchronous iterator of messages of type T.
 
     """
-    async for message in conn.receive(t):
-        yield message
+    if spec.stream_type == StreamType.ServerStream:
+        received_any_message = False
+        async for message in conn.receive(t):
+            received_any_message = True
+            yield message
+
+        if not received_any_message:
+            raise ConnectError(
+                f"Stream {spec.procedure} should receive at least one message, but received none.",
+                Code.UNIMPLEMENTED,
+            )
+    else:
+        async for message in conn.receive(t):
+            yield message
 
 
 async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:

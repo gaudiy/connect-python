@@ -12,6 +12,7 @@ features:
     - COMPRESSION_GZIP
   stream_types:
     - STREAM_TYPE_UNARY
+    - STREAM_TYPE_CLIENT_STREAM
 
   supports_trailers: false
   supports_tls: true

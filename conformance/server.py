@@ -12,7 +12,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
 from connect.code import Code
-from connect.connect import UnaryRequest, UnaryResponse
+from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.error import ConnectError, ErrorDetail
 from connect.headers import Headers
 from connect.middleware import ConnectMiddleware
@@ -214,6 +214,77 @@ class ConformanceService(ConformanceServiceHandler):
 
         return UnaryResponse(
             message=service_pb2.IdempotentUnaryResponse(payload=payload), headers=headers, trailers=trailers
+        )
+
+    async def ClientStream(
+        self, request: StreamRequest[service_pb2.ClientStreamRequest]
+    ) -> StreamResponse[service_pb2.ClientStreamResponse]:
+        response_definition = None
+        messages = []
+
+        try:
+            async for message in request.messages:
+                if response_definition is None:
+                    response_definition = message.response_definition
+
+                message_any = any_pb2.Any()
+                message_any.Pack(message)
+                messages.append(message_any)
+
+            request_info = service_pb2.ConformancePayload.RequestInfo(
+                request_headers=svc_headers_from_headers(request.headers),
+                requests=messages,
+                timeout_ms=None,
+                connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
+                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                ),
+            )
+
+            error = None
+            if response_definition and response_definition.HasField("error"):
+                detail = any_pb2.Any()
+                detail.Pack(request_info)
+                response_definition.error.details.append(detail)
+
+                headers = headers_from_svc_headers(response_definition.response_headers)
+                trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+                metadata = Headers()
+                metadata.update(headers)
+                metadata.update(trailers)
+
+                error = ConnectError(
+                    message=response_definition.error.message,
+                    code=code_from_svc_code(response_definition.error.code),
+                    details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
+                    metadata=metadata,
+                )
+            else:
+                payload = service_pb2.ConformancePayload(
+                    request_info=request_info,
+                )
+
+                if response_definition:
+                    payload.data = response_definition.response_data
+                    headers = headers_from_svc_headers(response_definition.response_headers)
+                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+
+                if response_definition and response_definition.response_delay_ms:
+                    await asyncio.sleep(response_definition.response_delay_ms / 1000)
+
+                if error:
+                    raise error
+
+        except ConnectError:
+            raise
+
+        except Exception:
+            raise
+
+        return StreamResponse(
+            messages=service_pb2.ClientStreamResponse(payload=payload),
+            headers=headers,
+            trailers=trailers,
         )
 
 

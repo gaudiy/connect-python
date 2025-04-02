@@ -1,2 +1,0 @@
-Connect to HTTP Code Mapping/HTTPVersion:2/Codec:CODEC_JSON/Compression:COMPRESSION_GZIP/TLS:false/bidi-stream/half-duplex/stream-error-returns-success-http-code
-

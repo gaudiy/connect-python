@@ -1,3 +1,5 @@
+"""Module implements a client runner for conformance testing."""
+
 import asyncio
 import collections
 import logging
@@ -9,22 +11,37 @@ import traceback
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from gen.connectrpc.conformance.v1 import client_compat_pb2, config_pb2, service_pb2
-from gen.connectrpc.conformance.v1.conformancev1connect import service_connect
-from google.protobuf import any_pb2
-from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
-from tls import new_client_tls_config
-
 from connect.connect import StreamRequest, UnaryRequest
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.options import ClientOptions
 from connect.session import AsyncClientSession
+from google.protobuf import any_pb2
+from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
+
+from gen.connectrpc.conformance.v1 import client_compat_pb2, config_pb2, service_pb2
+from gen.connectrpc.conformance.v1.conformancev1connect import service_connect
+from tls import new_client_tls_config
 
 logger = logging.getLogger("conformance.runner")
 
 
 def read_request() -> client_compat_pb2.ClientCompatRequest | None:
+    """Read a serialized `ClientCompatRequest` message from standard input.
+
+    This function reads a 4-byte header from standard input to determine the
+    length of the serialized message. It then reads the specified number of
+    bytes and deserializes the data into a `ClientCompatRequest` object.
+
+    Returns:
+        client_compat_pb2.ClientCompatRequest | None: The deserialized
+        `ClientCompatRequest` object if data is successfully read and parsed,
+        or `None` if no data is available.
+
+    Raises:
+        Exception: If the header or message data is incomplete (short read).
+
+    """
     data = sys.stdin.buffer.read(4)
     if not data:
         return None
@@ -43,6 +60,21 @@ def read_request() -> client_compat_pb2.ClientCompatRequest | None:
 
 
 def write_response(msg: client_compat_pb2.ClientCompatResponse) -> None:
+    """Serialize a ClientCompatResponse message and write it to the standard output.
+
+    The function first serializes the given message into a binary string using
+    the `SerializeToString` method. It then calculates the length of the serialized
+    data and writes it as a 4-byte big-endian integer to the standard output. Finally,
+    it writes the serialized data itself and flushes the output buffer.
+
+    Args:
+        msg (client_compat_pb2.ClientCompatResponse): The protocol buffer message
+            to be serialized and written to the standard output.
+
+    Returns:
+        None
+
+    """
     data = msg.SerializeToString()
     ll = struct.pack(">I", len(data))
     sys.stdout.buffer.write(ll)
@@ -51,6 +83,24 @@ def write_response(msg: client_compat_pb2.ClientCompatResponse) -> None:
 
 
 async def unpack_requests(request_messages: RepeatedCompositeFieldContainer[any_pb2.Any]) -> AsyncGenerator[Any]:
+    """Asynchronously unpacks a sequence of protobuf Any messages into their respective request types.
+
+    This function iterates over a collection of `Any` protobuf messages, determines their
+    corresponding request type based on the `TypeName` field, unpacks them into the appropriate
+    message type, and yields the unpacked request objects.
+
+    Args:
+        request_messages (RepeatedCompositeFieldContainer[any_pb2.Any]): A collection of protobuf
+            `Any` messages to be unpacked.
+
+    Yields:
+        Any: The unpacked request object of the appropriate type.
+
+    Raises:
+        KeyError: If the `TypeName` of an `Any` message does not match any of the predefined
+            request types in the `req_types` mapping.
+
+    """
     for any in request_messages:
         req_types = {
             "connectrpc.conformance.v1.IdempotentUnaryRequest": service_pb2.IdempotentUnaryRequest,
@@ -68,6 +118,17 @@ async def unpack_requests(request_messages: RepeatedCompositeFieldContainer[any_
 
 
 def to_pb_headers(headers: Headers) -> list[service_pb2.Header]:
+    """Convert a Headers object into a list of service_pb2.Header objects.
+
+    Args:
+        headers (Headers): A collection of headers where each key is a string
+            and each value is a string representing the header value.
+
+    Returns:
+        list[service_pb2.Header]: A list of service_pb2.Header objects, where
+            each object contains a header name and a list of its associated values.
+
+    """
     h_dict: dict[str, list[str]] = collections.defaultdict(list)
     for key, value in headers.items():
         h_dict[key].append(value)
@@ -82,6 +143,41 @@ def to_pb_headers(headers: Headers) -> list[service_pb2.Header]:
 
 
 async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_compat_pb2.ClientCompatResponse:
+    """Handle a client compatibility request and returns a response.
+
+    This asynchronous function processes a `ClientCompatRequest` message, performs
+    the necessary HTTP or gRPC calls based on the provided configuration, and
+    returns a `ClientCompatResponse` message.
+
+    Args:
+        msg (client_compat_pb2.ClientCompatRequest): The client compatibility
+            request containing details such as HTTP version, TLS configuration,
+            request headers, stream type, and other parameters.
+
+    Returns:
+        client_compat_pb2.ClientCompatResponse: The response containing the test
+            name, payloads, HTTP status code, response headers, response trailers,
+            or error details if an exception occurs.
+
+    Raises:
+        ValueError: If the provided stream type is unsupported.
+
+    Behavior:
+        - Determines the HTTP version (HTTP/1.1 or HTTP/2) based on the request.
+        - Configures TLS settings if server or client certificates are provided.
+        - Constructs the base URL for the request.
+        - Introduces a delay if `request_delay_ms` is specified.
+        - Handles different stream types (unary, client-streaming, server-streaming,
+          full-duplex, half-duplex) and processes the request accordingly.
+        - Captures and returns errors in the response if exceptions occur.
+
+    Note:
+        - This function uses an asynchronous HTTP client session (`AsyncClientSession`)
+          for making requests.
+        - Compression (e.g., gzip) is applied if specified in the request.
+        - Headers and trailers are converted to protobuf-compatible formats.
+
+    """
     reqs = unpack_requests(msg.request_messages)
     http1 = msg.http_version in [
         config_pb2.HTTP_VERSION_1,
@@ -216,6 +312,7 @@ if __name__ == "__main__":
     tasks = []
 
     async def run_message(req: client_compat_pb2.ClientCompatRequest) -> None:
+        """Run the message handler for a given request."""
         try:
             resp = await handle_message(req)
         except Exception as e:
@@ -227,6 +324,7 @@ if __name__ == "__main__":
         write_response(resp)
 
     async def read_requests() -> None:
+        """Read requests from standard input and process them asynchronously."""
         while req := await loop.run_in_executor(None, read_request):
             task = loop.create_task(run_message(req))
             tasks.append(task)

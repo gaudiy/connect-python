@@ -1,3 +1,5 @@
+"""Module provides functionality to create a new client TLS configuration."""
+
 import os
 import ssl
 import tempfile
@@ -8,6 +10,22 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 
 def new_client_tls_config(ca_cert: bytes, client_cert: bytes, client_key: bytes) -> ssl.SSLContext:
+    """Create a new SSL/TLS client configuration using the provided CA certificate, client certificate, and client key.
+
+    Args:
+        ca_cert (bytes): The CA certificate in PEM format. Must not be empty.
+        client_cert (bytes): The client certificate in PEM format. Can be empty if no client certificate is required.
+        client_key (bytes): The client private key in PEM format. Can be empty if no client key is required.
+
+    Returns:
+        ssl.SSLContext: An SSL context configured with the provided certificates and keys.
+
+    Raises:
+        ValueError: If `ca_cert` is empty, or if `client_cert` is provided without `client_key`,
+                    or if `client_key` is provided without `client_cert`, or if any of the certificates
+                    or keys cannot be parsed.
+
+    """
     if not ca_cert:
         raise ValueError("ca_cert is empty")
 

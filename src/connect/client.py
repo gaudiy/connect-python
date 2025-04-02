@@ -325,3 +325,23 @@ class Client[T_Request, T_Response]:
 
         """
         return await self._call_stream(StreamType.ClientStream, request)
+
+    async def call_bidi_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+        """Initiate a bidirectional streaming call.
+
+        This method establishes a bidirectional stream between the client and the server,
+        allowing both to send and receive messages asynchronously.
+
+        Args:
+            request (StreamRequest[T_Request]): The request object containing the stream
+                of messages to be sent to the server.
+
+        Returns:
+            StreamResponse[T_Response]: An asynchronous stream response object that
+                allows receiving messages from the server.
+
+        Raises:
+            Any exceptions raised during the streaming call will propagate to the caller.
+
+        """
+        return await self._call_stream(StreamType.BiDiStream, request)

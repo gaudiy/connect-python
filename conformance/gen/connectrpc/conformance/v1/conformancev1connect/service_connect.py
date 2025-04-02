@@ -54,7 +54,7 @@ class ConformanceServiceClient:
         ).call_client_stream
         self.BidiStream = Client[BidiStreamRequest, BidiStreamResponse](
             session, base_url + ConformanceServiceProcedures.BidiStream.value, BidiStreamRequest, BidiStreamResponse, options
-        ).call_server_stream
+        ).call_bidi_stream
         self.Unimplemented = Client[UnimplementedRequest, UnimplementedResponse](
             session, base_url + ConformanceServiceProcedures.Unimplemented.value, UnimplementedRequest, UnimplementedResponse, options
         ).call_unary

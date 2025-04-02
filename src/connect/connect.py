@@ -8,6 +8,7 @@ from typing import Any, Protocol, cast
 
 from pydantic import BaseModel
 
+from connect.code import Code
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
@@ -94,7 +95,7 @@ class RequestCommon:
             )
         )
         self._peer = peer if peer else Peer(address=None, protocol="", query={})
-        self._headers = headers if headers else Headers()
+        self._headers = headers if headers is not None else Headers()
         self._method = method if method else HTTPMethod.POST.value
 
     @property
@@ -146,6 +147,7 @@ class StreamRequest[T](RequestCommon):
     """
 
     _messages: AsyncIterator[T]
+    timeout: float | None
 
     def __init__(
         self,
@@ -154,6 +156,7 @@ class StreamRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -163,6 +166,7 @@ class StreamRequest[T](RequestCommon):
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
+            timeout (float): The timeout for the request.
 
         Returns:
             None
@@ -170,6 +174,7 @@ class StreamRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self.timeout = timeout
 
     @property
     def messages(self) -> AsyncIterator[T]:
@@ -190,6 +195,7 @@ class UnaryRequest[T](RequestCommon):
     """
 
     _message: T
+    timeout: float | None
 
     def __init__(
         self,
@@ -198,6 +204,7 @@ class UnaryRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        timeout: float | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -207,6 +214,7 @@ class UnaryRequest[T](RequestCommon):
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
+            timeout (float): The timeout for the request.
 
         Returns:
             None
@@ -214,6 +222,7 @@ class UnaryRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._message = message
+        self.timeout = timeout
 
     @property
     def message(self) -> T:
@@ -239,8 +248,8 @@ class ResponseCommon:
         trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
-        self._headers = headers if headers else Headers()
-        self._trailers = trailers if trailers else Headers()
+        self._headers = headers if headers is not None else Headers()
+        self._trailers = trailers if trailers is not None else Headers()
 
     @property
     def headers(self) -> Headers:
@@ -547,7 +556,7 @@ class UnaryClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, message: Any) -> bytes:
+    async def send(self, message: Any, timeout: float | None) -> bytes:
         """Send a message."""
         raise NotImplementedError()
 
@@ -596,7 +605,7 @@ class StreamingClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
         """Send a stream of messages."""
         raise NotImplementedError()
 
@@ -695,7 +704,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
 
     """
     return StreamRequest(
-        messages=receive_stream_message(conn, t),
+        messages=receive_stream_message(conn, t, conn.spec),
         spec=conn.spec,
         peer=conn.peer,
         headers=conn.request_headers,
@@ -703,7 +712,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
     )
 
 
-async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> AsyncIterator[T]:
+async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T], spec: Spec) -> AsyncIterator[T]:
     """Asynchronously receives and yields messages from a streaming connection.
 
     This function listens to a streaming connection and yields messages of the specified type.
@@ -711,13 +720,31 @@ async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T]) -> A
     Args:
         conn (StreamingHandlerConn): The streaming connection handler.
         t (type[T]): The type of messages to receive.
+        spec (Spec): The specification for the request.
 
     Yields:
         AsyncIterator[T]: An asynchronous iterator of messages of type T.
 
     """
-    async for message in conn.receive(t):
-        yield message
+    if spec.stream_type == StreamType.ServerStream:
+        count = 0
+        async for message in conn.receive(t):
+            count += 1
+            if count > 1:
+                raise ConnectError(
+                    f"received extra input message for {conn.spec.procedure} method",
+                    Code.UNIMPLEMENTED,
+                )
+            yield message
+
+        if count == 0:
+            raise ConnectError(
+                f"missing input message for {conn.spec.procedure} method",
+                Code.UNIMPLEMENTED,
+            )
+    else:
+        async for message in conn.receive(t):
+            yield message
 
 
 async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:
@@ -736,18 +763,36 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryR
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T]) -> StreamResponse[T]:
+async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T], spec: Spec) -> StreamResponse[T]:
     """Receive a stream response from a streaming client connection.
 
     Args:
         conn (StreamingClientConn): The streaming client connection.
         t (type[T]): The type of the response to be received.
+        spec (Spec): The specification for the request.
 
     Returns:
         StreamResponse[T]: The stream response containing the received data, response headers, and response trailers.
 
     """
-    return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
+    if spec.stream_type == StreamType.ClientStream:
+        count = 0
+        single_message: T | None = None
+        async for message in conn.receive(t):
+            single_message = message
+            count += 1
+
+        if single_message is None:
+            raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
+
+        if count > 1:
+            raise ConnectError(
+                "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
+            )
+
+        return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
+    else:
+        return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

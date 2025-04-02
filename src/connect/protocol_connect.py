@@ -13,6 +13,7 @@ from collections.abc import (
 from http import HTTPMethod, HTTPStatus
 from sys import version
 from typing import Any
+from urllib.parse import unquote
 
 import google.protobuf.any_pb2 as any_pb2
 import httpcore
@@ -302,7 +303,12 @@ class ConnectHandler(ProtocolHandler):
                 )
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
-                decoded = base64.urlsafe_b64decode(message)
+                message_unquoted = unquote(message)
+                missing_padding = len(message_unquoted) % 4
+                if missing_padding:
+                    message_unquoted += "=" * (4 - missing_padding)
+
+                decoded = base64.urlsafe_b64decode(message_unquoted)
             else:
                 decoded = message.encode("utf-8")
 
@@ -653,7 +659,7 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         self.unmarshaler = unmarshaler
         self._request_headers = request_headers
         self._response_headers = response_headers
-        self._response_trailers = response_trailers or Headers()
+        self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     @property
     def spec(self) -> Spec:
@@ -707,6 +713,8 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
             bytes: The marshaled message in bytes.
 
         """
+        self.merge_response_trailers()
+
         data = self.marshaler.marshal(message)
         response = Response(content=data, headers=self.response_headers, status_code=HTTPStatus.OK)
         await self.writer.write(response)
@@ -760,14 +768,28 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         if not error.wire_error:
             self.response_headers.update(exclude_protocol_headers(error.metadata))
 
-        for key, value in self.response_trailers.items():
-            self.response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
+        self.merge_response_trailers()
 
         status_code = connect_code_to_http(error.code)
+        self.response_headers[HEADER_CONTENT_TYPE] = CONNECT_UNARY_CONTENT_TYPE_JSON
 
         body = error_to_json_bytes(error)
 
         await self.writer.write(Response(content=body, headers=self.response_headers, status_code=status_code))
+
+    def merge_response_trailers(self) -> None:
+        """Merge response trailers into the response headers.
+
+        This method iterates through the `_response_trailers` dictionary and adds
+        each trailer key-value pair to the `_response_headers` dictionary,
+        prefixing the trailer keys with `CONNECT_UNARY_TRAILER_PREFIX`.
+
+        Returns:
+            None
+
+        """
+        for key, value in self._response_trailers.items():
+            self._response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
 
 class ConnectClient(ProtocolClient):
@@ -892,6 +914,7 @@ class ConnectClient(ProtocolClient):
             spec=spec,
             peer=self.peer,
             url=self.params.url,
+            codec=self.params.codec,
             compressions=self.params.compressions,
             request_headers=headers,
             marshaler=ConnectStreamingMarshaler(
@@ -1319,6 +1342,14 @@ class ConnectStreamingUnmarshaler:
 
                     self.buffer = self.buffer[5 + data_len :]
 
+                    if env.is_set(EnvelopeFlags.compressed):
+                        if not self.compression:
+                            raise ConnectError(
+                                "protocol error: sent compressed message without compression support", Code.INTERNAL
+                            )
+
+                        env.data = self.compression.decompress(env.data, self.read_max_bytes)
+
                     if env.is_set(EnvelopeFlags.end_stream):
                         error, trailers = end_stream_from_bytes(env.data)
                         self._end_stream_error = error
@@ -1326,14 +1357,6 @@ class ConnectStreamingUnmarshaler:
                         end = True
                         obj = None
                     else:
-                        if env.is_set(EnvelopeFlags.compressed):
-                            if not self.compression:
-                                raise ConnectError(
-                                    "protocol error: sent compressed message without compression support", Code.INTERNAL
-                                )
-
-                            env.data = self.compression.decompress(env.data, self.read_max_bytes)
-
                         try:
                             obj = self.codec.unmarshal(env.data, message)
                         except Exception as e:
@@ -1345,14 +1368,15 @@ class ConnectStreamingUnmarshaler:
                         end = False
 
                     yield obj, end
-        finally:
-            await self.stream.aclose()
 
             if len(self.buffer) > 0:
                 header = Envelope.decode_header(self.buffer)
                 if header:
                     message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
                     raise ConnectError(message, Code.INVALID_ARGUMENT)
+
+        finally:
+            await self.stream.aclose()
 
     @property
     def trailers(self) -> Headers:
@@ -1438,7 +1462,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         self.unmarshaler = unmarshaler
         self._request_headers = request_headers
         self._response_headers = response_headers
-        self._response_trailers = response_trailers or Headers()
+        self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     @property
     def spec(self) -> Spec:
@@ -1574,6 +1598,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
     _spec: Spec
     _peer: Peer
     url: URL
+    codec: Codec
     compressions: list[Compression]
     marshaler: ConnectStreamingMarshaler
     unmarshaler: ConnectStreamingUnmarshaler
@@ -1588,6 +1613,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         spec: Spec,
         peer: Peer,
         url: URL,
+        codec: Codec,
         compressions: list[Compression],
         request_headers: Headers,
         marshaler: ConnectStreamingMarshaler,
@@ -1601,6 +1627,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             spec (Spec): The specification object.
             peer (Peer): The peer object.
             url (URL): The URL for the connection.
+            codec (Codec): The codec to be used for encoding and decoding.
             compressions (list[Compression]): List of compression methods.
             request_headers (Headers): The headers for the request.
             marshaler (ConnectStreamingMarshaler): The marshaler for streaming.
@@ -1617,6 +1644,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self._spec = spec
         self._peer = peer
         self.url = url
+        self.codec = codec
         self.compressions = compressions
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
@@ -1728,7 +1756,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
-    async def send(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
         """Send a series of messages asynchronously.
 
         This method marshals the provided messages, constructs an HTTP POST request,
@@ -1737,6 +1765,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         Args:
             messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+            timeout (float | None): The timeout for the request in seconds.
 
         Returns:
             None
@@ -1745,6 +1774,11 @@ class ConnectStreamingClientConn(StreamingClientConn):
             Exception: If there is an error during the request or response handling.
 
         """
+        extensions = {}
+        if timeout:
+            extensions["timeout"] = {"read": timeout}
+            self._request_headers[CONNECT_HEADER_TIMEOUT] = str(int(timeout * 1000))
+
         content_iterator = self.marshaler.marshal(messages)
 
         request = httpcore.Request(
@@ -1761,6 +1795,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 ).items()
             ),
             content=content_iterator,
+            extensions=extensions,
         )
 
         for hook in self._event_hooks["request"]:
@@ -1787,6 +1822,20 @@ class ConnectStreamingClientConn(StreamingClientConn):
             raise ConnectError(
                 f"HTTP {response.status}",
                 code_from_http_status(response.status),
+            )
+
+        response_content_type = response_headers.get(HEADER_CONTENT_TYPE, "")
+        if not response_content_type.startswith(CONNECT_STREAMING_CONTENT_TYPE_PREFIX):
+            raise ConnectError(
+                f"invalid content-type: {response_content_type}; expecting {CONNECT_STREAMING_CONTENT_TYPE_PREFIX}",
+                Code.UNKNOWN,
+            )
+
+        response_codec_name = connect_codec_from_content_type(self.spec.stream_type, response_content_type)
+        if response_codec_name != self.codec.name:
+            raise ConnectError(
+                f"invalid content-type: {response_content_type}; expecting {CONNECT_STREAMING_CONTENT_TYPE_PREFIX + self.codec.name}",
+                Code.INTERNAL,
             )
 
         compression = response_headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
@@ -1934,11 +1983,12 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def send(self, message: Any) -> bytes:
+    async def send(self, message: Any, timeout: float | None) -> bytes:
         """Send a message asynchronously and returns the marshaled data.
 
         Args:
             message (Any): The message to be sent.
+            timeout (float | None): The timeout for the request in seconds.
 
         Returns:
             bytes: The marshaled data of the message.
@@ -1947,6 +1997,11 @@ class ConnectUnaryClientConn(UnaryClientConn):
             Exception: If the response validation fails.
 
         """
+        extensions = {}
+        if timeout:
+            extensions["timeout"] = {"read": timeout}
+            self._request_headers[CONNECT_HEADER_TIMEOUT] = str(int(timeout * 1000))
+
         data = self.marshaler.marshal(message)
 
         if self.marshaler.enable_get:
@@ -1965,6 +2020,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
                         headers=self._request_headers, url=self.url, content=data, method=HTTPMethod.GET
                     ).items()
                 ),
+                extensions=extensions,
             )
         else:
             self._request_headers[HEADER_CONTENT_LENGTH] = str(len(data))
@@ -1983,6 +2039,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
                     ).items()
                 ),
                 content=data,
+                extensions=extensions,
             )
 
         for hook in self._event_hooks["request"]:
@@ -2028,13 +2085,13 @@ class ConnectUnaryClientConn(UnaryClientConn):
         self._response_headers.update(Headers(response.headers))
 
         for key, value in self._response_headers.items():
-            if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX):
+            if not key.startswith(CONNECT_UNARY_TRAILER_PREFIX.lower()):
                 self._response_headers[key] = value
                 continue
 
             self._response_trailers[key[len(CONNECT_UNARY_TRAILER_PREFIX) :]] = value
 
-        connect_validate_unary_response_content_type(
+        validate_error = connect_validate_unary_response_content_type(
             self.marshaler.connect_marshaler.codec.name if self.marshaler.connect_marshaler.codec else "",
             response.status,
             self._response_headers.get(HEADER_CONTENT_TYPE, ""),
@@ -2053,22 +2110,21 @@ class ConnectUnaryClientConn(UnaryClientConn):
 
         self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
 
-        if response.status != HTTPStatus.OK:
+        if validate_error:
 
             def json_ummarshal(data: bytes, _message: Any) -> Any:
                 return json.loads(data)
 
             try:
                 data = await self.unmarshaler.unmarshal_func(None, json_ummarshal)
-                wire_error = error_from_json(data)
+                wire_error = error_from_json(data, validate_error)
+            except ConnectError as e:
+                raise e
             except Exception as e:
                 raise ConnectError(
                     f"HTTP {response.status}",
                     code_from_http_status(response.status),
                 ) from e
-
-            if wire_error.code == 0:
-                wire_error.code = code_from_http_status(response.status)
 
             wire_error.metadata = self._response_headers.copy()
             wire_error.metadata.update(self._response_trailers)
@@ -2101,7 +2157,7 @@ def connect_validate_unary_response_content_type(
     request_codec_name: str,
     status_code: int,
     response_content_type: str,
-) -> None:
+) -> ConnectError | None:
     """Validate the content type of a unary response based on the HTTP status code and method.
 
     Args:
@@ -2120,7 +2176,10 @@ def connect_validate_unary_response_content_type(
             response_content_type == CONNECT_UNARY_CONTENT_TYPE_PREFIX + CodecNameType.JSON
             or response_content_type == CONNECT_UNARY_CONTENT_TYPE_PREFIX + CodecNameType.JSON_CHARSET_UTF8
         ):
-            return
+            return ConnectError(
+                f"HTTP {status_code}",
+                code_from_http_status(status_code),
+            )
 
         raise ConnectError(
             f"HTTP {status_code}",
@@ -2135,12 +2194,12 @@ def connect_validate_unary_response_content_type(
 
     response_codec_name = connect_codec_from_content_type(StreamType.Unary, response_content_type)
     if response_codec_name == request_codec_name:
-        return
+        return None
 
     if (response_codec_name == CodecNameType.JSON and request_codec_name == CodecNameType.JSON_CHARSET_UTF8) or (
         response_codec_name == CodecNameType.JSON_CHARSET_UTF8 and request_codec_name == CodecNameType.JSON
     ):
-        return
+        return None
 
     raise ConnectError(
         f"invalid content-type: {response_content_type}; expecting {CONNECT_UNARY_CONTENT_TYPE_PREFIX}{request_codec_name}",
@@ -2256,33 +2315,59 @@ def connect_code_to_http(code: Code) -> int:
             return 500
 
 
-def error_from_json_bytes(data: bytes) -> ConnectError:
-    """Deserialize a ConnectError object from a JSON-encoded byte string.
+def code_to_string(value: Code) -> str:
+    """Convert a Code object to its string representation.
+
+    If the Code object has a 'name' attribute and it is not None, the method returns
+    the lowercase version of the 'name'. Otherwise, it returns the string representation
+    of the 'value' attribute.
 
     Args:
-        data (bytes): The JSON-encoded byte string to deserialize.
+        value (Code): The Code object to be converted to a string.
 
     Returns:
-        ConnectError: The deserialized ConnectError object.
-
-    Raises:
-        ConnectError: If deserialization fails, a ConnectError is raised with an
-                      appropriate error message and code.
+        str: The string representation of the Code object.
 
     """
-    try:
-        obj = json.loads(data)
-    except Exception as e:
-        raise Exception(f"failed to parse JSON: {str(e)}") from e
+    if not hasattr(value, "name") or value.name is None:
+        return str(value.value)
 
-    return error_from_json(obj)
+    return value.name.lower()
 
 
-def error_from_json(obj: dict[str, Any]) -> ConnectError:
+_string_to_code: dict[str, Code] | None = None
+
+
+def code_from_string(value: str) -> Code | None:
+    """Convert a string representation of a code to its corresponding Code enum value.
+
+    This function uses a global dictionary to cache the mapping from string to Code enum values.
+    If the cache is not initialized, it populates the cache by iterating over all Code enum values
+    and mapping their string representations to the corresponding Code enum.
+
+    Args:
+        value (str): The string representation of the code.
+
+    Returns:
+        Code | None: The corresponding Code enum value if found, otherwise None.
+
+    """
+    global _string_to_code
+
+    if _string_to_code is None:
+        _string_to_code = {}
+        for code in Code:
+            _string_to_code[code_to_string(code)] = code
+
+    return _string_to_code.get(value)
+
+
+def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError:
     """Convert a JSON-serializable dictionary to a ConnectError object.
 
     Args:
         obj (dict[str, Any]): The dictionary representing the error in JSON format.
+        fallback (ConnectError): A fallback ConnectError object to use in case of missing or invalid fields.
 
     Returns:
         ConnectError: The ConnectError object converted from the dictionary.
@@ -2292,30 +2377,29 @@ def error_from_json(obj: dict[str, Any]) -> ConnectError:
                       a ConnectError is raised with an appropriate error message and code.
 
     """
-    code = obj.get("code")
-    if code is None:
-        raise Exception("missing required field: code")
+    code = fallback.code
+    if "code" in obj:
+        code = code_from_string(obj["code"]) or code
 
     message = obj.get("message", "")
     details = obj.get("details", [])
 
-    error = ConnectError(message, Code.from_string(code), wire_error=True)
+    error = ConnectError(message, code, wire_error=True)
 
     for detail in details:
         type_name = detail.get("type", None)
         value = detail.get("value", None)
 
         if type_name is None:
-            raise Exception("missing required field: type")
+            raise fallback
         if value is None:
-            raise Exception("missing required field: value")
+            raise fallback
 
         type_name = type_name if "/" in type_name else DEFAULT_ANY_RESOLVER_PREFIX + type_name
         try:
             decoded = base64.b64decode(value.encode() + b"=" * (4 - len(value) % 4))
         except Exception as e:
-            message = str(e)
-            raise Exception(f"failed to decode value: {message}") from e
+            raise fallback from e
 
         error.details.append(
             ErrorDetail(pb_any=any_pb2.Any(type_url=type_name, value=decoded), wire_json=json.dumps(detail))
@@ -2338,6 +2422,7 @@ def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
         ConnectError: If the byte stream is invalid or the metadata format is incorrect.
 
     """
+    parse_error = ConnectError("invalid end stream", Code.UNKNOWN)
     try:
         obj = json.loads(data)
     except Exception as e:
@@ -2360,8 +2445,8 @@ def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
             value = ", ".join(values)
             metadata[key] = value
 
-    if "error" in obj:
-        error = error_from_json(obj["error"])
+    if "error" in obj and obj["error"] is not None:
+        error = error_from_json(obj["error"], parse_error)
         return error, metadata
     else:
         return None, metadata

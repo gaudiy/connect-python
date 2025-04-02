@@ -1,45 +1,22 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
 [project]
-name = "connect-python"
-description = "The Python implementation of Connect: Protobuf RPC that works."
+name = "conformance"
+version = "0.1.0"
+description = "Add your description here"
 readme = "README.md"
-license = { text = "Apache-2.0" }
 authors = [{ name = "tsubakiky", email = "salovers1205@gmail.com" }]
 requires-python = ">=3.13"
-dynamic = ["version"]
 dependencies = [
-  "anyio>=4.7.0",
-  "h2>=4.2.0",
-  "httpcore>=1.0.7",
-  "protobuf>=5.29.1",
-  "pydantic>=2.10.4",
-  "starlette>=0.46.0",
-  "types-protobuf>=5.29.1.20241207",
-  "yarl>=1.18.3",
+  "anyio>=4.8.0",
+  "connect-python",
+  "cryptography>=44.0.2",
+  "hypercorn>=0.17.3",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/connect"]
+[tool.uv.sources]
+connect-python = { path = "../" }
 
-[tool.hatch.version]
-path = "src/connect/version.py"
-
-[tool.uv]
-dev-dependencies = [
-  "mypy>=1.13.0",
-  "pyright>=1.1.390",
-  "pytest>=8.3.4",
-  "ruff>=0.8.2",
-  "grpcio-tools==1.68.1",
-  "mypy-protobuf>=3.6.0",
-  "hypercorn[trio,uvloop]>=0.17.3",
-  "pytest-asyncio>=0.25.1",
-  "async-asgi-testclient>=1.4.11",
-  "httpx>=0.28.1",
-]
+[dependency-groups]
+dev = ["mypy>=1.15.0", "pyright>=1.1.398", "ruff>=0.11.2"]
 
 [tool.ruff]
 line-length = 120
@@ -107,11 +84,7 @@ disable_error_code = [
   "misc",            # Class cannot subclass "xxx" (has type "Any")
   "unused-ignore",   # Unused "type: ignore" comment
 ]
-enable_incomplete_feature = "NewGenericSyntax"
 
 [tool.pyright]
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
-
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "session"

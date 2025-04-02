@@ -1,0 +1,21 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/zchee/schema/refs/heads/main/buf.gen.schema.json
+version: v2
+
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/gaudiy/connect-python/conformance/gen
+
+plugins:
+  - remote: buf.build/protocolbuffers/python
+    out: gen
+
+  - remote: buf.build/protocolbuffers/pyi
+    out: gen
+
+  - local: ../bin/protoc-gen-connect-python
+    out: gen
+    opt:
+      - paths=source_relative

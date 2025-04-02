@@ -16,7 +16,6 @@ features:
     - STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
     - STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
 
-
   supports_h2c: true
   supports_tls: true
   supports_tls_client_certs: true

@@ -9,7 +9,7 @@ from enum import Enum
 from connect.client import Client
 import connect.connect
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
-from connect.options import ClientOptions, ConnectOptions, merge_options
+from connect.options import ClientOptions, ConnectOptions
 from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 from connect.idempotency_level import IdempotencyLevel
@@ -59,7 +59,7 @@ class ConformanceServiceClient:
             session, base_url + ConformanceServiceProcedures.Unimplemented.value, UnimplementedRequest, UnimplementedResponse, options
         ).call_unary
         self.IdempotentUnary = Client[IdempotentUnaryRequest, IdempotentUnaryResponse](
-            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, merge_options(ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True), options),
+            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True).merge(options),
         ).call_unary
 
 
@@ -127,7 +127,7 @@ def create_ConformanceService_handlers(service: ConformanceServiceHandler, optio
             unary=service.IdempotentUnary,
             input=IdempotentUnaryRequest,
             output=IdempotentUnaryResponse,
-            options=merge_options(ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS), options),
+            options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
         ),
     ]
     return handlers

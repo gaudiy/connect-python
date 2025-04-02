@@ -9,7 +9,6 @@ dependencies = [
   "anyio>=4.8.0",
   "connect-python",
   "cryptography>=44.0.2",
-  "h2>=4.2.0",
   "hypercorn>=0.17.3",
 ]
 

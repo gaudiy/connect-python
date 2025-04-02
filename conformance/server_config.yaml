@@ -19,7 +19,7 @@ features:
   supports_trailers: false
   supports_tls: true
   supports_tls_client_certs: true
-  supports_half_duplex_bidi_over_http1: false
+  supports_half_duplex_bidi_over_http1: true
   supports_h2c: true
   supports_connect_get: true
   supports_message_receive_limit: false

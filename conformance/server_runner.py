@@ -70,18 +70,10 @@ def start_server(request: ServerCompatRequest) -> ServerCompatResponse:
     config = hypercorn.Config()
     config.bind = [f"{host}:{port}"]
 
-    # Set message size limits based on the request
-    # max_size = request.message_receive_limit if request.message_receive_limit > 0 else 16 * 1024 * 1024
-    # config.wsgi_max_body_size = max_size
-
     if request.http_version == config_pb2.HTTP_VERSION_1:
         config.alpn_protocols = ["http/1.1"]
-        # config.h11_max_incomplete_size = max_size
     else:  # Defaults to HTTP/2
         config.alpn_protocols = ["h2", "http/1.1"]
-        # For HTTP/2, set the max frame size and other relevant limits
-        # config.h2_max_inbound_frame_size = min(max_size, 2**24)  # Max 16MB or the specified limit
-        # config.h2_max_header_list_size = min(max_size, 2**16)  # Max 64KB or the specified limit
 
     # Configure TLS if needed
     if request.use_tls:

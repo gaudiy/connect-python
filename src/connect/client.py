@@ -227,7 +227,7 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.message, request.timeout)
+            await conn.send(request.message, request.timeout, abort_event=request.abort_event)
 
             response = await recieve_unary_response(conn=conn, t=output)
             return response
@@ -267,9 +267,9 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.messages, request.timeout)
+            await conn.send(request.messages, request.timeout, request.abort_event)
 
-            response = await recieve_stream_response(conn, output, request.spec)
+            response = await recieve_stream_response(conn, output, request.spec, request.abort_event)
             return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)

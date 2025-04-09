@@ -6,7 +6,6 @@ import logging
 import ssl
 import struct
 import sys
-import time
 import traceback
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -204,9 +203,6 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
     url = f"{proto}://{msg.host}:{msg.port}"
 
-    if msg.request_delay_ms > 0:
-        time.sleep(msg.request_delay_ms / 1000.0)
-
     async with AsyncClientSession(http1=http1, http2=http2, ssl_context=ssl_context) as session:
         payloads = []
         try:
@@ -216,7 +212,19 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
             client = service_connect.ConformanceServiceClient(base_url=url, session=session, options=options)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:
+                if msg.request_delay_ms > 0:
+                    await asyncio.sleep(msg.request_delay_ms / 1000.0)
+
+                abort_event = asyncio.Event()
                 req = await anext(reqs)
+
+                if msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+
+                    async def delayed_abort() -> None:
+                        await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                        abort_event.set()
+
+                    asyncio.create_task(delayed_abort())
 
                 header = Headers()
                 for h in msg.request_headers:
@@ -230,6 +238,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         message=req,
                         headers=header,
                         timeout=msg.timeout_ms / 1000,
+                        abort_event=abort_event,
                     ),
                 )
                 payloads.append(resp.message.payload)
@@ -243,12 +252,97 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         response_trailers=to_pb_headers(resp.trailers),
                     ),
                 )
+            elif msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM:
+                abort_event = asyncio.Event()
+                header = Headers()
+                for h in msg.request_headers:
+                    if key := header.get(h.name.lower()):
+                        header[key] = f"{header[key]}, {', '.join(h.value)}"
+                    else:
+                        header[h.name.lower()] = ", ".join(h.value)
+
+                async def _reqs() -> AsyncGenerator[service_pb2.ClientStreamRequest]:
+                    async for req in reqs:
+                        if msg.request_delay_ms > 0:
+                            await asyncio.sleep(msg.request_delay_ms / 1000.0)
+                        yield req
+
+                    if msg.HasField("cancel") and msg.cancel.HasField("before_close_send"):
+                        abort_event.set()
+                    elif msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+
+                        async def delayed_abort() -> None:
+                            await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                            abort_event.set()
+
+                        asyncio.create_task(delayed_abort())
+
+                resp = await getattr(client, msg.method)(
+                    StreamRequest(
+                        messages=_reqs(), headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    ),
+                )
+
+                async for message in resp.messages:
+                    payloads.append(message.payload)
+
+                return client_compat_pb2.ClientCompatResponse(
+                    test_name=msg.test_name,
+                    response=client_compat_pb2.ClientResponseResult(
+                        payloads=payloads,
+                        http_status_code=200,
+                        response_headers=to_pb_headers(resp.headers),
+                        response_trailers=to_pb_headers(resp.trailers),
+                    ),
+                )
+            elif msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM:
+                abort_event = asyncio.Event()
+                if msg.request_delay_ms > 0:
+                    await asyncio.sleep(msg.request_delay_ms / 1000.0)
+
+                header = Headers()
+                for h in msg.request_headers:
+                    if key := header.get(h.name.lower()):
+                        header[key] = f"{header[key]}, {', '.join(h.value)}"
+                    else:
+                        header[h.name.lower()] = ", ".join(h.value)
+
+                resp = await getattr(client, msg.method)(
+                    StreamRequest(
+                        messages=reqs, headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    ),
+                )
+
+                if msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+
+                    async def delayed_abort() -> None:
+                        await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                        abort_event.set()
+
+                    asyncio.create_task(delayed_abort())
+
+                async for message in resp.messages:
+                    payloads.append(message.payload)
+                    if len(payloads) == msg.cancel.after_num_responses:
+                        abort_event.set()
+
+                return client_compat_pb2.ClientCompatResponse(
+                    test_name=msg.test_name,
+                    response=client_compat_pb2.ClientResponseResult(
+                        payloads=payloads,
+                        http_status_code=200,
+                        response_headers=to_pb_headers(resp.headers),
+                        response_trailers=to_pb_headers(resp.trailers),
+                    ),
+                )
+
             elif (
-                msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM
-                or msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM
-                or msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
+                msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
                 or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
             ):
+                if msg.request_delay_ms > 0:
+                    await asyncio.sleep(msg.request_delay_ms / 1000.0)
+
                 header = Headers()
                 for h in msg.request_headers:
                     if key := header.get(h.name.lower()):
@@ -305,8 +399,12 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 if __name__ == "__main__":
     if "--debug" in sys.argv:
         logging.debug("Debug mode enabled")
+    import tracemalloc
+
+    tracemalloc.start()
 
     loop = asyncio.new_event_loop()
+    loop.set_debug(True)
     asyncio.set_event_loop(loop)
 
     tasks = []
@@ -321,6 +419,8 @@ if __name__ == "__main__":
                 error=client_compat_pb2.ClientErrorResult(message="".join(traceback.format_exception(e))),
             )
 
+        await asyncio.sleep(3)
+
         write_response(resp)
 
     async def read_requests() -> None:
@@ -329,12 +429,10 @@ if __name__ == "__main__":
             task = loop.create_task(run_message(req))
             tasks.append(task)
 
-    loop.run_until_complete(read_requests())
-
-    pending_tasks = [t for t in tasks if not t.done()]
-    if pending_tasks:
-        logger.info(f"Waiting for {len(pending_tasks)} pending tasks to complete...")
-        loop.run_until_complete(asyncio.gather(*pending_tasks))
-
-    logger.info("All done")
-    loop.close()
+    try:
+        loop.run_until_complete(read_requests())
+    finally:
+        pending = asyncio.all_tasks(loop)
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()

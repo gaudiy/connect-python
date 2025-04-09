@@ -1,5 +1,6 @@
 """Provides classes and functions for handling protocol connections."""
 
+import asyncio
 import base64
 import contextlib
 import json
@@ -1719,18 +1720,26 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def receive(self, message: Any) -> AsyncIterator[Any]:
+    async def receive(self, message: Any, abort_event: asyncio.Event | None = None) -> AsyncIterator[Any]:
         """Asynchronously receives and processes a message.
 
         Args:
             message (Any): The message to be processed.
+            abort_event (asyncio.Event | None): Event to signal abortion of the operation.
 
         Yields:
             Any: Objects obtained from unmarshaling the message.
 
+        Raises:
+            ConnectError: If stream is malformed or aborted.
+
         """
         end_stream_received = False
+
         async for obj, end in self.unmarshaler.unmarshal(message):
+            if abort_event and abort_event.is_set():
+                raise ConnectError("receive operation aborted", Code.CANCELED)
+
             if end:
                 if end_stream_received:
                     raise ConnectError("received extra end stream message", Code.INVALID_ARGUMENT)
@@ -1751,12 +1760,20 @@ class ConnectStreamingClientConn(StreamingClientConn):
             if end_stream_received:
                 raise ConnectError("received message after end stream", Code.INVALID_ARGUMENT)
 
+            if abort_event and abort_event.is_set():
+                raise ConnectError("receive operation aborted", Code.CANCELED)
+
             yield obj
+
+        if abort_event and abort_event.is_set():
+            raise ConnectError("receive operation aborted", Code.CANCELED)
 
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
-    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
+    async def send(
+        self, messages: AsyncIterator[Any], timeout: float | None, abort_event: asyncio.Event | None
+    ) -> None:
         """Send a series of messages asynchronously.
 
         This method marshals the provided messages, constructs an HTTP POST request,
@@ -1774,6 +1791,9 @@ class ConnectStreamingClientConn(StreamingClientConn):
             Exception: If there is an error during the request or response handling.
 
         """
+        if abort_event and abort_event.is_set():
+            raise ConnectError("request aborted", Code.CANCELED)
+
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
@@ -1802,7 +1822,21 @@ class ConnectStreamingClientConn(StreamingClientConn):
             hook(request)
 
         with map_httpcore_exceptions():
-            response = await self.session.pool.handle_async_request(request)
+            if not abort_event:
+                response = await self.session.pool.handle_async_request(request)
+            else:
+                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                abort_task = asyncio.create_task(abort_event.wait())
+
+                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+
+                if abort_task in done:
+                    request_task.cancel()
+                    raise ConnectError("request aborted", Code.CANCELED)
+
+                response = await request_task
+
+                abort_task.cancel()
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -1983,7 +2017,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def send(self, message: Any, timeout: float | None) -> bytes:
+    async def send(self, message: Any, timeout: float | None, abort_event: asyncio.Event | None) -> bytes:
         """Send a message asynchronously and returns the marshaled data.
 
         Args:
@@ -1997,6 +2031,9 @@ class ConnectUnaryClientConn(UnaryClientConn):
             Exception: If the response validation fails.
 
         """
+        if abort_event and abort_event.is_set():
+            raise ConnectError("request aborted", Code.CANCELED)
+
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
@@ -2046,7 +2083,21 @@ class ConnectUnaryClientConn(UnaryClientConn):
             hook(request)
 
         with map_httpcore_exceptions():
-            response = await self.session.pool.handle_async_request(request=request)
+            if not abort_event:
+                response = await self.session.pool.handle_async_request(request=request)
+            else:
+                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                abort_task = asyncio.create_task(abort_event.wait())
+
+                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+
+                if abort_task in done:
+                    request_task.cancel()
+                    raise ConnectError("request aborted", Code.CANCELED)
+
+                response = await request_task
+
+                abort_task.cancel()
 
         for hook in self._event_hooks["response"]:
             hook(response)

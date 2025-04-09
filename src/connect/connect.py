@@ -1,6 +1,7 @@
 """Defines the streaming handler connection interfaces and related utilities."""
 
 import abc
+import asyncio
 from collections.abc import AsyncIterator, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
@@ -148,6 +149,7 @@ class StreamRequest[T](RequestCommon):
 
     _messages: AsyncIterator[T]
     timeout: float | None
+    abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -157,6 +159,7 @@ class StreamRequest[T](RequestCommon):
         headers: Headers | None = None,
         method: str | None = None,
         timeout: float | None = None,
+        abort_event: asyncio.Event | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -175,6 +178,7 @@ class StreamRequest[T](RequestCommon):
         super().__init__(spec, peer, headers, method)
         self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
         self.timeout = timeout
+        self.abort_event = abort_event
 
     @property
     def messages(self) -> AsyncIterator[T]:
@@ -196,6 +200,7 @@ class UnaryRequest[T](RequestCommon):
 
     _message: T
     timeout: float | None
+    abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -205,6 +210,7 @@ class UnaryRequest[T](RequestCommon):
         headers: Headers | None = None,
         method: str | None = None,
         timeout: float | None = None,
+        abort_event: asyncio.Event | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -223,6 +229,7 @@ class UnaryRequest[T](RequestCommon):
         super().__init__(spec, peer, headers, method)
         self._message = message
         self.timeout = timeout
+        self.abort_event = abort_event
 
     @property
     def message(self) -> T:
@@ -556,7 +563,7 @@ class UnaryClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, message: Any, timeout: float | None) -> bytes:
+    async def send(self, message: Any, timeout: float | None, abort_event: asyncio.Event | None) -> bytes:
         """Send a message."""
         raise NotImplementedError()
 
@@ -594,7 +601,7 @@ class StreamingClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> AsyncIterator[Any]:
+    def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
         """Receives a message and processes it."""
         raise NotImplementedError()
 
@@ -605,7 +612,9 @@ class StreamingClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
+    async def send(
+        self, messages: AsyncIterator[Any], timeout: float | None, abort_event: asyncio.Event | None
+    ) -> None:
         """Send a stream of messages."""
         raise NotImplementedError()
 
@@ -763,7 +772,9 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryR
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T], spec: Spec) -> StreamResponse[T]:
+async def recieve_stream_response[T](
+    conn: StreamingClientConn, t: type[T], spec: Spec, abort_event: asyncio.Event | None
+) -> StreamResponse[T]:
     """Receive a stream response from a streaming client connection.
 
     Args:
@@ -778,7 +789,7 @@ async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T], spec
     if spec.stream_type == StreamType.ClientStream:
         count = 0
         single_message: T | None = None
-        async for message in conn.receive(t):
+        async for message in conn.receive(t, abort_event):
             single_message = message
             count += 1
 
@@ -792,7 +803,7 @@ async def recieve_stream_response[T](conn: StreamingClientConn, t: type[T], spec
 
         return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
     else:
-        return StreamResponse(conn.receive(t), conn.response_headers, conn.response_trailers)
+        return StreamResponse(conn.receive(t, abort_event), conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

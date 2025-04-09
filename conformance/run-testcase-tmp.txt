@@ -1,0 +1,6 @@
+Client Cancellation/**/unary/cancel-after-close-send
+Client Cancellation/**/client-stream/cancel-before-close-send
+Client Cancellation/**/client-stream/cancel-after-close-send
+Client Cancellation/**/server-stream/cancel-after-close-send
+Client Cancellation/**/server-stream/cancel-after-responses
+Client Cancellation/HTTPVersion:2/Protocol:PROTOCOL_CONNECT/Codec:CODEC_PROTO/Compression:COMPRESSION_GZIP/TLS:false/bidi-stream/full-duplex/cancel-after-responses

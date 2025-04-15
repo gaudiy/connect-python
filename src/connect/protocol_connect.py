@@ -1760,13 +1760,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             if end_stream_received:
                 raise ConnectError("received message after end stream", Code.INVALID_ARGUMENT)
 
-            if abort_event and abort_event.is_set():
-                raise ConnectError("receive operation aborted", Code.CANCELED)
-
             yield obj
-
-        if abort_event and abort_event.is_set():
-            raise ConnectError("receive operation aborted", Code.CANCELED)
 
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)

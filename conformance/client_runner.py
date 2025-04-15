@@ -419,8 +419,6 @@ if __name__ == "__main__":
                 error=client_compat_pb2.ClientErrorResult(message="".join(traceback.format_exception(e))),
             )
 
-        await asyncio.sleep(3)
-
         write_response(resp)
 
     async def read_requests() -> None:
@@ -429,10 +427,5 @@ if __name__ == "__main__":
             task = loop.create_task(run_message(req))
             tasks.append(task)
 
-    try:
-        loop.run_until_complete(read_requests())
-    finally:
-        pending = asyncio.all_tasks(loop)
-        if pending:
-            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        loop.close()
+    loop.run_until_complete(read_requests())
+    loop.close()

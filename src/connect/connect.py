@@ -601,7 +601,7 @@ class StreamingClientConn:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def receive(self, message: Any, queue: asyncio.Queue[Any]) -> None:
+    def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
         """Receives a message and processes it."""
         raise NotImplementedError()
 
@@ -786,61 +786,24 @@ async def recieve_stream_response[T](
         StreamResponse[T]: The stream response containing the received data, response headers, and response trailers.
 
     """
-    queue: asyncio.Queue[T] = asyncio.Queue()
+    if spec.stream_type == StreamType.ClientStream:
+        count = 0
+        single_message: T | None = None
+        async for message in conn.receive(t, abort_event):
+            single_message = message
+            count += 1
 
-    producer_task = asyncio.create_task(conn.receive(t, queue))
-    if abort_event is None:
-        abort_event = asyncio.Event()
+        if single_message is None:
+            raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
 
-    abort_task = asyncio.create_task(abort_event.wait())
+        if count > 1:
+            raise ConnectError(
+                "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
+            )
 
-    async def _iterate() -> AsyncIterator[T]:
-        try:
-            while not abort_task.done() and not producer_task.done():
-                data = await queue.get()
-
-                if data is None:
-                    queue.task_done()
-                    break
-
-                yield data
-                queue.task_done()
-        finally:
-            if not producer_task.done():
-                producer_task.cancel()
-
-                await producer_task
-
-            if not abort_task.done():
-                abort_task.cancel()
-
-            if producer_task.done() and (exc := producer_task.exception()):
-                raise exc
-
-    return StreamResponse(
-        _iterate(),
-        conn.response_headers,
-        conn.response_trailers,
-    )
-
-    # if spec.stream_type == StreamType.ClientStream:
-    #     count = 0
-    #     single_message: T | None = None
-    #     async for message in conn.receive(t, abort_event):
-    #         single_message = message
-    #         count += 1
-
-    #     if single_message is None:
-    #         raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
-
-    #     if count > 1:
-    #         raise ConnectError(
-    #             "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
-    #         )
-
-    #     return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
-    # else:
-    #     return StreamResponse(conn.receive(t, abort_event), conn.response_headers, conn.response_trailers)
+        return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
+    else:
+        return StreamResponse(conn.receive(t, abort_event), conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

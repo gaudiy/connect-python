@@ -5,7 +5,6 @@ import base64
 import contextlib
 import json
 from collections.abc import (
-    AsyncGenerator,
     AsyncIterable,
     AsyncIterator,
     Awaitable,
@@ -1307,7 +1306,7 @@ class ConnectStreamingUnmarshaler:
         self._end_stream_error = None
         self._trailers = Headers()
 
-    async def unmarshal(self, message: Any) -> AsyncGenerator[tuple[Any, bool]]:
+    async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals messages from the stream.
 
         Args:
@@ -1721,7 +1720,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def receive(self, message: Any, queue: asyncio.Queue[Any]) -> None:
+    async def receive(self, message: Any, abort_event: asyncio.Event | None = None) -> AsyncIterator[Any]:
         """Asynchronously receives and processes a message.
 
         Args:
@@ -1736,37 +1735,41 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         """
         end_stream_received = False
-        unmarshal = self.unmarshaler.unmarshal(message)
 
-        try:
-            async for obj, end in unmarshal:
-                if end:
-                    if end_stream_received:
-                        raise ConnectError("received extra end stream message", Code.INVALID_ARGUMENT)
+        async for obj, end in self.unmarshaler.unmarshal(message):
+            if abort_event and abort_event.is_set():
+                raise ConnectError("receive operation aborted", Code.CANCELED)
 
-                    end_stream_received = True
-                    error = self.unmarshaler.end_stream_error
-                    if error:
-                        for key, value in self.response_headers.items():
-                            error.metadata[key] = value
-                            error.metadata.update(self.unmarshaler.trailers.copy())
-                        raise error
-
-                    for key, value in self.unmarshaler.trailers.items():
-                        self.response_trailers[key] = value
-
-                    continue
-
+            if end:
                 if end_stream_received:
-                    raise ConnectError("received message after end stream", Code.INVALID_ARGUMENT)
+                    raise ConnectError("received extra end stream message", Code.INVALID_ARGUMENT)
 
-                await queue.put(obj)
+                end_stream_received = True
+                error = self.unmarshaler.end_stream_error
+                if error:
+                    for key, value in self.response_headers.items():
+                        error.metadata[key] = value
+                        error.metadata.update(self.unmarshaler.trailers.copy())
+                    raise error
 
-            if not end_stream_received:
-                raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
-        finally:
-            await unmarshal.aclose()
-            queue.put_nowait(None)
+                for key, value in self.unmarshaler.trailers.items():
+                    self.response_trailers[key] = value
+
+                continue
+
+            if end_stream_received:
+                raise ConnectError("received message after end stream", Code.INVALID_ARGUMENT)
+
+            if abort_event and abort_event.is_set():
+                raise ConnectError("receive operation aborted", Code.CANCELED)
+
+            yield obj
+
+        if abort_event and abort_event.is_set():
+            raise ConnectError("receive operation aborted", Code.CANCELED)
+
+        if not end_stream_received:
+            raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
     async def send(
         self, messages: AsyncIterator[Any], timeout: float | None, abort_event: asyncio.Event | None
@@ -1829,11 +1832,16 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
                 if abort_task in done:
                     request_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await request_task
+
                     raise ConnectError("request aborted", Code.CANCELED)
 
-                response = await request_task
-
                 abort_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await abort_task
+
+                response = await request_task
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -2090,11 +2098,16 @@ class ConnectUnaryClientConn(UnaryClientConn):
 
                 if abort_task in done:
                     request_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await request_task
+
                     raise ConnectError("request aborted", Code.CANCELED)
 
-                response = await request_task
-
                 abort_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await abort_task
+
+                response = await request_task
 
         for hook in self._event_hooks["response"]:
             hook(response)

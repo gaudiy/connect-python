@@ -1,1 +1,1 @@
-Client Cancellation/HTTPVersion:2/Protocol:PROTOCOL_CONNECT/Codec:CODEC_PROTO/Compression:COMPRESSION_GZIP/TLS:false/bidi-stream/full-duplex/cancel-after-responses
+Client Cancellation/**/server-stream/cancel-after-responses

@@ -321,10 +321,13 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                     asyncio.create_task(delayed_abort())
 
-                async for message in resp.messages:
-                    payloads.append(message.payload)
-                    if len(payloads) == msg.cancel.after_num_responses:
-                        abort_event.set()
+                try:
+                    async for message in resp.messages:
+                        payloads.append(message.payload)
+                        if len(payloads) == msg.cancel.after_num_responses:
+                            abort_event.set()
+                finally:
+                    await resp.aclose()
 
                 return client_compat_pb2.ClientCompatResponse(
                     test_name=msg.test_name,
@@ -340,6 +343,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
                 or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
             ):
+                abort_event = asyncio.Event()
                 if msg.request_delay_ms > 0:
                     await asyncio.sleep(msg.request_delay_ms / 1000.0)
 
@@ -352,14 +356,35 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 resp = await getattr(client, msg.method)(
                     StreamRequest(
-                        messages=reqs,
-                        headers=header,
-                        timeout=msg.timeout_ms / 1000,
+                        messages=reqs, headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 )
 
-                async for message in resp.messages:
-                    payloads.append(message.payload)
+                if msg.HasField("cancel") and msg.cancel.HasField("before_close_send"):
+                    abort_event.set()
+
+                if msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+
+                    async def delayed_abort() -> None:
+                        await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                        abort_event.set()
+
+                    asyncio.create_task(delayed_abort())
+
+                if (
+                    msg.HasField("cancel")
+                    and msg.cancel.HasField("after_num_responses")
+                    and msg.cancel.after_num_responses == 0
+                ):
+                    abort_event.set()
+
+                try:
+                    async for message in resp.messages:
+                        payloads.append(message.payload)
+                        if len(payloads) == msg.cancel.after_num_responses:
+                            abort_event.set()
+                finally:
+                    await resp.aclose()
 
                 return client_compat_pb2.ClientCompatResponse(
                     test_name=msg.test_name,
@@ -403,12 +428,6 @@ if __name__ == "__main__":
 
     tracemalloc.start()
 
-    loop = asyncio.new_event_loop()
-    loop.set_debug(True)
-    asyncio.set_event_loop(loop)
-
-    tasks = []
-
     async def run_message(req: client_compat_pb2.ClientCompatRequest) -> None:
         """Run the message handler for a given request."""
         try:
@@ -423,9 +442,8 @@ if __name__ == "__main__":
 
     async def read_requests() -> None:
         """Read requests from standard input and process them asynchronously."""
+        loop = asyncio.get_event_loop()
         while req := await loop.run_in_executor(None, read_request):
-            task = loop.create_task(run_message(req))
-            tasks.append(task)
+            loop.create_task(run_message(req))
 
-    loop.run_until_complete(read_requests())
-    loop.close()
+    asyncio.run(read_requests())

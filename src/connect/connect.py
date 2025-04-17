@@ -2,7 +2,7 @@
 
 import abc
 import asyncio
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
 from typing import Any, Protocol, cast
@@ -13,7 +13,7 @@ from connect.code import Code
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import aiterate, get_callable_attribute
+from connect.utils import AsyncIteratorByteStream, aiterate, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -293,22 +293,27 @@ class UnaryResponse[T](ResponseCommon):
 class StreamResponse[T](ResponseCommon):
     """Response class for handling responses."""
 
-    _messages: AsyncIterator[T]
+    _messages: AsyncIterable[T]
 
     def __init__(
         self,
-        messages: AsyncIterator[T] | T,
+        messages: AsyncIterable[T] | T,
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
         super().__init__(headers, trailers)
-        self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self._messages = messages if isinstance(messages, AsyncIterable) else aiterate([messages])
 
     @property
-    def messages(self) -> AsyncIterator[T]:
+    def messages(self) -> AsyncIterable[T]:
         """Return the response message."""
         return self._messages
+
+    async def aclose(self) -> None:
+        """Asynchronously close the response stream."""
+        if hasattr(self._messages, "aclose"):
+            await self._messages.aclose()  # type: ignore
 
 
 class UnaryHandlerConn(abc.ABC):
@@ -482,7 +487,7 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def send(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterable[Any]) -> None:
         """Send a stream of messages asynchronously.
 
         Args:
@@ -584,6 +589,11 @@ class UnaryClientConn:
         """Handle the request send event."""
         raise NotImplementedError()
 
+    @abc.abstractmethod
+    async def aclose(self) -> None:
+        """Asynchronously close the connection."""
+        raise NotImplementedError()
+
 
 class StreamingClientConn:
     """Abstract base class for a streaming client connection."""
@@ -633,6 +643,11 @@ class StreamingClientConn:
     @abc.abstractmethod
     def on_request_send(self, fn: Callable[..., Any]) -> None:
         """Handle the request send event."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def aclose(self) -> None:
+        """Asynchronously close the connection."""
         raise NotImplementedError()
 
 
@@ -803,7 +818,11 @@ async def recieve_stream_response[T](
 
         return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
     else:
-        return StreamResponse(conn.receive(t, abort_event), conn.response_headers, conn.response_trailers)
+        return StreamResponse(
+            AsyncIteratorByteStream[T](conn.receive(t, abort_event), conn.aclose),
+            conn.response_headers,
+            conn.response_trailers,
+        )
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

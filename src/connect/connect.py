@@ -2,7 +2,7 @@
 
 import abc
 import asyncio
-from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
 from typing import Any, Protocol, cast
@@ -13,7 +13,7 @@ from connect.code import Code
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import AsyncIteratorByteStream, aiterate, get_callable_attribute
+from connect.utils import AsyncIteratorStream, aiterate, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -784,52 +784,78 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryR
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
+async def _receive_exactly_one[T](stream: AsyncIterator[T], aclose: Callable[[], Awaitable[None]]) -> T:
+    """Asynchronously receives exactly one item from an asynchronous iterator.
+
+    This function ensures that the provided asynchronous iterator (`stream`) yields
+    exactly one item. If the iterator yields no items or more than one item, a
+    `ConnectError` is raised. The provided `aclose` callable is always invoked to
+    close the stream, regardless of success or failure.
+
+    Type Parameters:
+        T: The type of the items in the asynchronous iterator.
+
+    Args:
+        stream (AsyncIterator[T]): The asynchronous iterator to consume.
+        aclose (Callable[[], Awaitable[None]]): A callable that closes the stream
+            when invoked.
+
+    Returns:
+        T: The single item yielded by the asynchronous iterator.
+
+    Raises:
+        ConnectError: If the iterator yields no items or more than one item.
+
+    """
+    try:
+        first = await stream.__anext__()
+        try:
+            await stream.__anext__()
+            raise ConnectError(
+                "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
+            )
+        except StopAsyncIteration:
+            return first
+    except StopAsyncIteration:
+        raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED) from None
+    finally:
+        await aclose()
+
+
 async def recieve_stream_response[T](
     conn: StreamingClientConn, t: type[T], spec: Spec, abort_event: asyncio.Event | None
 ) -> StreamResponse[T]:
-    """Handle the reception of a stream response based on the specified stream type.
-
-    For `ClientStream` type, ensures that exactly one message is received. If no message
-    or multiple messages are received, raises a `ConnectError`. For other stream types,
-    returns a stream response wrapping the received messages.
+    """Handle receiving a stream response from a streaming client connection.
 
     Args:
-        conn (StreamingClientConn): The streaming connection used to receive messages.
-        t (type[T]): The expected type of the messages in the stream.
+        conn (StreamingClientConn): The streaming client connection used to receive the stream.
+        t (type[T]): The type of the messages expected in the stream.
         spec (Spec): The specification of the stream, including its type.
         abort_event (asyncio.Event | None): An optional event to signal abortion of the stream.
 
     Returns:
-        StreamResponse[T]: A stream response containing the received messages, response headers,
+        StreamResponse[T]: A response object containing the received stream, response headers,
         and response trailers.
 
     Raises:
-        ConnectError: If the stream type is `ClientStream` and no message or multiple messages
-        are received.
+        Any exceptions raised during the reception of the stream or processing of the messages.
+
+    Notes:
+        - If the stream type is `StreamType.ClientStream`, it expects exactly one message
+          and wraps it in a single-message stream.
+        - For other stream types, it directly returns the received stream.
 
     """
+    receive_stream = AsyncIteratorStream[T](conn.receive(t, abort_event), conn.aclose)
+
     if spec.stream_type == StreamType.ClientStream:
-        count = 0
-        single_message: T | None = None
-        async for message in conn.receive(t, abort_event):
-            single_message = message
-            count += 1
+        single_message = await _receive_exactly_one(receive_stream.__aiter__(), receive_stream.aclose)
 
-        if single_message is None:
-            raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED)
-
-        if count > 1:
-            raise ConnectError(
-                "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
-            )
-
-        return StreamResponse(aiterate([single_message]), conn.response_headers, conn.response_trailers)
-    else:
         return StreamResponse(
-            AsyncIteratorByteStream[T](conn.receive(t, abort_event), conn.aclose),
-            conn.response_headers,
-            conn.response_trailers,
+            AsyncIteratorStream[T](aiterate([single_message])), conn.response_headers, conn.response_trailers
         )
+    else:
+        return StreamResponse(receive_stream, conn.response_headers, conn.response_trailers)
 
 
 async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:

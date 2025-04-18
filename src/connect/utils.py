@@ -216,7 +216,7 @@ class StreamConsumedError(Exception):
         super().__init__("Stream has already been consumed.")
 
 
-class AsyncIteratorByteStream[T]:
+class AsyncIteratorStream[T]:
     """An asynchronous iterator for streaming data of type `T`.
 
     This class wraps an asynchronous iterable and provides functionality to

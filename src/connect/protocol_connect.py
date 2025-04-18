@@ -1422,6 +1422,15 @@ class ConnectStreamingUnmarshaler:
         return self._end_stream_error
 
     async def aclose(self) -> None:
+        """Asynchronously closes the stream if it has an `aclose` method.
+
+        This method checks if the `self.stream` object has an asynchronous
+        `aclose` method. If the method exists, it is invoked to close the stream.
+
+        Returns:
+            None
+
+        """
         aclose = get_acallable_attribute(self.stream, "aclose")
         if aclose:
             await aclose()
@@ -1792,21 +1801,25 @@ class ConnectStreamingClientConn(StreamingClientConn):
     async def send(
         self, messages: AsyncIterator[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
-        """Send a series of messages asynchronously.
-
-        This method marshals the provided messages, constructs an HTTP POST request,
-        and sends it using the httpcore library. It also triggers any registered
-        request and response hooks, and validates the response.
+        """Send an asynchronous HTTP POST request with the given messages and handle the response.
 
         Args:
             messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
-            timeout (float | None): The timeout for the request in seconds.
-
-        Returns:
-            None
+            timeout (float | None): Optional timeout value in seconds for the request. If provided,
+                it sets the read timeout for the request.
+            abort_event (asyncio.Event | None): Optional asyncio event that, if set, will abort the request.
 
         Raises:
-            Exception: If there is an error during the request or response handling.
+            ConnectError: If the request is aborted or if there is an error during the request.
+
+        Hooks:
+            - Executes hooks registered in `self._event_hooks["request"]` before sending the request.
+            - Executes hooks registered in `self._event_hooks["response"]` after receiving the response.
+
+        Notes:
+            - If `abort_event` is provided and set during the request, the request will be canceled,
+              and a `ConnectError` with code `Code.CANCELED` will be raised.
+            - The response stream is unmarshaled and validated after the request is completed.
 
         """
         if abort_event and abort_event.is_set():
@@ -1909,6 +1922,12 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self._response_headers.update(response_headers)
 
     async def aclose(self) -> None:
+        """Asynchronously closes the connection by invoking the `aclose` method of the unmarshaler.
+
+        Returns:
+            None
+
+        """
         await self.unmarshaler.aclose()
 
 
@@ -2043,17 +2062,21 @@ class ConnectUnaryClientConn(UnaryClientConn):
         self._event_hooks["request"].append(fn)
 
     async def send(self, message: Any, timeout: float | None, abort_event: asyncio.Event | None) -> bytes:
-        """Send a message asynchronously and returns the marshaled data.
+        """Send a message asynchronously using the specified HTTP method and handles the response.
 
         Args:
-            message (Any): The message to be sent.
-            timeout (float | None): The timeout for the request in seconds.
+            message (Any): The message to be sent, which will be marshaled before sending.
+            timeout (float | None): The timeout for the request in seconds. If provided, it will be
+                included in the request headers and extensions.
+            abort_event (asyncio.Event | None): An optional asyncio event that can be used to abort
+                the request. If the event is set, the request will be canceled.
 
         Returns:
-            bytes: The marshaled data of the message.
+            bytes: The marshaled data of the message that was sent.
 
         Raises:
-            Exception: If the response validation fails.
+            ConnectError: If the request is aborted or if there are issues during the request/response
+                lifecycle.
 
         """
         if abort_event and abort_event.is_set():

@@ -97,6 +97,17 @@ def get_callable_attribute(obj: object, attr: str) -> typing.Callable[..., typin
 
 
 def get_acallable_attribute(obj: object, attr: str) -> typing.Callable[..., typing.Awaitable[typing.Any]] | None:
+    """Retrieve an attribute from an object if it is both callable and asynchronous.
+
+    Args:
+        obj (object): The object from which to retrieve the attribute.
+        attr (str): The name of the attribute to retrieve.
+
+    Returns:
+        typing.Callable[..., typing.Awaitable[typing.Any]] | None:
+            The attribute if it is callable and asynchronous, otherwise None.
+
+    """
     try:
         attr_value = getattr(obj, attr)
         if callable(attr_value) and is_async_callable(attr_value):
@@ -206,16 +217,20 @@ class StreamConsumedError(Exception):
 
 
 class AsyncIteratorByteStream[T]:
-    """An asynchronous iterator for byte streams.
+    """An asynchronous iterator for streaming data of type `T`.
 
-    This class wraps an asynchronous iterable of bytes and provides an
-    asynchronous iterator interface. It ensures that the stream is only
-    consumed once and provides a method to close the stream if it supports
-    asynchronous closing.
+    This class wraps an asynchronous iterable and provides functionality to
+    ensure that the stream is consumed only once. It also supports an optional
+    cleanup function to be called when the stream is closed.
+
+    Type Parameters:
+        T: The type of the items in the asynchronous iterable.
 
     Attributes:
-        _stream (typing.AsyncIterable[bytes]): The asynchronous iterable byte stream.
+        _stream (typing.AsyncIterable[T]): The asynchronous iterable to be streamed.
         _is_stream_consumed (bool): A flag indicating whether the stream has been consumed.
+        aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous
+            cleanup function to be called when the stream is closed.
 
     """
 
@@ -226,10 +241,12 @@ class AsyncIteratorByteStream[T]:
     def __init__(
         self, stream: typing.AsyncIterable[T], aclose_func: Callable[..., Awaitable[None]] | None = None
     ) -> None:
-        """Initialize the utility with an asynchronous byte stream.
+        """Initialize an instance of the class.
 
         Args:
-            stream (typing.AsyncIterable[bytes]): An asynchronous iterable that yields bytes.
+            stream (typing.AsyncIterable[T]): An asynchronous iterable representing the stream of data.
+            aclose_func (Callable[..., Awaitable[None]] | None, optional):
+                A callable function that is awaited to close the stream. Defaults to None.
 
         """
         self._stream = stream
@@ -237,13 +254,19 @@ class AsyncIteratorByteStream[T]:
         self.aclose_func = aclose_func
 
     async def __aiter__(self) -> typing.AsyncIterator[T]:
-        """Asynchronously iterates over the stream and yields parts of it.
+        """Asynchronously iterates over the elements of the stream.
+
+        This method allows the object to be used as an asynchronous iterator.
+        It ensures that the stream is not consumed multiple times and properly
+        handles cleanup in case of exceptions.
 
         Yields:
-            bytes: Parts of the stream.
+            T: The next element in the asynchronous stream.
 
         Raises:
             StreamConsumedError: If the stream has already been consumed.
+            BaseException: Propagates any exception raised during iteration
+                           after ensuring the stream is closed.
 
         """
         if self._is_stream_consumed:
@@ -258,11 +281,10 @@ class AsyncIteratorByteStream[T]:
             raise exc
 
     async def aclose(self) -> None:
-        """Asynchronously closes the stream if it has an `aclose` method.
+        """Asynchronously closes resources if an asynchronous close function is provided.
 
-        This method checks if the `_stream` attribute has an `aclose` method and
-        calls it asynchronously to close the stream. If the `_stream` does not
-        have an `aclose` method, this method does nothing.
+        This method checks if an `aclose_func` is defined. If it is, the function
+        is awaited to perform any necessary cleanup or resource deallocation.
 
         Returns:
             None

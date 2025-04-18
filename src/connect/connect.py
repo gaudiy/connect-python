@@ -170,6 +170,7 @@ class StreamRequest[T](RequestCommon):
             headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
             timeout (float): The timeout for the request.
+            abort_event (asyncio.Event): An event to signal request abortion.
 
         Returns:
             None
@@ -221,6 +222,7 @@ class UnaryRequest[T](RequestCommon):
             headers (Mapping[str, str]): The request headers.
             method (str): The HTTP method used for the request.
             timeout (float): The timeout for the request.
+            abort_event (asyncio.Event): An event to signal request abortion.
 
         Returns:
             None
@@ -785,15 +787,25 @@ async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryR
 async def recieve_stream_response[T](
     conn: StreamingClientConn, t: type[T], spec: Spec, abort_event: asyncio.Event | None
 ) -> StreamResponse[T]:
-    """Receive a stream response from a streaming client connection.
+    """Handle the reception of a stream response based on the specified stream type.
+
+    For `ClientStream` type, ensures that exactly one message is received. If no message
+    or multiple messages are received, raises a `ConnectError`. For other stream types,
+    returns a stream response wrapping the received messages.
 
     Args:
-        conn (StreamingClientConn): The streaming client connection.
-        t (type[T]): The type of the response to be received.
-        spec (Spec): The specification for the request.
+        conn (StreamingClientConn): The streaming connection used to receive messages.
+        t (type[T]): The expected type of the messages in the stream.
+        spec (Spec): The specification of the stream, including its type.
+        abort_event (asyncio.Event | None): An optional event to signal abortion of the stream.
 
     Returns:
-        StreamResponse[T]: The stream response containing the received data, response headers, and response trailers.
+        StreamResponse[T]: A stream response containing the received messages, response headers,
+        and response trailers.
+
+    Raises:
+        ConnectError: If the stream type is `ClientStream` and no message or multiple messages
+        are received.
 
     """
     if spec.stream_type == StreamType.ClientStream:

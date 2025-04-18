@@ -3,7 +3,8 @@
 These classes allow making unary calls to a specified URL with given request and response types.
 """
 
-from collections.abc import Awaitable, Callable
+import contextlib
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 import httpcore
@@ -299,7 +300,8 @@ class Client[T_Request, T_Response]:
         """
         return await self._call_unary(request)
 
-    async def call_server_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+    @contextlib.asynccontextmanager
+    async def call_server_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
         """Asynchronously calls a server streaming RPC (Remote Procedure Call) with the given request.
 
         Args:
@@ -309,9 +311,14 @@ class Client[T_Request, T_Response]:
             UnaryResponse[T_Response]: The response object containing the data received from the server.
 
         """
-        return await self._call_stream(StreamType.ServerStream, request)
+        response = await self._call_stream(StreamType.ServerStream, request)
+        try:
+            yield response
+        finally:
+            await response.aclose()
 
-    async def call_client_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+    @contextlib.asynccontextmanager
+    async def call_client_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
         """Asynchronously calls a client stream and yields responses.
 
         This method sends a stream request to the client and asynchronously
@@ -324,9 +331,14 @@ class Client[T_Request, T_Response]:
             UnaryResponse[T_Response]: The response from the client stream.
 
         """
-        return await self._call_stream(StreamType.ClientStream, request)
+        response = await self._call_stream(StreamType.ClientStream, request)
+        try:
+            yield response
+        finally:
+            await response.aclose()
 
-    async def call_bidi_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+    @contextlib.asynccontextmanager
+    async def call_bidi_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
         """Initiate a bidirectional streaming call.
 
         This method establishes a bidirectional stream between the client and the server,
@@ -344,4 +356,8 @@ class Client[T_Request, T_Response]:
             Any exceptions raised during the streaming call will propagate to the caller.
 
         """
-        return await self._call_stream(StreamType.BiDiStream, request)
+        response = await self._call_stream(StreamType.BiDiStream, request)
+        try:
+            yield response
+        finally:
+            await response.aclose()

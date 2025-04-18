@@ -589,11 +589,6 @@ class UnaryClientConn:
         """Handle the request send event."""
         raise NotImplementedError()
 
-    @abc.abstractmethod
-    async def aclose(self) -> None:
-        """Asynchronously close the connection."""
-        raise NotImplementedError()
-
 
 class StreamingClientConn:
     """Abstract base class for a streaming client connection."""

@@ -216,21 +216,26 @@ class StreamConsumedError(Exception):
         super().__init__("Stream has already been consumed.")
 
 
-class AsyncIteratorStream[T]:
-    """An asynchronous iterator for streaming data of type `T`.
+class AsyncDataStream[T]:
+    """AsyncDataStream is a generic class that provides an asynchronous iterable interface for streaming data.
 
-    This class wraps an asynchronous iterable and provides functionality to
-    ensure that the stream is consumed only once. It also supports an optional
-    cleanup function to be called when the stream is closed.
-
+    It ensures that the stream is consumed only once and provides a mechanism for resource cleanup.
     Type Parameters:
-        T: The type of the items in the asynchronous iterable.
+        T: The type of elements in the asynchronous stream.
 
     Attributes:
-        _stream (typing.AsyncIterable[T]): The asynchronous iterable to be streamed.
-        _is_stream_consumed (bool): A flag indicating whether the stream has been consumed.
-        aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous
-            cleanup function to be called when the stream is closed.
+        _stream (typing.AsyncIterable[T]): The asynchronous iterable representing the stream of data.
+        _is_stream_consumed (bool): A flag indicating whether the stream has already been consumed.
+        aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous callable for closing resources.
+
+    Methods:
+        __init__(stream: typing.AsyncIterable[T], aclose_func: Callable[..., Awaitable[None]] | None = None) -> None:
+            Initializes the AsyncDataStream instance with the given stream and optional close function.
+        __aiter__() -> typing.AsyncIterator[T]:
+            Asynchronously iterates over the elements of the stream. Ensures the stream is consumed only once
+            and handles cleanup in case of exceptions.
+        aclose() -> None:
+            Asynchronously closes resources if an asynchronous close function is provided.
 
     """
 

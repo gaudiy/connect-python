@@ -13,7 +13,7 @@ from connect.code import Code
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import AsyncIteratorStream, aiterate, get_callable_attribute
+from connect.utils import AsyncDataStream, aiterate, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -845,13 +845,13 @@ async def recieve_stream_response[T](
         - For other stream types, it directly returns the received stream.
 
     """
-    receive_stream = AsyncIteratorStream[T](conn.receive(t, abort_event), conn.aclose)
+    receive_stream = AsyncDataStream[T](conn.receive(t, abort_event), conn.aclose)
 
     if spec.stream_type == StreamType.ClientStream:
         single_message = await _receive_exactly_one(receive_stream.__aiter__(), receive_stream.aclose)
 
         return StreamResponse(
-            AsyncIteratorStream[T](aiterate([single_message])), conn.response_headers, conn.response_trailers
+            AsyncDataStream[T](aiterate([single_message])), conn.response_headers, conn.response_trailers
         )
     else:
         return StreamResponse(receive_stream, conn.response_headers, conn.response_trailers)

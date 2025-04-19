@@ -1115,7 +1115,7 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
 
-class ResponseAsyncByteStream(AsyncByteStream):
+class HTTPCoreResponseAsyncByteStream(AsyncByteStream):
     """An asynchronous byte stream for reading and writing byte chunks."""
 
     aiterator: AsyncIterable[bytes] | None
@@ -1878,7 +1878,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
             hook(response)
 
         assert isinstance(response.stream, AsyncIterable)
-        self.unmarshaler.stream = ResponseAsyncByteStream(aiterator=response.stream)
+        self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(aiterator=response.stream)
 
         await self._validate_response(response)
 
@@ -2156,7 +2156,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
             hook(response)
 
         assert isinstance(response.stream, AsyncIterable)
-        self.unmarshaler.stream = ResponseAsyncByteStream(response.stream)
+        self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(response.stream)
 
         await self._validate_response(response)
 

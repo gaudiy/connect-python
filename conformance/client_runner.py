@@ -213,7 +213,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
             client = service_connect.ConformanceServiceClient(base_url=url, session=session, options=options)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:
                 if msg.request_delay_ms > 0:
-                    await asyncio.sleep(msg.request_delay_ms / 1000.0)
+                    await asyncio.sleep(msg.request_delay_ms / 1000)
 
                 abort_event = asyncio.Event()
                 req = await anext(reqs)
@@ -264,7 +264,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 async def _reqs() -> AsyncGenerator[service_pb2.ClientStreamRequest]:
                     async for req in reqs:
                         if msg.request_delay_ms > 0:
-                            await asyncio.sleep(msg.request_delay_ms / 1000.0)
+                            await asyncio.sleep(msg.request_delay_ms / 1000)
                         yield req
 
                     if msg.cancel.HasField("before_close_send"):
@@ -298,7 +298,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
             elif msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM:
                 abort_event = asyncio.Event()
                 if msg.request_delay_ms > 0:
-                    await asyncio.sleep(msg.request_delay_ms / 1000.0)
+                    await asyncio.sleep(msg.request_delay_ms / 1000)
 
                 header = Headers()
                 for h in msg.request_headers:
@@ -340,8 +340,12 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
             ):
                 abort_event = asyncio.Event()
-                if msg.request_delay_ms > 0:
-                    await asyncio.sleep(msg.request_delay_ms / 1000.0)
+
+                async def _reqs() -> AsyncGenerator[service_pb2.ClientStreamRequest]:
+                    async for req in reqs:
+                        if msg.request_delay_ms > 0:
+                            await asyncio.sleep(msg.request_delay_ms / 1000)
+                        yield req
 
                 header = Headers()
                 for h in msg.request_headers:
@@ -352,7 +356,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=reqs, headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        messages=_reqs(), headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     if msg.cancel.HasField("before_close_send"):
@@ -429,6 +433,8 @@ if __name__ == "__main__":
         """Read requests from standard input and process them asynchronously."""
         loop = asyncio.get_event_loop()
         while req := await loop.run_in_executor(None, read_request):
+            await asyncio.sleep(0.01)
+
             loop.create_task(run_message(req))
 
     asyncio.run(read_requests())

@@ -148,8 +148,8 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-UnaryImplementationFunc = Callable[[UnaryHandlerConn], Awaitable[None]]
-StreamImplementationFunc = Callable[[StreamingHandlerConn], Awaitable[None]]
+UnaryImplementationFunc = Callable[[UnaryHandlerConn, float | None], Awaitable[None]]
+StreamImplementationFunc = Callable[[StreamingHandlerConn, float | None], Awaitable[None]]
 
 
 class Handler:
@@ -310,7 +310,7 @@ class Handler:
         """
         signature = inspect.signature(impl)
         parameters = signature.parameters
-        return len(parameters) == 1 and next(iter(parameters.values())).annotation == StreamingHandlerConn
+        return len(parameters) == 2 and next(iter(parameters.values())).annotation == StreamingHandlerConn
 
     def is_unary(self, impl: UnaryImplementationFunc | StreamImplementationFunc) -> TypeGuard[UnaryImplementationFunc]:
         """Determine if the given implementation function is a unary implementation.
@@ -324,7 +324,7 @@ class Handler:
         """
         signature = inspect.signature(impl)
         parameters = signature.parameters
-        return len(parameters) == 1 and next(iter(parameters.values())).annotation == UnaryHandlerConn
+        return len(parameters) == 2 and next(iter(parameters.values())).annotation == UnaryHandlerConn
 
     async def stream_handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
@@ -352,8 +352,21 @@ class Handler:
         implementation = self.implementation
         if not self.is_stream(implementation):
             raise ValueError(f"Invalid function type for stream handler: {implementation}")
+
+        timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
         try:
-            await implementation(conn)
+            if timeout:
+                try:
+                    timeout_ms = int(timeout)
+                    timeout_sec = timeout_ms / 1000
+                except ValueError as e:
+                    raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+
+                with anyio.fail_after(delay=timeout_sec):
+                    await implementation(conn, timeout_ms)
+            else:
+                await implementation(conn, None)
+
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
 
@@ -390,14 +403,15 @@ class Handler:
         try:
             if timeout:
                 try:
-                    timeout_sec = float(timeout) / 1000
+                    timeout_ms = int(timeout)
+                    timeout_sec = timeout_ms / 1000
                 except ValueError as e:
                     raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
 
                 with anyio.fail_after(delay=timeout_sec):
-                    await implementation(conn)
+                    await implementation(conn, timeout_ms)
             else:
-                await implementation(conn)
+                await implementation(conn, None)
 
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
@@ -454,8 +468,11 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: UnaryHandlerConn) -> None:
+        async def implementation(conn: UnaryHandlerConn, timeout: float | None) -> None:
             request = await receive_unary_request(conn, input)
+            if timeout:
+                request.timeout = timeout
+
             response = await untyped(request)
 
             if not isinstance(response.message, output):
@@ -523,8 +540,10 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn) -> None:
+        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
             request = await receive_stream_request(conn, input)
+            if timeout:
+                request.timeout = timeout
 
             response = await untyped(request)
 
@@ -596,8 +615,10 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn) -> None:
+        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
             request = await receive_stream_request(conn, input)
+            if timeout:
+                request.timeout = timeout
 
             response = await untyped(request)
 
@@ -688,8 +709,10 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn) -> None:
+        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
             request = await receive_stream_request(conn, input)
+            if timeout:
+                request.timeout = timeout
 
             response = await untyped(request)
 

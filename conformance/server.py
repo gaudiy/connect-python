@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("conformance.server")
 
 
-def headers_from_svc_headers(headers: typing.Iterable[service_pb2.Header]) -> Headers:
+def headers_from_pb_headers(headers: typing.Iterable[service_pb2.Header]) -> Headers:
     """Convert a list of headers to a Headers object."""
     header = Headers()
     for h in headers:
@@ -34,7 +34,7 @@ def headers_from_svc_headers(headers: typing.Iterable[service_pb2.Header]) -> He
     return header
 
 
-def svc_headers_from_headers(headers: Headers) -> list[service_pb2.Header]:
+def pb_headers_from_headers(headers: Headers) -> list[service_pb2.Header]:
     """Convert a Headers object to a list of headers."""
     svc_headers = []
     for key, value in headers.items():
@@ -43,7 +43,7 @@ def svc_headers_from_headers(headers: Headers) -> list[service_pb2.Header]:
     return svc_headers
 
 
-def svc_query_params_from_peer_query(query: typing.Mapping[str, str]) -> list[service_pb2.Header]:
+def pb_query_params_from_peer_query(query: typing.Mapping[str, str]) -> list[service_pb2.Header]:
     """Convert a query mapping to a list of headers."""
     svc_query_params = []
     for key, value in query.items():
@@ -52,7 +52,7 @@ def svc_query_params_from_peer_query(query: typing.Mapping[str, str]) -> list[se
     return svc_query_params
 
 
-def code_from_svc_code(code: config_pb2.Code) -> Code:
+def code_from_pb_code(code: config_pb2.Code) -> Code:
     """Convert a service code to a Connect code."""
     match code:
         case config_pb2.CODE_UNSPECIFIED:
@@ -131,11 +131,11 @@ class ConformanceService(ConformanceServiceHandler):
             request_any.Pack(request.message)
 
             request_info = service_pb2.ConformancePayload.RequestInfo(
-                request_headers=svc_headers_from_headers(request.headers),
+                request_headers=pb_headers_from_headers(request.headers),
                 requests=[request_any],
-                timeout_ms=None,
+                timeout_ms=int(request.timeout) if request.timeout else None,
                 connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
-                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                    query_params=pb_query_params_from_peer_query(request.peer.query),
                 ),
             )
 
@@ -145,8 +145,8 @@ class ConformanceService(ConformanceServiceHandler):
                 detail.Pack(request_info)
                 response_definition.error.details.append(detail)
 
-                headers = headers_from_svc_headers(response_definition.response_headers)
-                trailers = headers_from_svc_headers(response_definition.response_trailers)
+                headers = headers_from_pb_headers(response_definition.response_headers)
+                trailers = headers_from_pb_headers(response_definition.response_trailers)
 
                 metadata = Headers()
                 metadata.update(headers)
@@ -154,7 +154,7 @@ class ConformanceService(ConformanceServiceHandler):
 
                 error = ConnectError(
                     message=response_definition.error.message,
-                    code=code_from_svc_code(response_definition.error.code),
+                    code=code_from_pb_code(response_definition.error.code),
                     details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
                     metadata=metadata,
                 )
@@ -165,8 +165,8 @@ class ConformanceService(ConformanceServiceHandler):
                 )
 
                 if response_definition:
-                    headers = headers_from_svc_headers(response_definition.response_headers)
-                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+                    headers = headers_from_pb_headers(response_definition.response_headers)
+                    trailers = headers_from_pb_headers(response_definition.response_trailers)
 
             if response_definition.response_delay_ms:
                 await asyncio.sleep(response_definition.response_delay_ms / 1000)
@@ -212,11 +212,11 @@ class ConformanceService(ConformanceServiceHandler):
             request_any.Pack(request.message)
 
             request_info = service_pb2.ConformancePayload.RequestInfo(
-                request_headers=svc_headers_from_headers(request.headers),
+                request_headers=pb_headers_from_headers(request.headers),
                 requests=[request_any],
-                timeout_ms=None,
+                timeout_ms=int(request.timeout) if request.timeout else None,
                 connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
-                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                    query_params=pb_query_params_from_peer_query(request.peer.query),
                 ),
             )
 
@@ -226,8 +226,8 @@ class ConformanceService(ConformanceServiceHandler):
                 detail.Pack(request_info)
                 response_definition.error.details.append(detail)
 
-                headers = headers_from_svc_headers(response_definition.response_headers)
-                trailers = headers_from_svc_headers(response_definition.response_trailers)
+                headers = headers_from_pb_headers(response_definition.response_headers)
+                trailers = headers_from_pb_headers(response_definition.response_trailers)
 
                 metadata = Headers()
                 metadata.update(headers)
@@ -235,7 +235,7 @@ class ConformanceService(ConformanceServiceHandler):
 
                 error = ConnectError(
                     message=response_definition.error.message,
-                    code=code_from_svc_code(response_definition.error.code),
+                    code=code_from_pb_code(response_definition.error.code),
                     details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
                     metadata=metadata,
                 )
@@ -246,8 +246,8 @@ class ConformanceService(ConformanceServiceHandler):
                 )
 
                 if response_definition:
-                    headers = headers_from_svc_headers(response_definition.response_headers)
-                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+                    headers = headers_from_pb_headers(response_definition.response_headers)
+                    trailers = headers_from_pb_headers(response_definition.response_trailers)
 
             if response_definition.response_delay_ms:
                 await asyncio.sleep(response_definition.response_delay_ms / 1000)
@@ -304,11 +304,11 @@ class ConformanceService(ConformanceServiceHandler):
                 messages.append(message_any)
 
             request_info = service_pb2.ConformancePayload.RequestInfo(
-                request_headers=svc_headers_from_headers(request.headers),
+                request_headers=pb_headers_from_headers(request.headers),
                 requests=messages,
-                timeout_ms=None,
+                timeout_ms=int(request.timeout) if request.timeout else None,
                 connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
-                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                    query_params=pb_query_params_from_peer_query(request.peer.query),
                 ),
             )
 
@@ -319,8 +319,8 @@ class ConformanceService(ConformanceServiceHandler):
                 detail.Pack(request_info)
                 response_definition.error.details.append(detail)
 
-                headers = headers_from_svc_headers(response_definition.response_headers)
-                trailers = headers_from_svc_headers(response_definition.response_trailers)
+                headers = headers_from_pb_headers(response_definition.response_headers)
+                trailers = headers_from_pb_headers(response_definition.response_trailers)
 
                 metadata = Headers()
                 metadata.update(headers)
@@ -328,7 +328,7 @@ class ConformanceService(ConformanceServiceHandler):
 
                 error = ConnectError(
                     message=response_definition.error.message,
-                    code=code_from_svc_code(response_definition.error.code),
+                    code=code_from_pb_code(response_definition.error.code),
                     details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
                     metadata=metadata,
                 )
@@ -339,8 +339,8 @@ class ConformanceService(ConformanceServiceHandler):
 
                 if response_definition:
                     payload.data = response_definition.response_data
-                    headers = headers_from_svc_headers(response_definition.response_headers)
-                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+                    headers = headers_from_pb_headers(response_definition.response_headers)
+                    trailers = headers_from_pb_headers(response_definition.response_trailers)
 
                 if response_definition and response_definition.response_delay_ms:
                     await asyncio.sleep(response_definition.response_delay_ms / 1000)
@@ -399,15 +399,15 @@ class ConformanceService(ConformanceServiceHandler):
             headers = None
             trailers = None
             if response_definition:
-                headers = headers_from_svc_headers(response_definition.response_headers)
-                trailers = headers_from_svc_headers(response_definition.response_trailers)
+                headers = headers_from_pb_headers(response_definition.response_headers)
+                trailers = headers_from_pb_headers(response_definition.response_trailers)
 
             request_info = service_pb2.ConformancePayload.RequestInfo(
-                request_headers=svc_headers_from_headers(request.headers),
+                request_headers=pb_headers_from_headers(request.headers),
                 requests=messages,
-                timeout_ms=None,
+                timeout_ms=int(request.timeout) if request.timeout else None,
                 connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
-                    query_params=svc_query_params_from_peer_query(request.peer.query),
+                    query_params=pb_query_params_from_peer_query(request.peer.query),
                 ),
             )
 
@@ -437,8 +437,8 @@ class ConformanceService(ConformanceServiceHandler):
                     )
 
                 if response_definition.HasField("error"):
-                    headers = headers_from_svc_headers(response_definition.response_headers)
-                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+                    headers = headers_from_pb_headers(response_definition.response_headers)
+                    trailers = headers_from_pb_headers(response_definition.response_trailers)
 
                     metadata = Headers()
                     metadata.update(headers)
@@ -451,7 +451,7 @@ class ConformanceService(ConformanceServiceHandler):
 
                     error = ConnectError(
                         message=response_definition.error.message,
-                        code=code_from_svc_code(response_definition.error.code),
+                        code=code_from_pb_code(response_definition.error.code),
                         details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
                         metadata=metadata,
                     )
@@ -515,8 +515,8 @@ class ConformanceService(ConformanceServiceHandler):
                     first_response = False
 
                     if response_definition:
-                        headers = headers_from_svc_headers(response_definition.response_headers)
-                        trailers = headers_from_svc_headers(response_definition.response_trailers)
+                        headers = headers_from_pb_headers(response_definition.response_headers)
+                        trailers = headers_from_pb_headers(response_definition.response_trailers)
 
             async def iterator() -> typing.AsyncIterator[service_pb2.BidiStreamResponse]:
                 nonlocal response_index
@@ -524,9 +524,9 @@ class ConformanceService(ConformanceServiceHandler):
                 while response_definition and response_index < len(response_definition.response_data):
                     if response_index == 0:
                         request_info = service_pb2.ConformancePayload.RequestInfo(
-                            request_headers=svc_headers_from_headers(request.headers),
+                            request_headers=pb_headers_from_headers(request.headers),
                             requests=messages,
-                            timeout_ms=None,
+                            timeout_ms=int(request.timeout) if request.timeout else None,
                         )
                     else:
                         request_info = None
@@ -544,8 +544,8 @@ class ConformanceService(ConformanceServiceHandler):
                     yield response
 
                 if response_definition and response_definition.HasField("error"):
-                    headers = headers_from_svc_headers(response_definition.response_headers)
-                    trailers = headers_from_svc_headers(response_definition.response_trailers)
+                    headers = headers_from_pb_headers(response_definition.response_headers)
+                    trailers = headers_from_pb_headers(response_definition.response_trailers)
 
                     metadata = Headers()
                     metadata.update(headers)
@@ -553,9 +553,9 @@ class ConformanceService(ConformanceServiceHandler):
 
                     if response_index == 0:
                         request_info = service_pb2.ConformancePayload.RequestInfo(
-                            request_headers=svc_headers_from_headers(request.headers),
+                            request_headers=pb_headers_from_headers(request.headers),
                             requests=messages,
-                            timeout_ms=None,
+                            timeout_ms=int(request.timeout) if request.timeout else None,
                         )
 
                         detail = any_pb2.Any()
@@ -564,7 +564,7 @@ class ConformanceService(ConformanceServiceHandler):
 
                     error = ConnectError(
                         message=response_definition.error.message,
-                        code=code_from_svc_code(response_definition.error.code),
+                        code=code_from_pb_code(response_definition.error.code),
                         details=[ErrorDetail(pb_any=error) for error in response_definition.error.details],
                         metadata=metadata,
                     )

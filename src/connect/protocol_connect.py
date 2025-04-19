@@ -1194,7 +1194,7 @@ class ConnectStreamingMarshaler:
         """Asynchronously marshals and compresses messages from an asynchronous iterator.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be marshaled.
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled.
 
         Yields:
             AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
@@ -1290,7 +1290,7 @@ class ConnectStreamingUnmarshaler:
     Attributes:
         codec (Codec): The codec used for unmarshaling data.
         compression (Compression | None): The compression method used, if any.
-        stream (AsyncIteratorByteStream | None): The asynchronous byte stream to read data from.
+        stream (AsyncIterable[bytes] | None): The asynchronous byte stream to read from.
         buffer (bytes): The buffer to store incoming data chunks.
 
     """
@@ -1548,7 +1548,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         converts it to a JSON object, and sends it as the final message in the stream.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent.
 
         Returns:
             None
@@ -1799,12 +1799,12 @@ class ConnectStreamingClientConn(StreamingClientConn):
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
     async def send(
-        self, messages: AsyncIterator[Any], timeout: float | None, abort_event: asyncio.Event | None
+        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
         """Send an asynchronous HTTP POST request with the given messages and handle the response.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent.
             timeout (float | None): Optional timeout value in seconds for the request. If provided,
                 it sets the read timeout for the request.
             abort_event (asyncio.Event | None): Optional asyncio event that, if set, will abort the request.

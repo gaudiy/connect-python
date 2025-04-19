@@ -75,7 +75,6 @@ class RequestCommon:
         """Initialize a new Request instance.
 
         Args:
-            messages (AsyncIterator[T]): An asynchronous iterator of messages.
             spec (Spec): The specification for the request.
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
@@ -139,7 +138,7 @@ class StreamRequest[T](RequestCommon):
     """StreamRequest class represents a request that can handle streaming messages.
 
     Attributes:
-        messages (AsyncIterator[T]): An asynchronous iterator of messages.
+        messages (AsyncIterable[T]): An asynchronous iterable of messages.
         _spec (Spec): The specification for the request.
         _peer (Peer): The peer information.
         _headers (Headers): The request headers.
@@ -147,13 +146,13 @@ class StreamRequest[T](RequestCommon):
 
     """
 
-    _messages: AsyncIterator[T]
+    _messages: AsyncIterable[T]
     timeout: float | None
     abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
-        messages: AsyncIterator[T] | T,
+        messages: AsyncIterable[T] | T,
         spec: Spec | None = None,
         peer: Peer | None = None,
         headers: Headers | None = None,
@@ -164,7 +163,7 @@ class StreamRequest[T](RequestCommon):
         """Initialize a new Request instance.
 
         Args:
-            messages (AsyncIterator[T]): An asynchronous iterator of messages.
+            messages (AsyncIterable[T] | T): The request messages.
             spec (Spec): The specification for the request.
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
@@ -177,12 +176,12 @@ class StreamRequest[T](RequestCommon):
 
         """
         super().__init__(spec, peer, headers, method)
-        self._messages = messages if isinstance(messages, AsyncIterator) else aiterate([messages])
+        self._messages = messages if isinstance(messages, AsyncIterable) else aiterate([messages])
         self.timeout = timeout
         self.abort_event = abort_event
 
     @property
-    def messages(self) -> AsyncIterator[T]:
+    def messages(self) -> AsyncIterable[T]:
         """Return the request message."""
         return self._messages
 
@@ -493,7 +492,7 @@ class StreamingHandlerConn(abc.ABC):
         """Send a stream of messages asynchronously.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator that yields messages to be sent.
+            messages (AsyncIterable[Any]): The messages to be sent.
 
         Raises:
             NotImplementedError: This method should be implemented by subclasses.
@@ -620,7 +619,7 @@ class StreamingClientConn:
 
     @abc.abstractmethod
     async def send(
-        self, messages: AsyncIterator[Any], timeout: float | None, abort_event: asyncio.Event | None
+        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
         """Send a stream of messages."""
         raise NotImplementedError()

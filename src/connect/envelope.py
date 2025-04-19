@@ -1,7 +1,15 @@
 """Module containing the Envelope class which represents a data envelope."""
 
 import struct
+from collections.abc import AsyncIterable, AsyncIterator
 from enum import Flag
+from typing import Any
+
+from connect.code import Code
+from connect.codec import Codec
+from connect.compression import Compression
+from connect.error import ConnectError
+from connect.utils import get_acallable_attribute
 
 
 class EnvelopeFlags(Flag):
@@ -115,3 +123,212 @@ class Envelope:
 
         """
         return flag in self.flags
+
+
+class EnvelopeWriter:
+    codec: Codec | None
+    compress_min_bytes: int
+    send_max_bytes: int
+    compression: Compression | None
+
+    def __init__(
+        self, codec: Codec | None, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int
+    ) -> None:
+        """Initialize the ProtocolConnect instance.
+
+        Args:
+            codec (Codec): The codec to be used for encoding and decoding.
+            compression (Compression | None): The compression method to be used, or None if no compression is to be applied.
+            compress_min_bytes (int): The minimum number of bytes before compression is applied.
+            send_max_bytes (int): The maximum number of bytes that can be sent in a single message.
+
+        """
+        self.codec = codec
+        self.compress_min_bytes = compress_min_bytes
+        self.send_max_bytes = send_max_bytes
+        self.compression = compression
+
+    async def _marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+        """Asynchronously marshals and compresses messages from an asynchronous iterator.
+
+        Args:
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled.
+
+        Yields:
+            AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
+
+        Raises:
+            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
+
+        """
+        if self.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
+
+        async for message in messages:
+            try:
+                data = self.codec.marshal(message)
+            except Exception as e:
+                raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
+
+            env = self.write_envelope(data, EnvelopeFlags(0))
+            yield env.encode()
+
+    def write_envelope(self, data: bytes, flags: EnvelopeFlags) -> Envelope:
+        """Write an envelope, optionally compressing its data if certain conditions are met.
+
+        Args:
+            env (Envelope): The envelope to be written.
+
+        Returns:
+            Envelope: The envelope with possibly compressed data and updated flags.
+
+        Raises:
+            ConnectError: If the size of the envelope data exceeds the maximum allowed size.
+
+        """
+        if flags in EnvelopeFlags.compressed or self.compression is None or len(data) < self.compress_min_bytes:
+            if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                )
+            compressed_data = data
+            flags = flags
+        else:
+            compressed_data = self.compression.compress(data)
+            flags |= EnvelopeFlags.compressed
+
+            if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
+                raise ConnectError(
+                    f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                    Code.RESOURCE_EXHAUSTED,
+                )
+
+        return Envelope(
+            data=compressed_data,
+            flags=flags,
+        )
+
+
+class EnvelopeReader:
+    """A class to handle the unmarshaling of streaming data.
+
+    Attributes:
+        codec (Codec): The codec used for unmarshaling data.
+        compression (Compression | None): The compression method used, if any.
+        stream (AsyncIterable[bytes] | None): The asynchronous byte stream to read from.
+        buffer (bytes): The buffer to store incoming data chunks.
+
+    """
+
+    codec: Codec | None
+    read_max_bytes: int
+    compression: Compression | None
+    stream: AsyncIterable[bytes] | None
+    buffer: bytes
+    last_data: bytes | None
+
+    def __init__(
+        self,
+        codec: Codec | None,
+        read_max_bytes: int,
+        stream: AsyncIterable[bytes] | None = None,
+        compression: Compression | None = None,
+    ) -> None:
+        """Initialize the protocol connection.
+
+        Args:
+            codec (Codec): The codec to use for encoding and decoding data.
+            read_max_bytes (int): The maximum number of bytes to read from the stream.
+            stream (AsyncIterable[bytes] | None, optional): The asynchronous byte stream to read from. Defaults to None.
+            compression (Compression | None, optional): The compression method to use. Defaults to None.
+
+        """
+        self.codec = codec
+        self.read_max_bytes = read_max_bytes
+        self.compression = compression
+        self.stream = stream
+        self.buffer = b""
+        self.last_data = None
+
+    async def _unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
+        """Asynchronously unmarshals messages from the stream.
+
+        Args:
+            message (Any): The message type to unmarshal.
+
+        Yields:
+            Any: The unmarshaled message object.
+
+        Raises:
+            ConnectError: If the stream is not set, if there is an error in the
+                          unmarshaling process, or if there is a protocol error.
+
+        """
+        if self.stream is None:
+            raise ConnectError("stream is not set", Code.INTERNAL)
+
+        if self.codec is None:
+            raise ConnectError("codec is not set", Code.INTERNAL)
+
+        async for chunk in self.stream:
+            self.buffer += chunk
+
+            while True:
+                env, data_len = Envelope.decode(self.buffer)
+                if env is None:
+                    break
+
+                if self.read_max_bytes > 0 and data_len > self.read_max_bytes:
+                    raise ConnectError(
+                        f"message size {data_len} is larger than configured readMaxBytes {self.read_max_bytes}",
+                        Code.RESOURCE_EXHAUSTED,
+                    )
+
+                self.buffer = self.buffer[5 + data_len :]
+
+                if env.is_set(EnvelopeFlags.compressed):
+                    if not self.compression:
+                        raise ConnectError(
+                            "protocol error: sent compressed message without compression support", Code.INTERNAL
+                        )
+
+                    env.data = self.compression.decompress(env.data, self.read_max_bytes)
+
+                if env.flags != EnvelopeFlags(0) and env.flags != EnvelopeFlags.compressed:
+                    self.last_data = env.data
+                    end = True
+                    obj = None
+                else:
+                    try:
+                        obj = self.codec.unmarshal(env.data, message)
+                    except Exception as e:
+                        raise ConnectError(
+                            f"unmarshal message: {str(e)}",
+                            Code.INVALID_ARGUMENT,
+                        ) from e
+
+                    end = False
+
+                yield obj, end
+
+        if len(self.buffer) > 0:
+            header = Envelope.decode_header(self.buffer)
+            if header:
+                message = (
+                    f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
+                )
+                raise ConnectError(message, Code.INVALID_ARGUMENT)
+
+    async def aclose(self) -> None:
+        """Asynchronously closes the stream if it has an `aclose` method.
+
+        This method checks if the `self.stream` object has an asynchronous
+        `aclose` method. If the method exists, it is invoked to close the stream.
+
+        Returns:
+            None
+
+        """
+        aclose = get_acallable_attribute(self.stream, "aclose")
+        if aclose:
+            await aclose()

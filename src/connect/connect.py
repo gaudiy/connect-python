@@ -351,7 +351,7 @@ class UnaryHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def receive(self, message: Any) -> AsyncIterator[Any]:
+    async def receive(self, message: Any) -> Any:
         """Receives a message and processes it.
 
         Args:

@@ -141,6 +141,17 @@ def to_pb_headers(headers: Headers) -> list[service_pb2.Header]:
     ]
 
 
+def to_connect_headers(pb_headers: RepeatedCompositeFieldContainer[service_pb2.Header]) -> Headers:
+    headers = Headers()
+    for h in pb_headers:
+        if key := headers.get(h.name.lower()):
+            headers[key] = f"{headers[key]}, {', '.join(h.value)}"
+        else:
+            headers[h.name.lower()] = ", ".join(h.value)
+
+    return headers
+
+
 async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_compat_pb2.ClientCompatResponse:
     """Handle a client compatibility request and returns a response.
 
@@ -226,17 +237,12 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                     asyncio.create_task(delayed_abort())
 
-                header = Headers()
-                for h in msg.request_headers:
-                    if key := header.get(h.name.lower()):
-                        header[key] = f"{header[key]}, {', '.join(h.value)}"
-                    else:
-                        header[h.name.lower()] = ", ".join(h.value)
+                headers = to_connect_headers(msg.request_headers)
 
                 resp = await getattr(client, msg.method)(
                     UnaryRequest(
                         message=req,
-                        headers=header,
+                        headers=headers,
                         timeout=msg.timeout_ms / 1000,
                         abort_event=abort_event,
                     ),
@@ -254,12 +260,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 )
             elif msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM:
                 abort_event = asyncio.Event()
-                header = Headers()
-                for h in msg.request_headers:
-                    if key := header.get(h.name.lower()):
-                        header[key] = f"{header[key]}, {', '.join(h.value)}"
-                    else:
-                        header[h.name.lower()] = ", ".join(h.value)
+                headers = to_connect_headers(msg.request_headers)
 
                 async def _reqs() -> AsyncGenerator[service_pb2.ClientStreamRequest]:
                     async for req in reqs:
@@ -280,7 +281,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=_reqs(), headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        messages=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     async for message in resp.messages:
@@ -300,16 +301,11 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 if msg.request_delay_ms > 0:
                     await asyncio.sleep(msg.request_delay_ms / 1000)
 
-                header = Headers()
-                for h in msg.request_headers:
-                    if key := header.get(h.name.lower()):
-                        header[key] = f"{header[key]}, {', '.join(h.value)}"
-                    else:
-                        header[h.name.lower()] = ", ".join(h.value)
+                headers = to_connect_headers(msg.request_headers)
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=reqs, headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        messages=reqs, headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     if msg.cancel.HasField("after_close_send_ms"):
@@ -347,16 +343,11 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                             await asyncio.sleep(msg.request_delay_ms / 1000)
                         yield req
 
-                header = Headers()
-                for h in msg.request_headers:
-                    if key := header.get(h.name.lower()):
-                        header[key] = f"{header[key]}, {', '.join(h.value)}"
-                    else:
-                        header[h.name.lower()] = ", ".join(h.value)
+                headers = to_connect_headers(msg.request_headers)
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=_reqs(), headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        messages=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     if msg.cancel.HasField("before_close_send"):

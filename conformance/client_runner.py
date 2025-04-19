@@ -218,7 +218,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 abort_event = asyncio.Event()
                 req = await anext(reqs)
 
-                if msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+                if msg.cancel.after_close_send_ms > 0:
 
                     async def delayed_abort() -> None:
                         await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
@@ -267,9 +267,10 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                             await asyncio.sleep(msg.request_delay_ms / 1000.0)
                         yield req
 
-                    if msg.HasField("cancel") and msg.cancel.HasField("before_close_send"):
+                    if msg.cancel.HasField("before_close_send"):
                         abort_event.set()
-                    elif msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+
+                    if msg.cancel.HasField("after_close_send_ms"):
 
                         async def delayed_abort() -> None:
                             await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
@@ -311,7 +312,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         messages=reqs, headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
-                    if msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+                    if msg.cancel.HasField("after_close_send_ms"):
 
                         async def delayed_abort() -> None:
                             await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
@@ -354,10 +355,10 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         messages=reqs, headers=header, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
-                    if msg.HasField("cancel") and msg.cancel.HasField("before_close_send"):
+                    if msg.cancel.HasField("before_close_send"):
                         abort_event.set()
 
-                    if msg.HasField("cancel") and msg.cancel.HasField("after_close_send_ms"):
+                    if msg.cancel.HasField("after_close_send_ms"):
 
                         async def delayed_abort() -> None:
                             await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
@@ -365,11 +366,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                         asyncio.create_task(delayed_abort())
 
-                    if (
-                        msg.HasField("cancel")
-                        and msg.cancel.HasField("after_num_responses")
-                        and msg.cancel.after_num_responses == 0
-                    ):
+                    if msg.cancel.HasField("after_num_responses") and msg.cancel.after_num_responses == 0:
                         abort_event.set()
 
                     async for message in resp.messages:

@@ -13,7 +13,7 @@ from connect.code import Code
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import AsyncDataStream, aiterate, get_callable_attribute
+from connect.utils import AsyncDataStream, aiterate, get_acallable_attribute, get_callable_attribute
 
 
 class StreamType(Enum):
@@ -313,8 +313,9 @@ class StreamResponse[T](ResponseCommon):
 
     async def aclose(self) -> None:
         """Asynchronously close the response stream."""
-        if hasattr(self._messages, "aclose"):
-            await self._messages.aclose()  # type: ignore
+        aclose = get_acallable_attribute(self._messages, "aclose")
+        if aclose:
+            await aclose()
 
 
 class UnaryHandlerConn(abc.ABC):

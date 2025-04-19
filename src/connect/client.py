@@ -3,7 +3,8 @@
 These classes allow making unary calls to a specified URL with given request and response types.
 """
 
-from collections.abc import Awaitable, Callable
+import contextlib
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 import httpcore
@@ -227,7 +228,7 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.message, request.timeout)
+            await conn.send(request.message, request.timeout, abort_event=request.abort_event)
 
             response = await recieve_unary_response(conn=conn, t=output)
             return response
@@ -267,9 +268,9 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.messages, request.timeout)
+            await conn.send(request.messages, request.timeout, request.abort_event)
 
-            response = await recieve_stream_response(conn, output, request.spec)
+            response = await recieve_stream_response(conn, output, request.spec, request.abort_event)
             return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)
@@ -299,49 +300,84 @@ class Client[T_Request, T_Response]:
         """
         return await self._call_unary(request)
 
-    async def call_server_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-        """Asynchronously calls a server streaming RPC (Remote Procedure Call) with the given request.
+    @contextlib.asynccontextmanager
+    async def call_server_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
+        """Initiate a server-streaming RPC call and returns an asynchronous generator that yields responses from the server.
 
         Args:
-            request (UnaryRequest[T_Request]): The request object containing the data to be sent to the server.
-
-        Returns:
-            UnaryResponse[T_Response]: The response object containing the data received from the server.
-
-        """
-        return await self._call_stream(StreamType.ServerStream, request)
-
-    async def call_client_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-        """Asynchronously calls a client stream and yields responses.
-
-        This method sends a stream request to the client and asynchronously
-        iterates over the responses, yielding each response one by one.
-
-        Args:
-            request (StreamRequest[T_Request]): The stream request to be sent.
+            request (StreamRequest[T_Request]): The request object containing the
+                data to be sent to the server.
 
         Yields:
-            UnaryResponse[T_Response]: The response from the client stream.
-
-        """
-        return await self._call_stream(StreamType.ClientStream, request)
-
-    async def call_bidi_stream(self, request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-        """Initiate a bidirectional streaming call.
-
-        This method establishes a bidirectional stream between the client and the server,
-        allowing both to send and receive messages asynchronously.
-
-        Args:
-            request (StreamRequest[T_Request]): The request object containing the stream
-                of messages to be sent to the server.
-
-        Returns:
-            StreamResponse[T_Response]: An asynchronous stream response object that
-                allows receiving messages from the server.
+            StreamResponse[T_Response]: The response objects received from the server.
 
         Raises:
-            Any exceptions raised during the streaming call will propagate to the caller.
+            Any exceptions that occur during the streaming process.
+
+        Notes:
+            - This method ensures that the response stream is properly closed
+              after the generator is exhausted or an exception occurs.
+            - The type parameters `T_Request` and `T_Response` represent the
+              request and response types, respectively.
 
         """
-        return await self._call_stream(StreamType.BiDiStream, request)
+        response = await self._call_stream(StreamType.ServerStream, request)
+        try:
+            yield response
+        finally:
+            await response.aclose()
+
+    @contextlib.asynccontextmanager
+    async def call_client_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
+        """Initiate a client-streaming RPC call and returns an asynchronous generator for streaming responses from the server.
+
+        Args:
+            request (StreamRequest[T_Request]): The request object containing the
+                client-streaming data to be sent to the server.
+
+        Yields:
+            StreamResponse[T_Response]: An asynchronous generator that yields
+                responses from the server.
+
+        Raises:
+            Any exceptions raised during the streaming call.
+
+        Notes:
+            - The `response.aclose()` method is called in the `finally` block to
+              ensure proper cleanup of the response stream.
+
+        """
+        response = await self._call_stream(StreamType.ClientStream, request)
+        try:
+            yield response
+        finally:
+            await response.aclose()
+
+    @contextlib.asynccontextmanager
+    async def call_bidi_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
+        """Initiate a bidirectional streaming call with the server.
+
+        This method sends a stream request to the server and returns an asynchronous
+        generator that yields stream responses from the server. The connection is
+        automatically closed when the generator is exhausted or an exception occurs.
+
+        Args:
+            request (StreamRequest[T_Request]): The stream request object containing
+                the data to be sent to the server.
+
+        Yields:
+            StreamResponse[T_Response]: The stream response object received from the server.
+
+        Raises:
+            Any exceptions raised during the streaming call.
+
+        Notes:
+            Ensure to consume the generator properly to avoid resource leaks, as the
+            connection is closed in the `finally` block.
+
+        """
+        response = await self._call_stream(StreamType.BiDiStream, request)
+        try:
+            yield response
+        finally:
+            await response.aclose()

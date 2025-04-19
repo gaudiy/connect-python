@@ -69,11 +69,11 @@ async def test_server_streaming(hypercorn_server: ServerConfig) -> None:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
-        async for message in response.messages:
-            assert message.name in want
-            want.remove(message.name)
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
+            async for message in response.messages:
+                assert message.name in want
+                want.remove(message.name)
 
 
 async def server_streaming_end_stream_error(scope: Scope, receive: Receive, send: Send) -> None:
@@ -120,18 +120,18 @@ async def test_server_streaming_end_stream_error(hypercorn_server: ServerConfig)
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
-        with pytest.raises(ConnectError) as excinfo:
-            async for message in response.messages:
-                assert message.name in want
-                want.remove(message.name)
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
+            with pytest.raises(ConnectError) as excinfo:
+                async for message in response.messages:
+                    assert message.name in want
+                    want.remove(message.name)
 
-        assert excinfo.value.code == Code.UNAVAILABLE
-        assert excinfo.value.metadata["acme-operation-cost"] == "237"
-        assert excinfo.value.raw_message == ""
-        assert len(excinfo.value.details) == 0
-        assert excinfo.value.wire_error is True
+            assert excinfo.value.code == Code.UNAVAILABLE
+            assert excinfo.value.metadata["acme-operation-cost"] == "237"
+            assert excinfo.value.raw_message == ""
+            assert len(excinfo.value.details) == 0
+            assert excinfo.value.wire_error is True
 
 
 async def server_streaming_received_message_after_end_stream(scope: Scope, receive: Receive, send: Send) -> None:
@@ -183,16 +183,16 @@ async def test_server_streaming_received_message_after_end_stream(hypercorn_serv
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
 
-        with pytest.raises(ConnectError) as excinfo:
-            async for message in response.messages:
-                assert message.name in want
-                want.remove(message.name)
+            with pytest.raises(ConnectError) as excinfo:
+                async for message in response.messages:
+                    assert message.name in want
+                    want.remove(message.name)
 
-        assert excinfo.value.code == Code.INVALID_ARGUMENT
-        assert excinfo.value.raw_message == "received message after end stream"
+            assert excinfo.value.code == Code.INVALID_ARGUMENT
+            assert excinfo.value.raw_message == "received message after end stream"
 
 
 async def server_streaming_received_extra_end_stream(scope: Scope, receive: Receive, send: Send) -> None:
@@ -248,16 +248,16 @@ async def test_server_streaming_received_extra_end_stream(hypercorn_server: Serv
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
 
-        with pytest.raises(ConnectError) as excinfo:
-            async for message in response.messages:
-                assert message.name in want
-                want.remove(message.name)
+            with pytest.raises(ConnectError) as excinfo:
+                async for message in response.messages:
+                    assert message.name in want
+                    want.remove(message.name)
 
-        assert excinfo.value.code == Code.INVALID_ARGUMENT
-        assert excinfo.value.raw_message == "received extra end stream message"
+            assert excinfo.value.code == Code.INVALID_ARGUMENT
+            assert excinfo.value.raw_message == "received extra end stream message"
 
 
 async def server_streaming_not_received_end_stream(scope: Scope, receive: Receive, send: Send) -> None:
@@ -299,16 +299,16 @@ async def test_server_streaming_not_received_end_stream(hypercorn_server: Server
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
 
-        with pytest.raises(ConnectError) as excinfo:
-            async for message in response.messages:
-                assert message.name in want
-                want.remove(message.name)
+            with pytest.raises(ConnectError) as excinfo:
+                async for message in response.messages:
+                    assert message.name in want
+                    want.remove(message.name)
 
-        assert excinfo.value.code == Code.INVALID_ARGUMENT
-        assert excinfo.value.raw_message == "missing end stream message"
+            assert excinfo.value.code == Code.INVALID_ARGUMENT
+            assert excinfo.value.raw_message == "missing end stream message"
 
 
 async def server_streaming_response_envelope_message_compression(scope: Scope, receive: Receive, send: Send) -> None:
@@ -356,11 +356,11 @@ async def test_server_streaming_response_envelope_message_compression(hypercorn_
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
-        async for message in response.messages:
-            assert message.name in want
-            want.remove(message.name)
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
+            async for message in response.messages:
+                assert message.name in want
+                want.remove(message.name)
 
 
 async def server_streaming_request_envelope_message_compression(scope: Scope, receive: Receive, send: Send) -> None:
@@ -421,11 +421,11 @@ async def test_server_streaming_request_envelope_message_compression(hypercorn_s
         )
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
-        response = await client.call_server_stream(ping_request)
-        want = ["Hi Bob.", "I'm Eliza."]
-        async for message in response.messages:
-            assert message.name in want
-            want.remove(message.name)
+        async with client.call_server_stream(ping_request) as response:
+            want = ["Hi Bob.", "I'm Eliza."]
+            async for message in response.messages:
+                assert message.name in want
+                want.remove(message.name)
 
 
 @pytest.mark.asyncio()
@@ -481,14 +481,13 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
 
         ping_request = StreamRequest(messages=PingRequest(name="test"))
 
-        await client.call_server_stream(ping_request)
+        async with client.call_server_stream(ping_request):
+            assert len(ephemeral_files) == 2
+            for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+                ephemeral_file.seek(0)
+                assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
 
-        assert len(ephemeral_files) == 2
-        for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
-            ephemeral_file.seek(0)
-            assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
-
-            ephemeral_file.close()
+                ephemeral_file.close()
 
 
 async def server_streaming_not_httpstatus_200(scope: Scope, receive: Receive, send: Send) -> None:
@@ -520,12 +519,11 @@ async def test_server_streaming_not_httpstatus_200(hypercorn_server: ServerConfi
         ping_request = StreamRequest(messages=PingRequest(name="Bob"))
 
         with pytest.raises(ConnectError) as excinfo:
-            await client.call_server_stream(ping_request)
-
-            assert excinfo.value.code == Code.UNAVAILABLE
-            assert len(excinfo.value.details) == 0
-            assert excinfo.value.wire_error is False
-            assert excinfo.value.metadata == {}
+            async with client.call_server_stream(ping_request):
+                assert excinfo.value.code == Code.UNAVAILABLE
+                assert len(excinfo.value.details) == 0
+                assert excinfo.value.wire_error is False
+                assert excinfo.value.metadata == {}
 
 
 async def client_streaming(scope: Scope, receive: Receive, send: Send) -> None:
@@ -582,11 +580,11 @@ async def test_client_streaming(hypercorn_server: ServerConfig) -> None:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(messages=iterator())
 
-        response = await client.call_client_stream(ping_request)
-        want = ["I'm fine."]
-        async for message in response.messages:
-            assert message.name in want
-            want.remove(message.name)
+        async with client.call_client_stream(ping_request) as response:
+            want = ["I'm fine."]
+            async for message in response.messages:
+                assert message.name in want
+                want.remove(message.name)
 
 
 @pytest.mark.asyncio()
@@ -645,11 +643,10 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
 
         ping_request = StreamRequest(messages=iterator())
 
-        await client.call_client_stream(ping_request)
+        async with client.call_client_stream(ping_request):
+            assert len(ephemeral_files) == 2
+            for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
+                ephemeral_file.seek(0)
+                assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
 
-        assert len(ephemeral_files) == 2
-        for i, ephemeral_file in enumerate(reversed(ephemeral_files)):
-            ephemeral_file.seek(0)
-            assert ephemeral_file.read() == f"interceptor: {i + 1}".encode()
-
-            ephemeral_file.close()
+                ephemeral_file.close()

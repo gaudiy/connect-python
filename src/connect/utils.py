@@ -87,10 +87,34 @@ def get_callable_attribute(obj: object, attr: str) -> typing.Callable[..., typin
         typing.Callable[..., typing.Any] | None: The callable attribute if it exists and is callable, otherwise None.
 
     """
-    if hasattr(obj, attr) and callable(getattr(obj, attr)):
-        return getattr(obj, attr)
+    try:
+        attr_value = getattr(obj, attr)
+        if callable(attr_value):
+            return attr_value
+        return None
+    except AttributeError:
+        return None
 
-    return None
+
+def get_acallable_attribute(obj: object, attr: str) -> typing.Callable[..., typing.Awaitable[typing.Any]] | None:
+    """Retrieve an attribute from an object if it is both callable and asynchronous.
+
+    Args:
+        obj (object): The object from which to retrieve the attribute.
+        attr (str): The name of the attribute to retrieve.
+
+    Returns:
+        typing.Callable[..., typing.Awaitable[typing.Any]] | None:
+            The attribute if it is callable and asynchronous, otherwise None.
+
+    """
+    try:
+        attr_value = getattr(obj, attr)
+        if callable(attr_value) and is_async_callable(attr_value):
+            return attr_value
+        return None
+    except AttributeError:
+        return None
 
 
 def get_route_path(scope: Scope) -> str:
@@ -192,60 +216,88 @@ class StreamConsumedError(Exception):
         super().__init__("Stream has already been consumed.")
 
 
-class AsyncIteratorByteStream:
-    """An asynchronous iterator for byte streams.
+class AsyncDataStream[T]:
+    """AsyncDataStream is a generic class that provides an asynchronous iterable interface for streaming data.
 
-    This class wraps an asynchronous iterable of bytes and provides an
-    asynchronous iterator interface. It ensures that the stream is only
-    consumed once and provides a method to close the stream if it supports
-    asynchronous closing.
+    It ensures that the stream is consumed only once and provides a mechanism for resource cleanup.
+    Type Parameters:
+        T: The type of elements in the asynchronous stream.
 
     Attributes:
-        _stream (typing.AsyncIterable[bytes]): The asynchronous iterable byte stream.
-        _is_stream_consumed (bool): A flag indicating whether the stream has been consumed.
+        _stream (typing.AsyncIterable[T]): The asynchronous iterable representing the stream of data.
+        _is_stream_consumed (bool): A flag indicating whether the stream has already been consumed.
+        aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous callable for closing resources.
+
+    Methods:
+        __init__(stream: typing.AsyncIterable[T], aclose_func: Callable[..., Awaitable[None]] | None = None) -> None:
+            Initializes the AsyncDataStream instance with the given stream and optional close function.
+        __aiter__() -> typing.AsyncIterator[T]:
+            Asynchronously iterates over the elements of the stream. Ensures the stream is consumed only once
+            and handles cleanup in case of exceptions.
+        aclose() -> None:
+            Asynchronously closes resources if an asynchronous close function is provided.
 
     """
 
-    def __init__(self, stream: typing.AsyncIterable[bytes]) -> None:
-        """Initialize the utility with an asynchronous byte stream.
+    _stream: typing.AsyncIterable[T]
+    _is_stream_consumed: bool
+    aclose_func: Callable[..., Awaitable[None]] | None
+
+    def __init__(
+        self, stream: typing.AsyncIterable[T], aclose_func: Callable[..., Awaitable[None]] | None = None
+    ) -> None:
+        """Initialize an instance of the class.
 
         Args:
-            stream (typing.AsyncIterable[bytes]): An asynchronous iterable that yields bytes.
+            stream (typing.AsyncIterable[T]): An asynchronous iterable representing the stream of data.
+            aclose_func (Callable[..., Awaitable[None]] | None, optional):
+                A callable function that is awaited to close the stream. Defaults to None.
 
         """
         self._stream = stream
         self._is_stream_consumed = False
+        self.aclose_func = aclose_func
 
-    async def __aiter__(self) -> typing.AsyncIterator[bytes]:
-        """Asynchronously iterates over the stream and yields parts of it.
+    async def __aiter__(self) -> typing.AsyncIterator[T]:
+        """Asynchronously iterates over the elements of the stream.
+
+        This method allows the object to be used as an asynchronous iterator.
+        It ensures that the stream is not consumed multiple times and properly
+        handles cleanup in case of exceptions.
 
         Yields:
-            bytes: Parts of the stream.
+            T: The next element in the asynchronous stream.
 
         Raises:
             StreamConsumedError: If the stream has already been consumed.
+            BaseException: Propagates any exception raised during iteration
+                           after ensuring the stream is closed.
 
         """
         if self._is_stream_consumed:
             raise StreamConsumedError()
 
         self._is_stream_consumed = True
-        async for part in self._stream:
-            yield part
+        try:
+            async for part in self._stream:
+                yield part
+        except BaseException as exc:
+            await self.aclose()
+            raise exc
 
     async def aclose(self) -> None:
-        """Asynchronously closes the stream if it has an `aclose` method.
+        """Asynchronously closes resources if an asynchronous close function is provided.
 
-        This method checks if the `_stream` attribute has an `aclose` method and
-        calls it asynchronously to close the stream. If the `_stream` does not
-        have an `aclose` method, this method does nothing.
+        This method checks if an `aclose_func` is defined. If it is, the function
+        is awaited to perform any necessary cleanup or resource deallocation.
 
         Returns:
             None
 
         """
-        if isinstance(self._stream, AsyncByteStream):
-            await self._stream.aclose()
+        if self.aclose_func:
+            await self.aclose_func()
+            return
 
 
 async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:

@@ -6,7 +6,6 @@ import logging
 import ssl
 import struct
 import sys
-import time
 import traceback
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -142,6 +141,17 @@ def to_pb_headers(headers: Headers) -> list[service_pb2.Header]:
     ]
 
 
+def to_connect_headers(pb_headers: RepeatedCompositeFieldContainer[service_pb2.Header]) -> Headers:
+    headers = Headers()
+    for h in pb_headers:
+        if key := headers.get(h.name.lower()):
+            headers[key] = f"{headers[key]}, {', '.join(h.value)}"
+        else:
+            headers[h.name.lower()] = ", ".join(h.value)
+
+    return headers
+
+
 async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_compat_pb2.ClientCompatResponse:
     """Handle a client compatibility request and returns a response.
 
@@ -204,9 +214,6 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
     url = f"{proto}://{msg.host}:{msg.port}"
 
-    if msg.request_delay_ms > 0:
-        time.sleep(msg.request_delay_ms / 1000.0)
-
     async with AsyncClientSession(http1=http1, http2=http2, ssl_context=ssl_context) as session:
         payloads = []
         try:
@@ -216,20 +223,28 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
             client = service_connect.ConformanceServiceClient(base_url=url, session=session, options=options)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:
+                if msg.request_delay_ms > 0:
+                    await asyncio.sleep(msg.request_delay_ms / 1000)
+
+                abort_event = asyncio.Event()
                 req = await anext(reqs)
 
-                header = Headers()
-                for h in msg.request_headers:
-                    if key := header.get(h.name.lower()):
-                        header[key] = f"{header[key]}, {', '.join(h.value)}"
-                    else:
-                        header[h.name.lower()] = ", ".join(h.value)
+                if msg.cancel.after_close_send_ms > 0:
+
+                    async def delayed_abort() -> None:
+                        await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                        abort_event.set()
+
+                    asyncio.create_task(delayed_abort())
+
+                headers = to_connect_headers(msg.request_headers)
 
                 resp = await getattr(client, msg.method)(
                     UnaryRequest(
                         message=req,
-                        headers=header,
+                        headers=headers,
                         timeout=msg.timeout_ms / 1000,
+                        abort_event=abort_event,
                     ),
                 )
                 payloads.append(resp.message.payload)
@@ -243,29 +258,116 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         response_trailers=to_pb_headers(resp.trailers),
                     ),
                 )
-            elif (
-                msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM
-                or msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM
-                or msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
-                or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
-            ):
-                header = Headers()
-                for h in msg.request_headers:
-                    if key := header.get(h.name.lower()):
-                        header[key] = f"{header[key]}, {', '.join(h.value)}"
-                    else:
-                        header[h.name.lower()] = ", ".join(h.value)
+            elif msg.stream_type == config_pb2.STREAM_TYPE_CLIENT_STREAM:
+                abort_event = asyncio.Event()
+                headers = to_connect_headers(msg.request_headers)
 
-                resp = await getattr(client, msg.method)(
+                async def _reqs() -> AsyncGenerator[service_pb2.ClientStreamRequest]:
+                    async for req in reqs:
+                        if msg.request_delay_ms > 0:
+                            await asyncio.sleep(msg.request_delay_ms / 1000)
+                        yield req
+
+                    if msg.cancel.HasField("before_close_send"):
+                        abort_event.set()
+
+                    if msg.cancel.HasField("after_close_send_ms"):
+
+                        async def delayed_abort() -> None:
+                            await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                            abort_event.set()
+
+                        asyncio.create_task(delayed_abort())
+
+                async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=reqs,
-                        headers=header,
-                        timeout=msg.timeout_ms / 1000,
+                        messages=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    ),
+                ) as resp:
+                    async for message in resp.messages:
+                        payloads.append(message.payload)
+
+                return client_compat_pb2.ClientCompatResponse(
+                    test_name=msg.test_name,
+                    response=client_compat_pb2.ClientResponseResult(
+                        payloads=payloads,
+                        http_status_code=200,
+                        response_headers=to_pb_headers(resp.headers),
+                        response_trailers=to_pb_headers(resp.trailers),
+                    ),
+                )
+            elif msg.stream_type == config_pb2.STREAM_TYPE_SERVER_STREAM:
+                abort_event = asyncio.Event()
+                if msg.request_delay_ms > 0:
+                    await asyncio.sleep(msg.request_delay_ms / 1000)
+
+                headers = to_connect_headers(msg.request_headers)
+
+                async with getattr(client, msg.method)(
+                    StreamRequest(
+                        messages=reqs, headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    ),
+                ) as resp:
+                    if msg.cancel.HasField("after_close_send_ms"):
+
+                        async def delayed_abort() -> None:
+                            await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                            abort_event.set()
+
+                        asyncio.create_task(delayed_abort())
+
+                    async for message in resp.messages:
+                        payloads.append(message.payload)
+                        if len(payloads) == msg.cancel.after_num_responses:
+                            abort_event.set()
+
+                return client_compat_pb2.ClientCompatResponse(
+                    test_name=msg.test_name,
+                    response=client_compat_pb2.ClientResponseResult(
+                        payloads=payloads,
+                        http_status_code=200,
+                        response_headers=to_pb_headers(resp.headers),
+                        response_trailers=to_pb_headers(resp.trailers),
                     ),
                 )
 
-                async for message in resp.messages:
-                    payloads.append(message.payload)
+            elif (
+                msg.stream_type == config_pb2.STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
+                or msg.stream_type == config_pb2.STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
+            ):
+                abort_event = asyncio.Event()
+
+                async def _reqs() -> AsyncGenerator[service_pb2.ClientStreamRequest]:
+                    async for req in reqs:
+                        if msg.request_delay_ms > 0:
+                            await asyncio.sleep(msg.request_delay_ms / 1000)
+                        yield req
+
+                headers = to_connect_headers(msg.request_headers)
+
+                async with getattr(client, msg.method)(
+                    StreamRequest(
+                        messages=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    ),
+                ) as resp:
+                    if msg.cancel.HasField("before_close_send"):
+                        abort_event.set()
+
+                    if msg.cancel.HasField("after_close_send_ms"):
+
+                        async def delayed_abort() -> None:
+                            await asyncio.sleep(msg.cancel.after_close_send_ms / 1000)
+                            abort_event.set()
+
+                        asyncio.create_task(delayed_abort())
+
+                    if msg.cancel.HasField("after_num_responses") and msg.cancel.after_num_responses == 0:
+                        abort_event.set()
+
+                    async for message in resp.messages:
+                        payloads.append(message.payload)
+                        if len(payloads) == msg.cancel.after_num_responses:
+                            abort_event.set()
 
                 return client_compat_pb2.ClientCompatResponse(
                     test_name=msg.test_name,
@@ -306,11 +408,6 @@ if __name__ == "__main__":
     if "--debug" in sys.argv:
         logging.debug("Debug mode enabled")
 
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    tasks = []
-
     async def run_message(req: client_compat_pb2.ClientCompatRequest) -> None:
         """Run the message handler for a given request."""
         try:
@@ -325,16 +422,10 @@ if __name__ == "__main__":
 
     async def read_requests() -> None:
         """Read requests from standard input and process them asynchronously."""
+        loop = asyncio.get_event_loop()
         while req := await loop.run_in_executor(None, read_request):
-            task = loop.create_task(run_message(req))
-            tasks.append(task)
+            await asyncio.sleep(0.01)
 
-    loop.run_until_complete(read_requests())
+            loop.create_task(run_message(req))
 
-    pending_tasks = [t for t in tasks if not t.done()]
-    if pending_tasks:
-        logger.info(f"Waiting for {len(pending_tasks)} pending tasks to complete...")
-        loop.run_until_complete(asyncio.gather(*pending_tasks))
-
-    logger.info("All done")
-    loop.close()
+    asyncio.run(read_requests())

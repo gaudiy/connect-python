@@ -1,12 +1,12 @@
 """Provides classes and functions for handling protocol connections."""
 
+import asyncio
 import base64
 import contextlib
 import json
 from collections.abc import (
     AsyncIterable,
     AsyncIterator,
-    Awaitable,
     Callable,
     Mapping,
 )
@@ -55,7 +55,12 @@ from connect.protocol import (
 )
 from connect.request import Request
 from connect.session import AsyncClientSession
-from connect.utils import AsyncByteStream, AsyncIteratorByteStream, aiterate, map_httpcore_exceptions
+from connect.utils import (
+    AsyncByteStream,
+    aiterate,
+    get_acallable_attribute,
+    map_httpcore_exceptions,
+)
 from connect.version import __version__
 from connect.writer import ServerResponseWriter
 
@@ -423,7 +428,7 @@ class ConnectUnaryUnmarshaler:
     codec: Codec | None
     read_max_bytes: int
     compression: Compression | None
-    stream: AsyncIteratorByteStream | None
+    stream: AsyncIterable[bytes] | None
 
     def __init__(
         self,
@@ -444,7 +449,7 @@ class ConnectUnaryUnmarshaler:
         self.codec = codec
         self.read_max_bytes = read_max_bytes
         self.compression = compression
-        self.stream = AsyncIteratorByteStream(stream) if stream else None
+        self.stream = stream
 
     async def unmarshal(self, message: Any) -> Any:
         """Asynchronously unmarshals a given message using the provided unmarshal function and codec.
@@ -512,9 +517,20 @@ class ConnectUnaryUnmarshaler:
                     Code.INVALID_ARGUMENT,
                 ) from e
         finally:
-            await self.stream.aclose()
+            await self.aclose()
 
         return obj
+
+    async def aclose(self) -> None:
+        """Asynchronously close the stream if it is set.
+
+        This method is intended to be called when the stream is no longer needed
+        to release any associated resources.
+
+        """
+        aclose = get_acallable_attribute(self.stream, "aclose")
+        if aclose:
+            await aclose()
 
 
 class ConnectUnaryMarshaler:
@@ -1099,42 +1115,48 @@ class ConnectUnaryRequestMarshaler:
         self.url = url
 
 
-class ResponseAsyncByteStream(AsyncByteStream):
+class HTTPCoreResponseAsyncByteStream(AsyncByteStream):
     """An asynchronous byte stream for reading and writing byte chunks."""
 
     aiterator: AsyncIterable[bytes] | None
-    aclose_func: Callable[..., Awaitable[None]] | None
+    _closed: bool
 
     def __init__(
         self,
         aiterator: AsyncIterable[bytes] | None = None,
-        aclose_func: Callable[..., Awaitable[None]] | None = None,
     ) -> None:
         """Initialize the protocol connect instance.
 
         Args:
             aiterator (AsyncIterable[bytes] | None): An optional asynchronous iterable of bytes.
-            aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous close function.
 
         Returns:
             None
 
         """
         self.aiterator = aiterator
-        self.aclose_func = aclose_func
+        self._closed = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         """Asynchronous iterator method to read byte chunks from the stream."""
-        if self.aiterator is not None:
-            with map_httpcore_exceptions():
-                async for chunk in self.aiterator:
-                    yield chunk
+        if self.aiterator:
+            try:
+                with map_httpcore_exceptions():
+                    async for chunk in self.aiterator:
+                        yield chunk
+            except BaseException as exc:
+                await self.aclose()
+                raise exc
 
     async def aclose(self) -> None:
         """Asynchronously close the stream."""
-        if self.aclose_func:
+        if not self._closed and self.aiterator:
+            aclose = get_acallable_attribute(self.aiterator, "aclose")
+            if not aclose:
+                return
+
             with map_httpcore_exceptions():
-                await self.aclose_func()
+                await aclose()
 
 
 class ConnectStreamingMarshaler:
@@ -1168,11 +1190,11 @@ class ConnectStreamingMarshaler:
         self.send_max_bytes = send_max_bytes
         self.compression = compression
 
-    async def marshal(self, messages: AsyncIterator[Any]) -> AsyncIterator[bytes]:
+    async def marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
         """Asynchronously marshals and compresses messages from an asynchronous iterator.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be marshaled.
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled.
 
         Yields:
             AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
@@ -1268,7 +1290,7 @@ class ConnectStreamingUnmarshaler:
     Attributes:
         codec (Codec): The codec used for unmarshaling data.
         compression (Compression | None): The compression method used, if any.
-        stream (AsyncIteratorByteStream | None): The asynchronous byte stream to read data from.
+        stream (AsyncIterable[bytes] | None): The asynchronous byte stream to read from.
         buffer (bytes): The buffer to store incoming data chunks.
 
     """
@@ -1276,7 +1298,7 @@ class ConnectStreamingUnmarshaler:
     codec: Codec | None
     read_max_bytes: int
     compression: Compression | None
-    stream: AsyncIteratorByteStream | None
+    stream: AsyncIterable[bytes] | None
     buffer: bytes
     _end_stream_error: ConnectError | None
     _trailers: Headers
@@ -1300,7 +1322,7 @@ class ConnectStreamingUnmarshaler:
         self.codec = codec
         self.read_max_bytes = read_max_bytes
         self.compression = compression
-        self.stream = AsyncIteratorByteStream(stream) if stream else None
+        self.stream = stream
         self.buffer = b""
         self._end_stream_error = None
         self._trailers = Headers()
@@ -1325,58 +1347,56 @@ class ConnectStreamingUnmarshaler:
         if self.codec is None:
             raise ConnectError("codec is not set", Code.INTERNAL)
 
-        try:
-            async for chunk in self.stream:
-                self.buffer += chunk
+        async for chunk in self.stream:
+            self.buffer += chunk
 
-                while True:
-                    env, data_len = Envelope.decode(self.buffer)
-                    if env is None:
-                        break
+            while True:
+                env, data_len = Envelope.decode(self.buffer)
+                if env is None:
+                    break
 
-                    if self.read_max_bytes > 0 and data_len > self.read_max_bytes:
+                if self.read_max_bytes > 0 and data_len > self.read_max_bytes:
+                    raise ConnectError(
+                        f"message size {data_len} is larger than configured readMaxBytes {self.read_max_bytes}",
+                        Code.RESOURCE_EXHAUSTED,
+                    )
+
+                self.buffer = self.buffer[5 + data_len :]
+
+                if env.is_set(EnvelopeFlags.compressed):
+                    if not self.compression:
                         raise ConnectError(
-                            f"message size {data_len} is larger than configured readMaxBytes {self.read_max_bytes}",
-                            Code.RESOURCE_EXHAUSTED,
+                            "protocol error: sent compressed message without compression support", Code.INTERNAL
                         )
 
-                    self.buffer = self.buffer[5 + data_len :]
+                    env.data = self.compression.decompress(env.data, self.read_max_bytes)
 
-                    if env.is_set(EnvelopeFlags.compressed):
-                        if not self.compression:
-                            raise ConnectError(
-                                "protocol error: sent compressed message without compression support", Code.INTERNAL
-                            )
+                if env.is_set(EnvelopeFlags.end_stream):
+                    error, trailers = end_stream_from_bytes(env.data)
+                    self._end_stream_error = error
+                    self._trailers = trailers
+                    end = True
+                    obj = None
+                else:
+                    try:
+                        obj = self.codec.unmarshal(env.data, message)
+                    except Exception as e:
+                        raise ConnectError(
+                            f"unmarshal message: {str(e)}",
+                            Code.INVALID_ARGUMENT,
+                        ) from e
 
-                        env.data = self.compression.decompress(env.data, self.read_max_bytes)
+                    end = False
 
-                    if env.is_set(EnvelopeFlags.end_stream):
-                        error, trailers = end_stream_from_bytes(env.data)
-                        self._end_stream_error = error
-                        self._trailers = trailers
-                        end = True
-                        obj = None
-                    else:
-                        try:
-                            obj = self.codec.unmarshal(env.data, message)
-                        except Exception as e:
-                            raise ConnectError(
-                                f"unmarshal message: {str(e)}",
-                                Code.INVALID_ARGUMENT,
-                            ) from e
+                yield obj, end
 
-                        end = False
-
-                    yield obj, end
-
-            if len(self.buffer) > 0:
-                header = Envelope.decode_header(self.buffer)
-                if header:
-                    message = f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
-                    raise ConnectError(message, Code.INVALID_ARGUMENT)
-
-        finally:
-            await self.stream.aclose()
+        if len(self.buffer) > 0:
+            header = Envelope.decode_header(self.buffer)
+            if header:
+                message = (
+                    f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
+                )
+                raise ConnectError(message, Code.INVALID_ARGUMENT)
 
     @property
     def trailers(self) -> Headers:
@@ -1400,6 +1420,20 @@ class ConnectStreamingUnmarshaler:
 
         """
         return self._end_stream_error
+
+    async def aclose(self) -> None:
+        """Asynchronously closes the stream if it has an `aclose` method.
+
+        This method checks if the `self.stream` object has an asynchronous
+        `aclose` method. If the method exists, it is invoked to close the stream.
+
+        Returns:
+            None
+
+        """
+        aclose = get_acallable_attribute(self.stream, "aclose")
+        if aclose:
+            await aclose()
 
 
 class ConnectStreamingHandlerConn(StreamingHandlerConn):
@@ -1506,7 +1540,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._request_headers
 
-    async def send(self, messages: AsyncIterator[Any]) -> None:
+    async def send(self, messages: AsyncIterable[Any]) -> None:
         """Send a stream of messages asynchronously.
 
         This method marshals the provided messages and sends them using the writer.
@@ -1514,7 +1548,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         converts it to a JSON object, and sends it as the final message in the stream.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent.
 
         Returns:
             None
@@ -1719,18 +1753,26 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def receive(self, message: Any) -> AsyncIterator[Any]:
+    async def receive(self, message: Any, abort_event: asyncio.Event | None = None) -> AsyncIterator[Any]:
         """Asynchronously receives and processes a message.
 
         Args:
             message (Any): The message to be processed.
+            abort_event (asyncio.Event | None): Event to signal abortion of the operation.
 
         Yields:
             Any: Objects obtained from unmarshaling the message.
 
+        Raises:
+            ConnectError: If stream is malformed or aborted.
+
         """
         end_stream_received = False
+
         async for obj, end in self.unmarshaler.unmarshal(message):
+            if abort_event and abort_event.is_set():
+                raise ConnectError("receive operation aborted", Code.CANCELED)
+
             if end:
                 if end_stream_received:
                     raise ConnectError("received extra end stream message", Code.INVALID_ARGUMENT)
@@ -1756,24 +1798,33 @@ class ConnectStreamingClientConn(StreamingClientConn):
         if not end_stream_received:
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
-    async def send(self, messages: AsyncIterator[Any], timeout: float | None) -> None:
-        """Send a series of messages asynchronously.
-
-        This method marshals the provided messages, constructs an HTTP POST request,
-        and sends it using the httpcore library. It also triggers any registered
-        request and response hooks, and validates the response.
+    async def send(
+        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+    ) -> None:
+        """Send an asynchronous HTTP POST request with the given messages and handle the response.
 
         Args:
-            messages (AsyncIterator[Any]): An asynchronous iterator of messages to be sent.
-            timeout (float | None): The timeout for the request in seconds.
-
-        Returns:
-            None
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent.
+            timeout (float | None): Optional timeout value in seconds for the request. If provided,
+                it sets the read timeout for the request.
+            abort_event (asyncio.Event | None): Optional asyncio event that, if set, will abort the request.
 
         Raises:
-            Exception: If there is an error during the request or response handling.
+            ConnectError: If the request is aborted or if there is an error during the request.
+
+        Hooks:
+            - Executes hooks registered in `self._event_hooks["request"]` before sending the request.
+            - Executes hooks registered in `self._event_hooks["response"]` after receiving the response.
+
+        Notes:
+            - If `abort_event` is provided and set during the request, the request will be canceled,
+              and a `ConnectError` with code `Code.CANCELED` will be raised.
+            - The response stream is unmarshaled and validated after the request is completed.
 
         """
+        if abort_event and abort_event.is_set():
+            raise ConnectError("request aborted", Code.CANCELED)
+
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
@@ -1802,14 +1853,32 @@ class ConnectStreamingClientConn(StreamingClientConn):
             hook(request)
 
         with map_httpcore_exceptions():
-            response = await self.session.pool.handle_async_request(request)
+            if not abort_event:
+                response = await self.session.pool.handle_async_request(request)
+            else:
+                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                abort_task = asyncio.create_task(abort_event.wait())
+
+                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+
+                if abort_task in done:
+                    request_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await request_task
+
+                    raise ConnectError("request aborted", Code.CANCELED)
+
+                abort_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await abort_task
+
+                response = await request_task
 
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        self.unmarshaler.stream = AsyncIteratorByteStream(
-            ResponseAsyncByteStream(aiterator=response.aiter_stream(), aclose_func=response.aclose)
-        )
+        assert isinstance(response.stream, AsyncIterable)
+        self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(aiterator=response.stream)
 
         await self._validate_response(response)
 
@@ -1851,6 +1920,15 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
         self._response_headers.update(response_headers)
+
+    async def aclose(self) -> None:
+        """Asynchronously closes the connection by invoking the `aclose` method of the unmarshaler.
+
+        Returns:
+            None
+
+        """
+        await self.unmarshaler.aclose()
 
 
 class ConnectUnaryClientConn(UnaryClientConn):
@@ -1983,20 +2061,27 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def send(self, message: Any, timeout: float | None) -> bytes:
-        """Send a message asynchronously and returns the marshaled data.
+    async def send(self, message: Any, timeout: float | None, abort_event: asyncio.Event | None) -> bytes:
+        """Send a message asynchronously using the specified HTTP method and handles the response.
 
         Args:
-            message (Any): The message to be sent.
-            timeout (float | None): The timeout for the request in seconds.
+            message (Any): The message to be sent, which will be marshaled before sending.
+            timeout (float | None): The timeout for the request in seconds. If provided, it will be
+                included in the request headers and extensions.
+            abort_event (asyncio.Event | None): An optional asyncio event that can be used to abort
+                the request. If the event is set, the request will be canceled.
 
         Returns:
-            bytes: The marshaled data of the message.
+            bytes: The marshaled data of the message that was sent.
 
         Raises:
-            Exception: If the response validation fails.
+            ConnectError: If the request is aborted or if there are issues during the request/response
+                lifecycle.
 
         """
+        if abort_event and abort_event.is_set():
+            raise ConnectError("request aborted", Code.CANCELED)
+
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
@@ -2046,14 +2131,32 @@ class ConnectUnaryClientConn(UnaryClientConn):
             hook(request)
 
         with map_httpcore_exceptions():
-            response = await self.session.pool.handle_async_request(request=request)
+            if not abort_event:
+                response = await self.session.pool.handle_async_request(request=request)
+            else:
+                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                abort_task = asyncio.create_task(abort_event.wait())
+
+                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+
+                if abort_task in done:
+                    request_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await request_task
+
+                    raise ConnectError("request aborted", Code.CANCELED)
+
+                abort_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await abort_task
+
+                response = await request_task
 
         for hook in self._event_hooks["response"]:
             hook(response)
 
-        self.unmarshaler.stream = AsyncIteratorByteStream(
-            ResponseAsyncByteStream(response.aiter_stream(), response.aclose)
-        )
+        assert isinstance(response.stream, AsyncIterable)
+        self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(response.stream)
 
         await self._validate_response(response)
 

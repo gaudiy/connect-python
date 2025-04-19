@@ -1,7 +1,1 @@
-# Cancellation is not supported yet
-Client Cancellation/**/bidi-stream/half-duplex/cancel-after-close-send
-Client Cancellation/**/bidi-stream/half-duplex/cancel-before-close-send
-Client Cancellation/**/bidi-stream/half-duplex/cancel-after-responses
-Client Cancellation/**/bidi-stream/full-duplex/cancel-after-close-send
-Client Cancellation/**/bidi-stream/full-duplex/cancel-before-close-send
-Client Cancellation/**/bidi-stream/full-duplex/cancel-after-responses
+

@@ -26,6 +26,8 @@ from connect.session import AsyncClientSession
 from connect.writer import ServerResponseWriter
 
 PROTOCOL_CONNECT = "connect"
+PROTOCOL_GRPC = "grpc"
+PROTOCOL_GRPC_WEB = "grpc-web"
 
 HEADER_CONTENT_TYPE = "Content-Type"
 HEADER_CONTENT_ENCODING = "Content-Encoding"

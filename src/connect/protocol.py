@@ -382,6 +382,13 @@ def exclude_protocol_headers(headers: Headers) -> Headers:
             "connect-accept-encoding",
             "connect-timeout-ms",
             "connect-protocol-version",
+            # // gRPC headers.
+            "Grpc-Status",
+            "Grpc-Accept-Encoding",
+            "Grpc-Timeout",
+            "Grpc-Status",
+            "Grpc-Message",
+            "Grpc-Status-Details-Bin",
         ]:
             non_protocol_headers[key] = value
 

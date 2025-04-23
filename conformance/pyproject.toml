@@ -9,11 +9,12 @@ dependencies = [
   "anyio>=4.8.0",
   "connect-python",
   "cryptography>=44.0.2",
-  "hypercorn>=0.17.3",
+  "hypercorn",
 ]
 
 [tool.uv.sources]
 connect-python = { path = "../" }
+hypercorn = { git = "https://github.com/tsubakiky/hypercorn" }
 
 [dependency-groups]
 dev = ["mypy>=1.15.0", "pyright>=1.1.398", "ruff>=0.11.2"]

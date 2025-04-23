@@ -44,6 +44,7 @@ from connect.protocol_connect import (
     CONNECT_HEADER_TIMEOUT,
     ProtocolConnect,
 )
+from connect.protocol_grpc import ProtocolGPRC
 from connect.request import Request
 from connect.response import Response
 from connect.writer import ServerResponseWriter
@@ -124,7 +125,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
         list[ProtocolHandler]: A list of initialized protocol handlers.
 
     """
-    protocols = [ProtocolConnect()]
+    protocols = [ProtocolConnect(), ProtocolGPRC(web=False)]
 
     codecs = CodecMap(config.codecs)
 

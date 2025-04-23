@@ -144,6 +144,8 @@ class GRPCHandler(ProtocolHandler):
     async def stream_conn(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> StreamingHandlerConn | None:
+        # TODO: Implement streaming connection handling for gRPC
+        # When implementing, ensure the timeout is properly forwarded from the request to the peer
         raise NotImplementedError()
 
 
@@ -263,7 +265,13 @@ class GRPCHandlerConn(UnaryHandlerConn):
         return self._response_trailers
 
     async def send_error(self, error: ConnectError) -> None:
-        raise NotImplementedError()
+        self.response_trailers[GRPC_HEADER_STATUS] = str(error.code.value)
+
+        await self.writer.write(
+            StreamingResponseWithTrailers(
+                content=aiterate([b""]), headers=self.response_headers, trailers=self.response_trailers, status_code=200
+            )
+        )
 
 
 def grpc_codec_from_content_type(web: bool, content_type: str) -> str:
@@ -303,4 +311,4 @@ def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
     trailer[GRPC_HEADER_STATUS] = str(code)
     trailer[GRPC_HEADER_MESSAGE] = urllib.parse.quote(message)
     if bin:
-        trailer[GRPC_HEADER_DETAILS] = base64.urlsafe_b64decode(bin).decode()
+        trailer[GRPC_HEADER_DETAILS] = base64.b64encode(bin).decode().rstrip("=")

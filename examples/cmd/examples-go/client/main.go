@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 
 	"connectrpc.com/connect"
 	elizav1 "github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1"
 	"github.com/gaudiy/connect-python/examples/proto/connectrpc/eliza/v1/v1connect"
+	"golang.org/x/net/http2"
 )
 
 type mode int
@@ -94,7 +97,22 @@ func main() {
 }
 
 func runClient() error {
-	client := v1connect.NewElizaServiceClient(http.DefaultClient, "http://localhost:8080/")
+	// Create an HTTP/2 transport that allows unencrypted HTTP/2
+	transport := &http2.Transport{
+		AllowHTTP: true,
+		// Pretend we are dialing TLS but we are not
+		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+			return net.Dial(network, addr)
+		},
+	}
+
+	// Create an HTTP client with the HTTP/2 transport
+	httpClient := &http.Client{
+		Transport: transport,
+	}
+
+	// Create the ElizaService client with the HTTP/2 client
+	client := v1connect.NewElizaServiceClient(httpClient, "http://localhost:8080/", connect.WithGRPC())
 
 	ctx := context.Background()
 	switch rpcType {

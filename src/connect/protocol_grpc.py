@@ -1,7 +1,12 @@
+import base64
+import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator
 from http import HTTPMethod
 from typing import Any
 
+from google.rpc import status_pb2
+
+from connect.code import Code
 from connect.codec import Codec, CodecNameType
 from connect.compression import COMPRESSION_IDENTITY, Compression
 from connect.connect import Address, Peer, Spec, StreamingHandlerConn, UnaryHandlerConn
@@ -12,15 +17,23 @@ from connect.protocol import (
     HEADER_CONTENT_TYPE,
     PROTOCOL_GRPC,
     Protocol,
+    ProtocolClient,
+    ProtocolClientParams,
     ProtocolHandler,
     ProtocolHandlerParams,
+    exclude_protocol_headers,
     negotiate_compression,
 )
 from connect.request import Request
+from connect.response_trailer import StreamingResponseWithTrailers
+from connect.utils import aiterate
 from connect.writer import ServerResponseWriter
 
 GRPC_HEADER_COMPRESSION = "Grpc-Encoding"
 GRPC_HEADER_ACCEPT_COMPRESSION = "Grpc-Accept-Encoding"
+GRPC_HEADER_STATUS = "Grpc-Status"
+GRPC_HEADER_MESSAGE = "Grpc-Message"
+GRPC_HEADER_DETAILS = "Grpc-Status-Details-Bin"
 
 GRPC_CONTENT_TYPE_DEFAULT = "application/grpc"
 GRPC_WEB_CONTENT_TYPE_DEFAULT = "application/grpc-web"
@@ -49,6 +62,14 @@ class ProtocolGPRC(Protocol):
             content_types.append(bare)
 
         return GRPCHandler(params, self.web, content_types)
+
+    def client(self, params: ProtocolClientParams) -> ProtocolClient:
+        """Implement client functionality.
+
+        This method currently does nothing and is intended to be implemented
+        in the future with the necessary client-side logic.
+        """
+        raise NotImplementedError()
 
 
 class GRPCHandler(ProtocolHandler):
@@ -97,6 +118,7 @@ class GRPCHandler(ProtocolHandler):
         )
 
         conn = GRPCHandlerConn(
+            writer=writer,
             spec=self.params.spec,
             peer=peer,
             marshaler=GRPCMarshaler(
@@ -112,6 +134,9 @@ class GRPCHandler(ProtocolHandler):
                 request.stream(),
                 request_compression,
             ),
+            request_headers=Headers(request.headers, encoding="latin-1"),
+            response_headers=response_headers,
+            response_trailers=response_trailers,
         )
 
         return conn
@@ -136,6 +161,10 @@ class GRPCMarshaler(EnvelopeWriter):
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes)
         self.web = web
 
+    async def marshal(self, messages: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
+        async for message in self._marshal(messages):
+            yield message
+
 
 class GRPCUnmarshaler(EnvelopeReader):
     def __init__(
@@ -155,14 +184,32 @@ class GRPCUnmarshaler(EnvelopeReader):
 class GRPCHandlerConn(UnaryHandlerConn):
     _spec: Spec
     _peer: Peer
+    writer: ServerResponseWriter
     marshaler: GRPCMarshaler
     unmarshaler: GRPCUnmarshaler
+    _request_headers: Headers
+    _response_headers: Headers
+    _response_trailers: Headers
 
-    def __init__(self, spec: Spec, peer: Peer, marshaler: GRPCMarshaler, unmarshaler: GRPCUnmarshaler) -> None:
+    def __init__(
+        self,
+        writer: ServerResponseWriter,
+        spec: Spec,
+        peer: Peer,
+        marshaler: GRPCMarshaler,
+        unmarshaler: GRPCUnmarshaler,
+        request_headers: Headers,
+        response_headers: Headers,
+        response_trailers: Headers | None = None,
+    ) -> None:
+        self.writer = writer
         self._spec = spec
         self._peer = peer
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
+        self._request_headers = request_headers
+        self._response_headers = response_headers
+        self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     @property
     def spec(self) -> Spec:
@@ -174,7 +221,7 @@ class GRPCHandlerConn(UnaryHandlerConn):
 
     async def receive(self, message: Any) -> Any:
         first = None
-        async for obj, _ in self.unmarshaler.unmarshal(message):
+        async for obj in self.unmarshaler.unmarshal(message):
             # TODO(tsubakiky): validation
             if first is None:
                 first = obj
@@ -185,18 +232,35 @@ class GRPCHandlerConn(UnaryHandlerConn):
 
     @property
     def request_headers(self) -> Headers:
-        raise NotImplementedError()
+        return self._request_headers
 
-    async def send(self, messages: AsyncIterable[Any]) -> None:
-        raise NotImplementedError()
+    async def send(self, message: Any) -> None:
+        async def iterator() -> AsyncIterator[bytes]:
+            error: ConnectError | None = None
+            try:
+                async for msg in self.marshaler.marshal(aiterate([message])):
+                    yield msg
+            except Exception as e:
+                error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+            finally:
+                grpc_error_to_trailer(self.response_trailers, error)
+
+        await self.writer.write(
+            StreamingResponseWithTrailers(
+                content=iterator(),
+                headers=self.response_headers,
+                trailers=self.response_trailers,
+                status_code=200,
+            )
+        )
 
     @property
     def response_headers(self) -> Headers:
-        raise NotImplementedError()
+        return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
-        raise NotImplementedError()
+        return self._response_trailers
 
     async def send_error(self, error: ConnectError) -> None:
         raise NotImplementedError()
@@ -214,3 +278,29 @@ def grpc_codec_from_content_type(web: bool, content_type: str) -> str:
         return content_type[len(prefix) :]
     else:
         return content_type
+
+
+def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
+    if error is None:
+        trailer[GRPC_HEADER_STATUS] = "0"
+        return
+
+    if not ConnectError.wire_error:
+        trailer.update(exclude_protocol_headers(error.metadata))
+
+    status = status_pb2.Status(
+        code=error.code.value,
+        message=error.raw_message,
+        details=error.details_any(),
+    )
+    code = status.code
+    message = status.message
+    bin = None
+
+    if len(status.details) > 0:
+        bin = status.SerializeToString()
+
+    trailer[GRPC_HEADER_STATUS] = str(code)
+    trailer[GRPC_HEADER_MESSAGE] = urllib.parse.quote(message)
+    if bin:
+        trailer[GRPC_HEADER_DETAILS] = base64.urlsafe_b64decode(bin).decode()

@@ -1,2 +1,1 @@
-Connect Unexpected Responses/HTTPVersion:2/TLS:true/client-stream/multiple-responses
-Connect Unexpected Responses/HTTPVersion:2/TLS:false/client-stream/ok-but-no-response
+Basic/HTTPVersion:2/Protocol:PROTOCOL_GRPC/Codec:CODEC_PROTO/Compression:COMPRESSION_GZIP/TLS:false/(grpc client impl)/unary/success

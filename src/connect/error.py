@@ -103,3 +103,7 @@ class ConnectError(Exception):
         self.metadata = metadata if metadata is not None else Headers()
         self.details = details if details is not None else []
         self.wire_error = wire_error
+
+    def details_any(self) -> list[any_pb2.Any]:
+        """Return the details as a list of Any messages."""
+        return [detail.pb_any for detail in self.details]

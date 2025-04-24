@@ -1,7 +1,6 @@
 """Module provides handler configurations and implementations for unary procedures and stream types."""
 
 import asyncio
-import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from http import HTTPMethod, HTTPStatus
@@ -19,7 +18,6 @@ from connect.connect import (
     StreamRequest,
     StreamResponse,
     StreamType,
-    UnaryHandlerConn,
     UnaryRequest,
     UnaryResponse,
     receive_stream_request,
@@ -46,6 +44,7 @@ from connect.protocol_connect import (
 from connect.protocol_grpc import ProtocolGPRC
 from connect.request import Request
 from connect.response import Response
+from connect.utils import aiterate
 from connect.writer import ServerResponseWriter
 
 logging.basicConfig(level=logging.INFO)
@@ -148,7 +147,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-UnaryImplementationFunc = Callable[[UnaryHandlerConn, float | None], Awaitable[None]]
+UnaryImplementationFunc = Callable[[StreamingHandlerConn, float | None], Awaitable[None]]
 StreamImplementationFunc = Callable[[StreamingHandlerConn, float | None], Awaitable[None]]
 
 
@@ -291,9 +290,12 @@ class Handler:
     async def _handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> None:
-        if self.is_stream(self.implementation):
+        # Check the stream type of the handler
+        if getattr(self, "stream_type", StreamType.Unary) != StreamType.Unary:
+            self._is_stream_handler = True
             await self.stream_handle(request, response_headers, response_trailers, writer)
         else:
+            self._is_stream_handler = False
             await self.unary_handle(request, response_headers, response_trailers, writer)
 
     def is_stream(
@@ -308,9 +310,9 @@ class Handler:
             TypeGuard[StreamImplementationFunc]: True if the implementation function is a stream implementation, False otherwise.
 
         """
-        signature = inspect.signature(impl)
-        parameters = signature.parameters
-        return len(parameters) == 2 and next(iter(parameters.values())).annotation == StreamingHandlerConn
+        # Since we've consolidated to a single connection type, use a sentinel value in the handler config
+        is_stream_handler = getattr(self, "_is_stream_handler", False)
+        return is_stream_handler
 
     def is_unary(self, impl: UnaryImplementationFunc | StreamImplementationFunc) -> TypeGuard[UnaryImplementationFunc]:
         """Determine if the given implementation function is a unary implementation.
@@ -322,9 +324,9 @@ class Handler:
             TypeGuard[UnaryImplementationFunc]: True if the implementation function is a unary implementation, False otherwise.
 
         """
-        signature = inspect.signature(impl)
-        parameters = signature.parameters
-        return len(parameters) == 2 and next(iter(parameters.values())).annotation == UnaryHandlerConn
+        # Since we've consolidated to a single connection type, use a sentinel value in the handler config
+        is_stream_handler = getattr(self, "_is_stream_handler", False)
+        return not is_stream_handler
 
     async def stream_handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
@@ -345,7 +347,8 @@ class Handler:
             ConnectError: If an internal error occurs during the handling of the stream.
 
         """
-        conn = await self.protocol_handler.stream_conn(request, response_headers, response_trailers, writer)
+        self._is_stream_handler = True
+        conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer, is_streaming=True)
         if conn is None:
             return
 
@@ -387,6 +390,7 @@ class Handler:
             None
 
         """
+        self._is_stream_handler = False
         conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
         if conn is None:
             return
@@ -399,7 +403,6 @@ class Handler:
             timeout = conn.parse_timeout()
             if timeout:
                 timeout_ms = int(timeout * 1000)
-
                 with anyio.fail_after(delay=timeout):
                     await implementation(conn, timeout_ms)
             else:
@@ -413,7 +416,6 @@ class Handler:
 
             if isinstance(e, NotImplementedError):
                 error = ConnectError("not implemented", Code.UNIMPLEMENTED)
-
             await conn.send_error(error)
 
 
@@ -438,6 +440,7 @@ class UnaryHandler[T_Request, T_Response](Handler):
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
+    stream_type: StreamType = StreamType.Unary
 
     def __init__(
         self,
@@ -460,7 +463,7 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: UnaryHandlerConn, timeout: float | None) -> None:
+        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
             request = await receive_unary_request(conn, input)
             if timeout:
                 request.timeout = timeout
@@ -475,7 +478,7 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
             conn.response_headers.update(exclude_protocol_headers(response.headers))
             conn.response_trailers.update(exclude_protocol_headers(response.trailers))
-            await conn.send(response.message)
+            await conn.send(aiterate([response.message]))
 
         super().__init__(
             procedure=procedure,
@@ -502,6 +505,8 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
             Defaults to None.
 
     """
+
+    stream_type: StreamType = StreamType.ServerStream
 
     def __init__(
         self,
@@ -574,6 +579,8 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
         accept_post (List[str]): Accepted POST values.
 
     """
+
+    stream_type: StreamType = StreamType.ClientStream
 
     def __init__(
         self,
@@ -663,6 +670,8 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
             function, input/output types, and options.
 
     """
+
+    stream_type: StreamType = StreamType.BiDiStream
 
     def __init__(
         self,

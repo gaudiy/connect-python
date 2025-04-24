@@ -1,1 +1,1 @@
-Basic/HTTPVersion:2/Protocol:PROTOCOL_GRPC/Codec:CODEC_PROTO/Compression:COMPRESSION_GZIP/TLS:false/(grpc client impl)/unimplemented
+gRPC Unexpected Requests/HTTPVersion:2/TLS:false/unary/no-request

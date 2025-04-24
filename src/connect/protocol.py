@@ -16,7 +16,6 @@ from connect.connect import (
     StreamingHandlerConn,
     StreamType,
     UnaryClientConn,
-    UnaryHandlerConn,
 )
 from connect.error import ConnectError
 from connect.headers import Headers
@@ -108,7 +107,7 @@ class ProtocolClient(abc.ABC):
         raise NotImplementedError()
 
 
-HanderConn = UnaryHandlerConn | StreamingHandlerConn
+HanderConn = StreamingHandlerConn
 
 
 class ProtocolHandler(abc.ABC):
@@ -157,39 +156,24 @@ class ProtocolHandler(abc.ABC):
 
     @abc.abstractmethod
     async def conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> UnaryHandlerConn | None:
-        """Handle a unary connection request.
+        self,
+        request: Request,
+        response_headers: Headers,
+        response_trailers: Headers,
+        writer: ServerResponseWriter,
+        is_streaming: bool = False,
+    ) -> StreamingHandlerConn | None:
+        """Handle a connection request.
 
         Args:
             request (Request): The incoming request object.
             response_headers (Headers): The headers to be sent in the response.
             response_trailers (Headers): The trailers to be sent in the response.
             writer (ServerResponseWriter): The writer used to send the response.
+            is_streaming (bool, optional): Whether this is a streaming connection. Defaults to False.
 
         Returns:
-            UnaryHandlerConn | None: The connection handler or None if not implemented.
-
-        Raises:
-            NotImplementedError: If the method is not implemented.
-
-        """
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    async def stream_conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> StreamingHandlerConn | None:
-        """Handle a streaming connection.
-
-        Args:
-            request (Request): The incoming request object.
-            response_headers (Headers): The headers to be sent in the response.
-            response_trailers (Headers): The trailers to be sent in the response.
-            writer (ServerResponseWriter): The writer object to send the response.
-
-        Returns:
-            StreamingHandlerConn | None: The streaming handler connection object or None if not implemented.
+            StreamingHandlerConn | None: The connection handler or None if not implemented.
 
         Raises:
             NotImplementedError: If the method is not implemented.

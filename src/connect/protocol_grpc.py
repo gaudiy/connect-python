@@ -10,7 +10,7 @@ from google.rpc import status_pb2
 from connect.code import Code
 from connect.codec import Codec, CodecNameType
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Address, Peer, Spec, StreamingHandlerConn, UnaryHandlerConn
+from connect.connect import Address, Peer, Spec, StreamingHandlerConn, StreamType
 from connect.envelope import EnvelopeReader, EnvelopeWriter
 from connect.error import ConnectError
 from connect.headers import Headers
@@ -78,12 +78,16 @@ class ProtocolGPRC(Protocol):
         return GRPCHandler(params, self.web, content_types)
 
     def client(self, params: ProtocolClientParams) -> ProtocolClient:
-        """Implement client functionality.
+        """Create and return a GRPCClient instance.
 
-        This method currently does nothing and is intended to be implemented
-        in the future with the necessary client-side logic.
+        Args:
+            params (ProtocolClientParams): The parameters required to initialize the client.
+
+        Returns:
+            ProtocolClient: An instance of GRPCClient.
+
         """
-        raise NotImplementedError()
+        raise NotImplementedError("GRPC client is not implemented yet.")
 
 
 class GRPCHandler(ProtocolHandler):
@@ -107,8 +111,26 @@ class GRPCHandler(ProtocolHandler):
         return content_type in self.accept
 
     async def conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> UnaryHandlerConn | None:
+        self,
+        request: Request,
+        response_headers: Headers,
+        response_trailers: Headers,
+        writer: ServerResponseWriter,
+        is_streaming: bool = False,
+    ) -> StreamingHandlerConn | None:
+        """Handle a connection request.
+
+        Args:
+            request (Request): The incoming request object.
+            response_headers (Headers): The headers to be sent in the response.
+            response_trailers (Headers): The trailers to be sent in the response.
+            writer (ServerResponseWriter): The writer used to send the response.
+            is_streaming (bool, optional): Whether this is a streaming connection. Defaults to False.
+
+        Returns:
+            StreamingHandlerConn | None: The connection handler or None if not implemented.
+
+        """
         content_encoding = request.headers.get(GRPC_HEADER_COMPRESSION)
         accept_encoding = request.headers.get(GRPC_HEADER_ACCEPT_COMPRESSION)
 
@@ -131,6 +153,7 @@ class GRPCHandler(ProtocolHandler):
             query=request.query_params,
         )
 
+        # Create a single unified handler class with streaming flag
         conn = GRPCHandlerConn(
             writer=writer,
             spec=self.params.spec,
@@ -151,59 +174,9 @@ class GRPCHandler(ProtocolHandler):
             request_headers=Headers(request.headers, encoding="latin-1"),
             response_headers=response_headers,
             response_trailers=response_trailers,
-        )
-        if error:
-            await conn.send_error(error)
-            return None
-
-        return conn
-
-    async def stream_conn(
-        self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
-    ) -> StreamingHandlerConn | None:
-        content_encoding = request.headers.get(GRPC_HEADER_COMPRESSION)
-        accept_encoding = request.headers.get(GRPC_HEADER_ACCEPT_COMPRESSION)
-
-        request_compression, response_compression, error = negotiate_compression(
-            self.params.compressions, content_encoding, accept_encoding
+            is_streaming=is_streaming,
         )
 
-        response_headers[HEADER_CONTENT_TYPE] = request.headers.get(HEADER_CONTENT_TYPE, "")
-        response_headers[GRPC_HEADER_ACCEPT_COMPRESSION] = f"{', '.join(c.name for c in self.params.compressions)}"
-        if response_compression and response_compression.name != COMPRESSION_IDENTITY:
-            response_headers[GRPC_HEADER_COMPRESSION] = response_compression.name
-
-        codec_name = grpc_codec_from_content_type(self.web, request.headers.get(HEADER_CONTENT_TYPE, ""))
-        codec = self.params.codecs.get(codec_name)
-        protocol_name = PROTOCOL_GRPC if not self.web else PROTOCOL_GRPC + "-web"
-
-        peer = Peer(
-            address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
-            protocol=protocol_name,
-            query=request.query_params,
-        )
-
-        conn = GRPCStreamingHandlerConn(
-            writer=writer,
-            spec=self.params.spec,
-            peer=peer,
-            marshaler=GRPCMarshaler(
-                self.web,
-                codec,
-                response_compression,
-                self.params.compress_min_bytes,
-                self.params.send_max_bytes,
-            ),
-            unmarshaler=GRPCUnmarshaler(
-                codec,
-                self.params.read_max_bytes,
-                request.stream(),
-                request_compression,
-            ),
-            request_headers=Headers(request.headers, encoding="latin-1"),
-            response_headers=response_headers,
-            response_trailers=response_trailers,
-        )
         if error:
             await conn.send_error(error)
             return None
@@ -245,7 +218,7 @@ class GRPCUnmarshaler(EnvelopeReader):
             yield obj
 
 
-class GRPCHandlerConn(UnaryHandlerConn):
+class GRPCHandlerConn(StreamingHandlerConn):
     _spec: Spec
     _peer: Peer
     writer: ServerResponseWriter
@@ -254,6 +227,7 @@ class GRPCHandlerConn(UnaryHandlerConn):
     _request_headers: Headers
     _response_headers: Headers
     _response_trailers: Headers
+    _is_streaming: bool
 
     def __init__(
         self,
@@ -265,6 +239,7 @@ class GRPCHandlerConn(UnaryHandlerConn):
         request_headers: Headers,
         response_headers: Headers,
         response_trailers: Headers | None = None,
+        is_streaming: bool = False,
     ) -> None:
         self.writer = writer
         self._spec = spec
@@ -274,6 +249,7 @@ class GRPCHandlerConn(UnaryHandlerConn):
         self._request_headers = request_headers
         self._response_headers = response_headers
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
+        self._is_streaming = is_streaming
 
     def parse_timeout(self) -> float | None:
         timeout = self._request_headers.get(GRPC_HEADER_TIMEOUT)
@@ -304,131 +280,72 @@ class GRPCHandlerConn(UnaryHandlerConn):
     def peer(self) -> Peer:
         return self._peer
 
-    async def receive(self, message: Any) -> Any:
-        first = None
-        async for obj in self.unmarshaler.unmarshal(message):
-            # TODO(tsubakiky): validation
-            if first is None:
-                first = obj
-            else:
-                raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
+    def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Receives a message and processes it.
 
-        if first is None:
-            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+        Args:
+            message (Any): The message to be received and processed.
 
-        return first
+        Returns:
+            AsyncIterator[Any]: An async iterator yielding message(s). For non-streaming operations,
+                             this will yield exactly one item.
 
-    @property
-    def request_headers(self) -> Headers:
-        return self._request_headers
+        """
+        # Different behavior based on streaming mode
+        if not self._is_streaming and self.spec.stream_type == StreamType.Unary:
 
-    async def send(self, message: Any) -> None:
-        async def iterator() -> AsyncIterator[bytes]:
-            error: ConnectError | None = None
-            try:
-                async for msg in self.marshaler.marshal(aiterate([message])):
-                    yield msg
-            except Exception as e:
-                error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
-            finally:
-                grpc_error_to_trailer(self.response_trailers, error)
+            async def _receive_unary() -> AsyncIterator[Any]:
+                count = 0
+                async for obj in self.unmarshaler.unmarshal(message):
+                    count += 1
+                    if count > 1:
+                        raise ConnectError(
+                            "protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED
+                        )
+                    yield obj
 
-        await self.writer.write(
-            StreamingResponseWithTrailers(
-                content=iterator(),
-                headers=self.response_headers,
-                trailers=self.response_trailers,
-                status_code=200,
-            )
-        )
+                if count == 0:
+                    raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
 
-    @property
-    def response_headers(self) -> Headers:
-        return self._response_headers
+            return _receive_unary()
+        else:
+            # Streaming mode - simply pass through all messages
+            async def _receive_streaming() -> AsyncIterator[Any]:
+                async for obj in self.unmarshaler.unmarshal(message):
+                    # TODO(tsubakiky): validation
+                    yield obj
 
-    @property
-    def response_trailers(self) -> Headers:
-        return self._response_trailers
-
-    async def send_error(self, error: ConnectError) -> None:
-        grpc_error_to_trailer(self.response_trailers, error)
-
-        await self.writer.write(
-            StreamingResponseWithTrailers(
-                content=aiterate([b""]), headers=self.response_headers, trailers=self.response_trailers, status_code=200
-            )
-        )
-
-
-class GRPCStreamingHandlerConn(StreamingHandlerConn):
-    _spec: Spec
-    _peer: Peer
-    writer: ServerResponseWriter
-    marshaler: GRPCMarshaler
-    unmarshaler: GRPCUnmarshaler
-    _request_headers: Headers
-    _response_headers: Headers
-    _response_trailers: Headers
-
-    def __init__(
-        self,
-        writer: ServerResponseWriter,
-        spec: Spec,
-        peer: Peer,
-        marshaler: GRPCMarshaler,
-        unmarshaler: GRPCUnmarshaler,
-        request_headers: Headers,
-        response_headers: Headers,
-        response_trailers: Headers | None = None,
-    ) -> None:
-        self.writer = writer
-        self._spec = spec
-        self._peer = peer
-        self.marshaler = marshaler
-        self.unmarshaler = unmarshaler
-        self._request_headers = request_headers
-        self._response_headers = response_headers
-        self._response_trailers = response_trailers if response_trailers is not None else Headers()
-
-    def parse_timeout(self) -> float | None:
-        timeout = self._request_headers.get(GRPC_HEADER_TIMEOUT)
-        if not timeout:
-            return None
-
-        m = _RE.match(timeout)
-        if m is None:
-            raise ConnectError(f"protocol error: invalid grpc timeout value: {timeout}")
-
-        num_str, unit = m.groups()
-        num = int(num_str)
-
-        if num > 99_999_999:
-            raise ConnectError(f"protocol error: timeout {timeout!r} is too long")
-
-        if unit == "H" and num > _MAX_HOURS:
-            return None
-
-        seconds = num * _UNIT_TO_SECONDS[unit]
-        return seconds
-
-    @property
-    def spec(self) -> Spec:
-        return self._spec
-
-    @property
-    def peer(self) -> Peer:
-        return self._peer
-
-    async def receive(self, message: Any) -> AsyncIterator[Any]:
-        async for obj in self.unmarshaler.unmarshal(message):
-            # TODO(tsubakiky): validation
-            yield obj
+            return _receive_streaming()
 
     @property
     def request_headers(self) -> Headers:
         return self._request_headers
 
     async def send(self, messages: AsyncIterable[Any]) -> None:
+        """Send message(s) by marshaling them into bytes.
+
+        Args:
+            messages (AsyncIterable[Any]): The message(s) to be sent. For unary operations,
+                                         this should be an iterable with a single item.
+
+        Returns:
+            None
+
+        """
+        # Validation for unary streams - ensure exactly one message
+        if not self._is_streaming and self.spec.stream_type == StreamType.Unary:
+            message_list = []
+            async for msg in messages:
+                message_list.append(msg)
+
+            if len(message_list) != 1:
+                raise ConnectError(
+                    f"unary handler expected to send exactly one message, got {len(message_list)}", Code.INTERNAL
+                )
+
+            messages = aiterate(message_list)
+
+        # Common sending logic for both streaming and unary
         async def iterator() -> AsyncIterator[bytes]:
             error: ConnectError | None = None
             try:

@@ -677,6 +677,19 @@ class ConnectUnaryHandlerConn(UnaryHandlerConn):
         self._response_headers = response_headers
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
+    def parse_timeout(self) -> float | None:
+        """Parse the timeout value."""
+        try:
+            timeout = self.request.headers.get(CONNECT_HEADER_TIMEOUT)
+            if timeout is None:
+                return None
+
+            timeout_ms = int(timeout)
+        except ValueError as e:
+            raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+
+        return timeout_ms / 1000
+
     @property
     def spec(self) -> Spec:
         """Return the specification object.
@@ -1497,6 +1510,19 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         self._request_headers = request_headers
         self._response_headers = response_headers
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
+
+    def parse_timeout(self) -> float | None:
+        """Parse the timeout value."""
+        try:
+            timeout = self.request.headers.get(CONNECT_HEADER_TIMEOUT)
+            if timeout is None:
+                return None
+
+            timeout_ms = int(timeout)
+        except ValueError as e:
+            raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+
+        return timeout_ms / 1000
 
     @property
     def spec(self) -> Spec:

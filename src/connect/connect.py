@@ -327,6 +327,11 @@ class UnaryHandlerConn(abc.ABC):
 
     """
 
+    @abc.abstractmethod
+    def parse_timeout(self) -> float | None:
+        """Parse the timeout value."""
+        raise NotImplementedError()
+
     @property
     @abc.abstractmethod
     def spec(self) -> Spec:
@@ -440,6 +445,11 @@ class StreamingHandlerConn(abc.ABC):
     and sending messages, and managing request and response headers and trailers.
 
     """
+
+    @abc.abstractmethod
+    def parse_timeout(self) -> float | None:
+        """Parse the timeout value."""
+        raise NotImplementedError()
 
     @property
     @abc.abstractmethod

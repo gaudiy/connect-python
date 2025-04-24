@@ -1,4 +1,5 @@
 import base64
+import re
 import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator
 from http import HTTPMethod
@@ -31,6 +32,7 @@ from connect.writer import ServerResponseWriter
 
 GRPC_HEADER_COMPRESSION = "Grpc-Encoding"
 GRPC_HEADER_ACCEPT_COMPRESSION = "Grpc-Accept-Encoding"
+GRPC_HEADER_TIMEOUT = "Grpc-Timeout"
 GRPC_HEADER_STATUS = "Grpc-Status"
 GRPC_HEADER_MESSAGE = "Grpc-Message"
 GRPC_HEADER_DETAILS = "Grpc-Status-Details-Bin"
@@ -41,6 +43,18 @@ GRPC_CONTENT_TYPE_PREFIX = GRPC_CONTENT_TYPE_DEFAULT + "+"
 GRPC_WEB_CONTENT_TYPE_PREFIX = GRPC_WEB_CONTENT_TYPE_DEFAULT + "+"
 
 GRPC_ALLOWED_METHODS = [HTTPMethod.POST]
+
+
+_RE = re.compile(r"^(\d{1,8})([HMSmun])$")
+_UNIT_TO_SECONDS = {
+    "H": 60 * 60,
+    "M": 60,
+    "S": 1,
+    "m": 1e-3,  # millisecond
+    "u": 1e-6,  # microsecond
+    "n": 1e-9,  # nanosecond
+}
+_MAX_HOURS = (2**63 - 1) // (60 * 60 * 1_000_000_000)
 
 
 class ProtocolGPRC(Protocol):
@@ -213,6 +227,27 @@ class GRPCHandlerConn(UnaryHandlerConn):
         self._response_headers = response_headers
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
+    def parse_timeout(self) -> float | None:
+        timeout = self._request_headers.get(GRPC_HEADER_TIMEOUT)
+        if not timeout:
+            return None
+
+        m = _RE.match(timeout)
+        if m is None:
+            raise ConnectError(f"protocol error: invalid grpc timeout value: {timeout}")
+
+        num_str, unit = m.groups()
+        num = int(num_str)
+
+        if num > 99_999_999:
+            raise ConnectError(f"protocol error: timeout {timeout!r} is too long")
+
+        if unit == "H" and num > _MAX_HOURS:
+            return None
+
+        seconds = num * _UNIT_TO_SECONDS[unit]
+        return seconds
+
     @property
     def spec(self) -> Spec:
         return self._spec
@@ -265,7 +300,7 @@ class GRPCHandlerConn(UnaryHandlerConn):
         return self._response_trailers
 
     async def send_error(self, error: ConnectError) -> None:
-        self.response_trailers[GRPC_HEADER_STATUS] = str(error.code.value)
+        grpc_error_to_trailer(self.response_trailers, error)
 
         await self.writer.write(
             StreamingResponseWithTrailers(

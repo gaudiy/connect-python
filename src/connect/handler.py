@@ -41,7 +41,6 @@ from connect.protocol import (
     sorted_allow_method_value,
 )
 from connect.protocol_connect import (
-    CONNECT_HEADER_TIMEOUT,
     ProtocolConnect,
 )
 from connect.protocol_grpc import ProtocolGPRC
@@ -354,16 +353,12 @@ class Handler:
         if not self.is_stream(implementation):
             raise ValueError(f"Invalid function type for stream handler: {implementation}")
 
-        timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
         try:
+            timeout = conn.parse_timeout()
             if timeout:
-                try:
-                    timeout_ms = int(timeout)
-                    timeout_sec = timeout_ms / 1000
-                except ValueError as e:
-                    raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+                timeout_ms = int(timeout * 1000)
 
-                with anyio.fail_after(delay=timeout_sec):
+                with anyio.fail_after(delay=timeout):
                     await implementation(conn, timeout_ms)
             else:
                 await implementation(conn, None)
@@ -400,16 +395,12 @@ class Handler:
         if not self.is_unary(implementation):
             raise ValueError(f"Invalid function type for unary handler: {implementation}")
 
-        timeout = request.headers.get(CONNECT_HEADER_TIMEOUT, None)
         try:
+            timeout = conn.parse_timeout()
             if timeout:
-                try:
-                    timeout_ms = int(timeout)
-                    timeout_sec = timeout_ms / 1000
-                except ValueError as e:
-                    raise ConnectError(f"parse timeout: {str(e)}", Code.INVALID_ARGUMENT) from e
+                timeout_ms = int(timeout * 1000)
 
-                with anyio.fail_after(delay=timeout_sec):
+                with anyio.fail_after(delay=timeout):
                     await implementation(conn, timeout_ms)
             else:
                 await implementation(conn, None)

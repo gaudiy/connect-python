@@ -280,6 +280,42 @@ class GRPCHandlerConn(StreamingHandlerConn):
     def peer(self) -> Peer:
         return self._peer
 
+    async def receive_unary(self, message: Any) -> AsyncIterator[Any]:
+        """Receive a single message in unary mode.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            AsyncIterator[Any]: An async iterator yielding exactly one item.
+
+        Raises:
+            ConnectError: If no message is received or multiple messages are received.
+
+        """
+        count = 0
+        async for obj in self.unmarshaler.unmarshal(message):
+            count += 1
+            if count > 1:
+                raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
+            yield obj
+
+        if count == 0:
+            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+
+    async def receive_streaming(self, message: Any) -> AsyncIterator[Any]:
+        """Receive messages in streaming mode.
+
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            AsyncIterator[Any]: An async iterator yielding all messages.
+
+        """
+        async for obj in self.unmarshaler.unmarshal(message):
+            yield obj
+
     def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and processes it.
 
@@ -293,29 +329,10 @@ class GRPCHandlerConn(StreamingHandlerConn):
         """
         # Different behavior based on streaming mode
         if not self._is_streaming and self.spec.stream_type == StreamType.Unary:
-
-            async def _receive_unary() -> AsyncIterator[Any]:
-                count = 0
-                async for obj in self.unmarshaler.unmarshal(message):
-                    count += 1
-                    if count > 1:
-                        raise ConnectError(
-                            "protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED
-                        )
-                    yield obj
-
-                if count == 0:
-                    raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
-
-            return _receive_unary()
+            return self.receive_unary(message)
         else:
             # Streaming mode - simply pass through all messages
-            async def _receive_streaming() -> AsyncIterator[Any]:
-                async for obj in self.unmarshaler.unmarshal(message):
-                    # TODO(tsubakiky): validation
-                    yield obj
-
-            return _receive_streaming()
+            return self.receive_streaming(message)
 
     @property
     def request_headers(self) -> Headers:
@@ -345,20 +362,10 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
             messages = aiterate(message_list)
 
-        # Common sending logic for both streaming and unary
-        async def iterator() -> AsyncIterator[bytes]:
-            error: ConnectError | None = None
-            try:
-                async for msg in self.marshaler.marshal(messages):
-                    yield msg
-            except Exception as e:
-                error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
-            finally:
-                grpc_error_to_trailer(self.response_trailers, error)
-
+        # Use the common marshaling method
         await self.writer.write(
             StreamingResponseWithTrailers(
-                content=iterator(),
+                content=self.marshal_with_error_handling(messages),
                 headers=self.response_headers,
                 trailers=self.response_trailers,
                 status_code=200,
@@ -372,6 +379,25 @@ class GRPCHandlerConn(StreamingHandlerConn):
     @property
     def response_trailers(self) -> Headers:
         return self._response_trailers
+
+    async def marshal_with_error_handling(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+        """Marshal messages to bytes with error handling.
+
+        Args:
+            messages (AsyncIterable[Any]): The messages to marshal
+
+        Returns:
+            AsyncIterator[bytes]: An async iterator of marshaled bytes
+
+        """
+        error: ConnectError | None = None
+        try:
+            async for msg in self.marshaler.marshal(messages):
+                yield msg
+        except Exception as e:
+            error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+        finally:
+            grpc_error_to_trailer(self.response_trailers, error)
 
     async def send_error(self, error: ConnectError) -> None:
         grpc_error_to_trailer(self.response_trailers, error)

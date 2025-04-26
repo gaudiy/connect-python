@@ -674,6 +674,19 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
+    async def receive_message(self, message: Any) -> AsyncIterator[Any]:
+        """Receives and unmarshals a message into an object.
+
+        Args:
+            message (Any): The message to be unmarshaled.
+
+        Returns:
+            AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
+
+        """
+        obj = await self.unmarshaler.unmarshal(message)
+        yield obj
+
     def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message, unmarshals it, and returns the resulting object.
 
@@ -684,12 +697,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
 
         """
-
-        async def _receive() -> AsyncIterator[Any]:
-            obj = await self.unmarshaler.unmarshal(message)
-            yield obj
-
-        return _receive()
+        return self.receive_message(message)
 
     @property
     def request_headers(self) -> Headers:
@@ -1549,6 +1557,32 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._request_headers
 
+    async def create_message_iterator(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+        """Create an async iterator that marshals messages with error handling.
+
+        Args:
+            messages (AsyncIterable[Any]): Messages to marshal
+
+        Returns:
+            AsyncIterator[bytes]: Marshaled bytes with end stream message
+
+        Yields:
+            bytes: Each marshaled message followed by an end stream message
+
+        """
+        error: ConnectError | None = None
+        try:
+            async for message in self.marshaler.marshal(messages):
+                yield message
+        except Exception as e:
+            error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+        finally:
+            json_obj = end_stream_to_json(error, self.response_trailers)
+            json_str = json.dumps(json_obj)
+
+            body = self.marshaler.marshal_end_stream(json_str.encode())
+            yield body
+
     async def send(self, messages: AsyncIterable[Any]) -> None:
         """Send a stream of messages asynchronously.
 
@@ -1566,24 +1600,9 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
             ConnectError: If an error occurs during the marshaling process.
 
         """
-
-        async def iterator() -> AsyncIterator[bytes]:
-            error: ConnectError | None = None
-            try:
-                async for message in self.marshaler.marshal(messages):
-                    yield message
-            except Exception as e:
-                error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
-            finally:
-                json_obj = end_stream_to_json(error, self.response_trailers)
-                json_str = json.dumps(json_obj)
-
-                body = self.marshaler.marshal_end_stream(json_str.encode())
-                yield body
-
         await self.writer.write(
             StreamingResponse(
-                content=iterator(),
+                content=self.create_message_iterator(messages),
                 headers=self.response_headers,
                 status_code=200,
             )

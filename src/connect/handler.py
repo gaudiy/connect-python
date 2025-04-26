@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from http import HTTPMethod, HTTPStatus
-from typing import Any, TypeGuard
+from typing import Any
 
 import anyio
 from starlette.responses import PlainTextResponse
@@ -147,16 +147,11 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
     return handlers
 
 
-UnaryImplementationFunc = Callable[[StreamingHandlerConn, float | None], Awaitable[None]]
-StreamImplementationFunc = Callable[[StreamingHandlerConn, float | None], Awaitable[None]]
-
-
 class Handler:
     """A class to handle incoming HTTP requests and generate appropriate HTTP responses.
 
     Attributes:
         procedure (str): The procedure name.
-        implementation (UnaryImplementationFunc | StreamImplementationFunc): The implementation function for handling requests.
         protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to protocol handlers.
         allow_methods (str): Allowed HTTP methods.
         accept_post (str): Accepted content types for POST requests.
@@ -165,7 +160,6 @@ class Handler:
     """
 
     procedure: str
-    implementation: UnaryImplementationFunc | StreamImplementationFunc
     protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]]
     allow_methods: str
     accept_post: str
@@ -174,7 +168,6 @@ class Handler:
     def __init__(
         self,
         procedure: str,
-        implementation: UnaryImplementationFunc | StreamImplementationFunc,
         protocol_handlers: dict[HTTPMethod, list[ProtocolHandler]],
         allow_methods: str,
         accept_post: str,
@@ -183,17 +176,30 @@ class Handler:
 
         Args:
             procedure (str): The name of the procedure.
-            implementation (UnaryImplementationFunc | StreamImplementationFunc): The function implementing the procedure.
             protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A dictionary mapping HTTP methods to protocol handlers.
             allow_methods (str): A string specifying allowed HTTP methods.
             accept_post (str): A string specifying if POST method is accepted.
 
         """
         self.procedure = procedure
-        self.implementation = implementation
         self.protocol_handlers = protocol_handlers
         self.allow_methods = allow_methods
         self.accept_post = accept_post
+
+    async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
+        """Handle the implementation of the request processing.
+
+        This method should be overridden by subclasses.
+
+        Args:
+            conn: The connection handler
+            timeout: Optional timeout in milliseconds
+
+        Raises:
+            NotImplementedError: If not implemented by a subclass
+
+        """
+        raise NotImplementedError("Implementation must be provided by subclass")
 
     async def handle(self, request: Request) -> Response:
         """Handle an incoming HTTP request and return an HTTP response.
@@ -254,6 +260,7 @@ class Handler:
 
         writer = ServerResponseWriter()
 
+        # Create tasks for handling the request and receiving responses
         main_task = asyncio.create_task(self._handle(request, response_headers, response_trailers, writer))
         writer_task = asyncio.create_task(writer.receive())
 
@@ -298,33 +305,25 @@ class Handler:
             self._is_stream_handler = False
             await self.unary_handle(request, response_headers, response_trailers, writer)
 
-    def is_stream(
-        self, impl: UnaryImplementationFunc | StreamImplementationFunc
-    ) -> TypeGuard[StreamImplementationFunc]:
-        """Determine if the given implementation function is a stream implementation.
-
-        Args:
-            impl (UnaryImplementationFunc | StreamImplementationFunc): The implementation function to check.
+    def is_stream(self) -> bool:
+        """Determine if this handler is a stream handler.
 
         Returns:
-            TypeGuard[StreamImplementationFunc]: True if the implementation function is a stream implementation, False otherwise.
+            bool: True if this is a stream handler, False otherwise.
 
         """
-        # Since we've consolidated to a single connection type, use a sentinel value in the handler config
+        # Since we've consolidated to a single connection type, use a sentinel value
         is_stream_handler = getattr(self, "_is_stream_handler", False)
         return is_stream_handler
 
-    def is_unary(self, impl: UnaryImplementationFunc | StreamImplementationFunc) -> TypeGuard[UnaryImplementationFunc]:
-        """Determine if the given implementation function is a unary implementation.
-
-        Args:
-            impl (UnaryImplementationFunc | StreamImplementationFunc): The implementation function to check.
+    def is_unary(self) -> bool:
+        """Determine if this handler is a unary handler.
 
         Returns:
-            TypeGuard[UnaryImplementationFunc]: True if the implementation function is a unary implementation, False otherwise.
+            bool: True if this is a unary handler, False otherwise.
 
         """
-        # Since we've consolidated to a single connection type, use a sentinel value in the handler config
+        # Since we've consolidated to a single connection type, use a sentinel value
         is_stream_handler = getattr(self, "_is_stream_handler", False)
         return not is_stream_handler
 
@@ -343,7 +342,7 @@ class Handler:
             None
 
         Raises:
-            ValueError: If the function type for the stream handler is invalid.
+            ValueError: If the implementation method is invalid.
             ConnectError: If an internal error occurs during the handling of the stream.
 
         """
@@ -352,23 +351,16 @@ class Handler:
         if conn is None:
             return
 
-        implementation = self.implementation
-        if not self.is_stream(implementation):
-            raise ValueError(f"Invalid function type for stream handler: {implementation}")
-
         try:
             timeout = conn.parse_timeout()
             if timeout:
                 timeout_ms = int(timeout * 1000)
-
                 with anyio.fail_after(delay=timeout):
-                    await implementation(conn, timeout_ms)
+                    await self.implementation(conn, timeout_ms)
             else:
-                await implementation(conn, None)
-
+                await self.implementation(conn, None)
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
-
             await conn.send_error(error)
 
     async def unary_handle(
@@ -383,7 +375,7 @@ class Handler:
             writer (ServerResponseWriter): The writer to send the response.
 
         Raises:
-            ValueError: If the function type is invalid for unary handler.
+            ValueError: If the implementation method is invalid.
             ConnectError: If there is an error parsing the timeout or an internal error occurs.
 
         Returns:
@@ -395,19 +387,14 @@ class Handler:
         if conn is None:
             return
 
-        implementation = self.implementation
-        if not self.is_unary(implementation):
-            raise ValueError(f"Invalid function type for unary handler: {implementation}")
-
         try:
             timeout = conn.parse_timeout()
             if timeout:
                 timeout_ms = int(timeout * 1000)
                 with anyio.fail_after(delay=timeout):
-                    await implementation(conn, timeout_ms)
+                    await self.implementation(conn, timeout_ms)
             else:
-                await implementation(conn, None)
-
+                await self.implementation(conn, None)
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
 
@@ -463,30 +450,43 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
-            request = await receive_unary_request(conn, input)
-            if timeout:
-                request.timeout = timeout
-
-            response = await untyped(request)
-
-            if not isinstance(response.message, output):
-                raise ConnectError(
-                    f"expected response of type: {output.__name__}",
-                    Code.INTERNAL,
-                )
-
-            conn.response_headers.update(exclude_protocol_headers(response.headers))
-            conn.response_trailers.update(exclude_protocol_headers(response.trailers))
-            await conn.send(aiterate([response.message]))
+        self.input = input
+        self.output = output
+        self.untyped = untyped
 
         super().__init__(
             procedure=procedure,
-            implementation=implementation,
             protocol_handlers=mapped_method_handlers(protocol_handlers),
             allow_methods=sorted_allow_method_value(protocol_handlers),
             accept_post=sorted_accept_post_value(protocol_handlers),
         )
+
+    async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
+        """Handle a unary request and send a unary response.
+
+        Args:
+            conn: The connection handler
+            timeout: Optional timeout in milliseconds
+
+        Raises:
+            ConnectError: If the response message type is incorrect
+
+        """
+        request = await receive_unary_request(conn, self.input)
+        if timeout:
+            request.timeout = timeout
+
+        response = await self.untyped(request)
+
+        if not isinstance(response.message, self.output):
+            raise ConnectError(
+                f"expected response of type: {self.output.__name__}",
+                Code.INTERNAL,
+            )
+
+        conn.response_headers.update(exclude_protocol_headers(response.headers))
+        conn.response_trailers.update(exclude_protocol_headers(response.trailers))
+        await conn.send(aiterate([response.message]))
 
 
 class ServerStreamHandler[T_Request, T_Response](Handler):
@@ -532,30 +532,39 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
 
         async def _untyped(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
             response = await stream(request)
-
             return response
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
-            request = await receive_stream_request(conn, input)
-            if timeout:
-                request.timeout = timeout
-
-            response = await untyped(request)
-
-            conn.response_headers.update(response.headers)
-            conn.response_trailers.update(response.trailers)
-
-            await conn.send(response.messages)
+        self.input = input
+        self.output = output
+        self.untyped = untyped
 
         super().__init__(
             procedure=procedure,
-            implementation=implementation,
             protocol_handlers=mapped_method_handlers(protocol_handlers),
             allow_methods=sorted_allow_method_value(protocol_handlers),
             accept_post=sorted_accept_post_value(protocol_handlers),
         )
+
+    async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
+        """Handle a server stream request and response.
+
+        Args:
+            conn: The connection handler
+            timeout: Optional timeout in milliseconds
+
+        """
+        request = await receive_stream_request(conn, self.input)
+        if timeout:
+            request.timeout = timeout
+
+        response = await self.untyped(request)
+
+        conn.response_headers.update(response.headers)
+        conn.response_trailers.update(response.trailers)
+
+        await conn.send(response.messages)
 
 
 class ClientStreamHandler[T_Request, T_Response](Handler):
@@ -609,30 +618,39 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
 
         async def _untyped(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
             response = await stream(request)
-
             return response
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
-            request = await receive_stream_request(conn, input)
-            if timeout:
-                request.timeout = timeout
-
-            response = await untyped(request)
-
-            conn.response_headers.update(response.headers)
-            conn.response_trailers.update(response.trailers)
-
-            await conn.send(response.messages)
+        self.input = input
+        self.output = output
+        self.untyped = untyped
 
         super().__init__(
             procedure=procedure,
-            implementation=implementation,
             protocol_handlers=mapped_method_handlers(protocol_handlers),
             allow_methods=sorted_allow_method_value(protocol_handlers),
             accept_post=sorted_accept_post_value(protocol_handlers),
         )
+
+    async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
+        """Handle a client stream request and response.
+
+        Args:
+            conn: The connection handler
+            timeout: Optional timeout in milliseconds
+
+        """
+        request = await receive_stream_request(conn, self.input)
+        if timeout:
+            request.timeout = timeout
+
+        response = await self.untyped(request)
+
+        conn.response_headers.update(response.headers)
+        conn.response_trailers.update(response.trailers)
+
+        await conn.send(response.messages)
 
 
 class BidiStreamHandler[T_Request, T_Response](Handler):
@@ -705,27 +723,36 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
 
         async def _untyped(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
             response = await stream(request)
-
             return response
 
         untyped = apply_interceptors(_untyped, options.interceptors)
 
-        async def implementation(conn: StreamingHandlerConn, timeout: float | None) -> None:
-            request = await receive_stream_request(conn, input)
-            if timeout:
-                request.timeout = timeout
-
-            response = await untyped(request)
-
-            conn.response_headers.update(response.headers)
-            conn.response_trailers.update(response.trailers)
-
-            await conn.send(response.messages)
+        self.input = input
+        self.output = output
+        self.untyped = untyped
 
         super().__init__(
             procedure=procedure,
-            implementation=implementation,
             protocol_handlers=mapped_method_handlers(protocol_handlers),
             allow_methods=sorted_allow_method_value(protocol_handlers),
             accept_post=sorted_accept_post_value(protocol_handlers),
         )
+
+    async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
+        """Handle a bidirectional stream request and response.
+
+        Args:
+            conn: The connection handler
+            timeout: Optional timeout in milliseconds
+
+        """
+        request = await receive_stream_request(conn, self.input)
+        if timeout:
+            request.timeout = timeout
+
+        response = await self.untyped(request)
+
+        conn.response_headers.update(response.headers)
+        conn.response_trailers.update(response.trailers)
+
+        await conn.send(response.messages)

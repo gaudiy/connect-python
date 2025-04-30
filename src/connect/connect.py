@@ -318,6 +318,48 @@ class StreamResponse[T](ResponseCommon):
             await aclose()
 
 
+class AsyncContentStream[T](AsyncIterable[T]):
+    """AsyncContentStream is a wrapper around AsyncIterable to provide a consistent interface."""
+
+    def __init__(self, iterable: AsyncIterable[T], stream_type: StreamType) -> None:
+        self._iterable = iterable
+        self.stream_type = stream_type
+
+    def _needs_single_message_validation(self) -> bool:
+        return self.stream_type == StreamType.Unary or self.stream_type == StreamType.ServerStream
+
+    async def _ensure_single(self, iterable: AsyncIterable[T]) -> AsyncIterator[T]:
+        count = 0
+        async for item in iterable:
+            if count > 0:
+                raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
+
+            yield item
+            count += 1
+
+        if count == 0:
+            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+
+    async def __aiter__(self) -> AsyncIterator[T]:
+        """Asynchronously iterate over the content stream."""
+        if self._needs_single_message_validation():
+            async for item in self._ensure_single(self._iterable):
+                yield item
+        else:
+            async for item in self._iterable:
+                yield item
+
+    async def ensure_single(self) -> T:
+        message = None
+        async for item in self._ensure_single(self._iterable):
+            message = item
+
+        if message is None:
+            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+
+        return message
+
+
 class StreamingHandlerConn(abc.ABC):
     """Abstract base class for a streaming handler connection.
 
@@ -356,7 +398,7 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> AsyncIterator[Any]:
+    def receive(self, message: Any) -> AsyncContentStream[Any]:
         """Receives a message and processes it.
 
         Args:
@@ -598,7 +640,8 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Un
         UnaryRequest[T]: A UnaryRequest object containing the received message.
 
     """
-    message = await receive_unary_message(conn, t)
+    stream = conn.receive(t)
+    message = await stream.ensure_single()
 
     method = HTTPMethod.POST
     get_http_method = get_callable_attribute(conn, "get_http_method")
@@ -626,48 +669,15 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
                           peer information, request headers, and HTTP method.
 
     """
+    stream = conn.receive(t)
+
     return StreamRequest(
-        messages=receive_stream_message(conn, t, conn.spec),
+        messages=stream,
         spec=conn.spec,
         peer=conn.peer,
         headers=conn.request_headers,
         method=HTTPMethod.POST,
     )
-
-
-async def receive_stream_message[T](conn: StreamingHandlerConn, t: type[T], spec: Spec) -> AsyncIterator[T]:
-    """Asynchronously receives and yields messages from a streaming connection.
-
-    This function listens to a streaming connection and yields messages of the specified type.
-
-    Args:
-        conn (StreamingHandlerConn): The streaming connection handler.
-        t (type[T]): The type of messages to receive.
-        spec (Spec): The specification for the request.
-
-    Yields:
-        AsyncIterator[T]: An asynchronous iterator of messages of type T.
-
-    """
-    if spec.stream_type == StreamType.ServerStream:
-        count = 0
-        async for message in conn.receive(t):
-            count += 1
-            if count > 1:
-                raise ConnectError(
-                    f"received extra input message for {conn.spec.procedure} method",
-                    Code.UNIMPLEMENTED,
-                )
-            yield message
-
-        if count == 0:
-            raise ConnectError(
-                f"missing input message for {conn.spec.procedure} method",
-                Code.UNIMPLEMENTED,
-            )
-    else:
-        async for message in conn.receive(t):
-            yield message
 
 
 async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:

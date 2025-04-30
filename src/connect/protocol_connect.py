@@ -26,6 +26,7 @@ from connect.codec import Codec, CodecNameType, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
 from connect.connect import (
     Address,
+    AsyncContentStream,
     Peer,
     Spec,
     StreamingClientConn,
@@ -687,7 +688,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         obj = await self.unmarshaler.unmarshal(message)
         yield obj
 
-    def receive(self, message: Any) -> AsyncIterator[Any]:
+    def receive(self, message: Any) -> AsyncContentStream[Any]:
         """Receives a message, unmarshals it, and returns the resulting object.
 
         Args:
@@ -697,7 +698,10 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
 
         """
-        return self.receive_message(message)
+        return AsyncContentStream(
+            self.receive_message(message),
+            stream_type=self.spec.stream_type,
+        )
 
     @property
     def request_headers(self) -> Headers:
@@ -1534,18 +1538,43 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    async def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Receives a message, unmarshals it, and returns the resulting object.
+    async def receive_message(self, message: Any) -> AsyncIterator[Any]:
+        """Asynchronously receives a message and yields unmarshaled objects.
+
+        This method unmarshals the received message and yields each
+        unmarshaled object one by one as an asynchronous iterator.
 
         Args:
-            message (Any): The message to be unmarshaled.
+            message (Any): The message to unmarshal.
 
         Returns:
-            Any: The unmarshaled object.
+            AsyncIterator[Any]: An asynchronous iterator yielding unmarshaled objects.
+
+        Yields:
+            Any: Each unmarshaled object from the message.
 
         """
         async for obj, _ in self.unmarshaler.unmarshal(message):
             yield obj
+
+    def receive(self, message: Any) -> AsyncContentStream[Any]:
+        """Receives a message and returns an asynchronous content stream.
+
+        This method processes the incoming message through the receive_message method
+        and wraps the result in an AsyncContentStream with the appropriate stream type.
+
+        Args:
+            message (Any): The message to be processed.
+
+        Returns:
+            AsyncContentStream[Any]: An asynchronous stream of content based on the
+                processed message, configured with the specification's stream type.
+
+        """
+        return AsyncContentStream(
+            iterable=self.receive_message(message),
+            stream_type=self.spec.stream_type,
+        )
 
     @property
     def request_headers(self) -> Headers:

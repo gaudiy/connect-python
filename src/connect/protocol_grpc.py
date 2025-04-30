@@ -10,7 +10,7 @@ from google.rpc import status_pb2
 from connect.code import Code
 from connect.codec import Codec, CodecNameType
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Address, Peer, Spec, StreamingHandlerConn, StreamType
+from connect.connect import Address, AsyncContentStream, Peer, Spec, StreamingHandlerConn, StreamType
 from connect.envelope import EnvelopeReader, EnvelopeWriter
 from connect.error import ConnectError
 from connect.headers import Headers
@@ -280,43 +280,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
     def peer(self) -> Peer:
         return self._peer
 
-    async def receive_unary(self, message: Any) -> AsyncIterator[Any]:
-        """Receive a single message in unary mode.
-
-        Args:
-            message (Any): The message to be received and processed.
-
-        Returns:
-            AsyncIterator[Any]: An async iterator yielding exactly one item.
-
-        Raises:
-            ConnectError: If no message is received or multiple messages are received.
-
-        """
-        count = 0
-        async for obj in self.unmarshaler.unmarshal(message):
-            count += 1
-            if count > 1:
-                raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
-            yield obj
-
-        if count == 0:
-            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
-
-    async def receive_streaming(self, message: Any) -> AsyncIterator[Any]:
-        """Receive messages in streaming mode.
-
-        Args:
-            message (Any): The message to be received and processed.
-
-        Returns:
-            AsyncIterator[Any]: An async iterator yielding all messages.
-
-        """
-        async for obj in self.unmarshaler.unmarshal(message):
-            yield obj
-
-    def receive(self, message: Any) -> AsyncIterator[Any]:
+    def receive(self, message: Any) -> AsyncContentStream[Any]:
         """Receives a message and processes it.
 
         Args:
@@ -327,12 +291,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
                              this will yield exactly one item.
 
         """
-        # Different behavior based on streaming mode
-        if not self._is_streaming and self.spec.stream_type == StreamType.Unary:
-            return self.receive_unary(message)
-        else:
-            # Streaming mode - simply pass through all messages
-            return self.receive_streaming(message)
+        return AsyncContentStream(self.unmarshaler.unmarshal(message), self.spec.stream_type)
 
     @property
     def request_headers(self) -> Headers:

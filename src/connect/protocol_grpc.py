@@ -1,3 +1,5 @@
+"""Provaides classes and functions for handling gRPC protocol."""
+
 import base64
 import re
 import urllib.parse
@@ -58,12 +60,38 @@ _MAX_HOURS = (2**63 - 1) // (60 * 60 * 1_000_000_000)
 
 
 class ProtocolGPRC(Protocol):
-    web: bool
+    """ProtocolGPRC is a protocol implementation for handling gRPC and gRPC-Web requests.
+
+    Attributes:
+        web (bool): Indicates whether to use gRPC-Web (True) or standard gRPC (False).
+
+    """
 
     def __init__(self, web: bool) -> None:
+        """Initialize the instance.
+
+        Args:
+            web (bool): Indicates whether the instance is for web usage.
+
+        """
         self.web = web
 
     def handler(self, params: ProtocolHandlerParams) -> ProtocolHandler:
+        """Create and returns a GRPCHandler instance configured with appropriate content types based on the provided parameters.
+
+        Args:
+            params (ProtocolHandlerParams): The parameters containing codec information and other handler configuration.
+
+        Returns:
+            ProtocolHandler: An instance of GRPCHandler initialized with the correct content types for gRPC or gRPC-Web.
+
+        Behavior:
+            - Determines the default and prefix content types based on whether gRPC-Web is enabled.
+            - Constructs a list of supported content types from the available codecs.
+            - Adds the bare content type if the PROTO codec is present.
+            - Returns a GRPCHandler with the computed content types.
+
+        """
         bare, prefix = GRPC_CONTENT_TYPE_DEFAULT, GRPC_CONTENT_TYPE_PREFIX
         if self.web:
             bare, prefix = GRPC_WEB_CONTENT_TYPE_DEFAULT, GRPC_WEB_CONTENT_TYPE_PREFIX
@@ -91,23 +119,71 @@ class ProtocolGPRC(Protocol):
 
 
 class GRPCHandler(ProtocolHandler):
+    """GRPCHandler is a protocol handler for gRPC and gRPC-Web requests.
+
+    This class implements the ProtocolHandler interface to handle gRPC protocol requests,
+    including negotiation of compression, codec selection, and connection management for
+    both standard gRPC and gRPC-Web. It supports content type negotiation, payload handling,
+    and manages the lifecycle of a gRPC connection, including streaming and non-streaming
+    requests.
+
+    Attributes:
+        params (ProtocolHandlerParams): Configuration parameters for the handler, including codecs and compressions.
+        web (bool): Indicates if the handler is for gRPC-Web.
+        accept (list[str]): List of accepted content types.
+
+    """
+
     params: ProtocolHandlerParams
     web: bool
     accept: list[str]
 
     def __init__(self, params: ProtocolHandlerParams, web: bool, accept: list[str]) -> None:
+        """Initialize the ProtocolHandler with the given parameters.
+
+        Args:
+            params (ProtocolHandlerParams): The parameters required for the protocol handler.
+            web (bool): Indicates whether the handler is for web usage.
+            accept (list[str]): A list of accepted content types.
+
+        Returns:
+            None
+
+        """
         self.params = params
         self.web = web
         self.accept = accept
 
     @property
     def methods(self) -> list[HTTPMethod]:
+        """Returns a list of allowed HTTP methods for gRPC protocol.
+
+        Returns:
+            list[HTTPMethod]: A list containing the HTTP methods permitted for gRPC communication.
+
+        """
         return GRPC_ALLOWED_METHODS
 
     def content_types(self) -> list[str]:
+        """Return a list of accepted content types.
+
+        Returns:
+            list[str]: A list of MIME types that are accepted.
+
+        """
         return self.accept
 
     def can_handle_payload(self, _: Request, content_type: str) -> bool:
+        """Determine if the given content type is supported by this handler.
+
+        Args:
+            _ (Request): The request object (unused).
+            content_type (str): The MIME type of the payload to check.
+
+        Returns:
+            bool: True if the content type is accepted, False otherwise.
+
+        """
         return content_type in self.accept
 
     async def conn(
@@ -153,7 +229,6 @@ class GRPCHandler(ProtocolHandler):
             query=request.query_params,
         )
 
-        # Create a single unified handler class with streaming flag
         conn = GRPCHandlerConn(
             writer=writer,
             spec=self.params.spec,
@@ -185,6 +260,22 @@ class GRPCHandler(ProtocolHandler):
 
 
 class GRPCMarshaler(EnvelopeWriter):
+    """GRPCMarshaler is responsible for marshaling messages into the gRPC wire format.
+
+    Args:
+        web (bool): Indicates whether to use the gRPC-web protocol.
+        codec (Codec | None): The codec used for encoding/decoding messages.
+        compression (Compression | None): The compression algorithm to use, if any.
+        compress_min_bytes (int): Minimum message size in bytes before compression is applied.
+        send_max_bytes (int): Maximum allowed size of a message to send.
+
+    Methods:
+        marshal(messages: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
+            Asynchronously marshals a stream of message bytes into the gRPC wire format.
+            Yields marshaled message bytes ready for transmission.
+
+    """
+
     web: bool
 
     def __init__(
@@ -195,15 +286,52 @@ class GRPCMarshaler(EnvelopeWriter):
         compress_min_bytes: int,
         send_max_bytes: int,
     ) -> None:
+        """Initialize the protocol with the specified configuration.
+
+        Args:
+            web (bool): Indicates whether the protocol is used in a web context.
+            codec (Codec | None): The codec to use for encoding/decoding messages, or None for default.
+            compression (Compression | None): The compression algorithm to use, or None for no compression.
+            compress_min_bytes (int): The minimum number of bytes before compression is applied.
+            send_max_bytes (int): The maximum number of bytes allowed to send in a single message.
+
+        Returns:
+            None
+
+        """
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes)
         self.web = web
 
     async def marshal(self, messages: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
+        """Asynchronously marshals a stream of byte messages.
+
+        Args:
+            messages (AsyncIterable[bytes]): An asynchronous iterable of byte messages to be marshaled.
+
+        Yields:
+            AsyncIterator[bytes]: An asynchronous iterator yielding marshaled byte messages.
+
+        """
         async for message in self._marshal(messages):
             yield message
 
 
 class GRPCUnmarshaler(EnvelopeReader):
+    """GRPCUnmarshaler is a specialized EnvelopeReader for handling gRPC message unmarshaling.
+
+    Args:
+        codec (Codec | None): The codec used for decoding messages.
+        read_max_bytes (int): The maximum number of bytes to read from the stream.
+        stream (AsyncIterable[bytes] | None, optional): The asynchronous byte stream to read messages from.
+        compression (Compression | None, optional): Compression algorithm to use for decompressing messages.
+
+    Methods:
+        async unmarshal(message: Any) -> AsyncIterator[Any]:
+            Asynchronously unmarshals the given message, yielding each decoded object.
+            Iterates over the results of the internal _unmarshal method, yielding only the object part of each tuple.
+
+    """
+
     def __init__(
         self,
         codec: Codec | None,
@@ -211,14 +339,47 @@ class GRPCUnmarshaler(EnvelopeReader):
         stream: AsyncIterable[bytes] | None = None,
         compression: Compression | None = None,
     ) -> None:
+        """Initialize the protocol gRPC handler.
+
+        Args:
+            codec (Codec | None): The codec to use for encoding/decoding messages. Can be None.
+            read_max_bytes (int): The maximum number of bytes to read from the stream.
+            stream (AsyncIterable[bytes] | None, optional): An asynchronous iterable stream of bytes. Defaults to None.
+            compression (Compression | None, optional): The compression method to use. Defaults to None.
+
+        """
         super().__init__(codec, read_max_bytes, stream, compression)
 
     async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
+        """Asynchronously unmarshals a given message and yields each resulting object.
+
+        Args:
+            message (Any): The message to be unmarshaled.
+
+        Yields:
+            Any: Each object obtained from unmarshaling the message.
+
+        """
         async for obj, _ in self._unmarshal(message):
             yield obj
 
 
 class GRPCHandlerConn(StreamingHandlerConn):
+    """GRPCHandlerConn is a handler class for managing gRPC protocol connections within a streaming server context.
+
+    This class encapsulates the logic for handling gRPC requests and responses, including marshaling and unmarshaling messages,
+    managing request and response headers/trailers, handling timeouts, and enforcing protocol-specific constraints for unary and streaming operations.
+
+    Attributes:
+        _spec (Spec): The specification object describing the protocol or service.
+        _peer (Peer): The peer information for the current connection.
+        _request_headers (Headers): The headers received with the request.
+        _response_headers (Headers): The headers to include in the response.
+        _response_trailers (Headers): The trailers to include in the response.
+        _is_streaming (bool): Indicates if the connection is streaming.
+
+    """
+
     _spec: Spec
     _peer: Peer
     writer: ServerResponseWriter
@@ -241,6 +402,20 @@ class GRPCHandlerConn(StreamingHandlerConn):
         response_trailers: Headers | None = None,
         is_streaming: bool = False,
     ) -> None:
+        """Initialize a new instance of the class.
+
+        Args:
+            writer (ServerResponseWriter): The writer used to send responses to the client.
+            spec (Spec): The specification object describing the protocol or service.
+            peer (Peer): The peer information for the current connection.
+            marshaler (GRPCMarshaler): The marshaler used to serialize response messages.
+            unmarshaler (GRPCUnmarshaler): The unmarshaler used to deserialize request messages.
+            request_headers (Headers): The headers received with the request.
+            response_headers (Headers): The headers to include in the response.
+            response_trailers (Headers | None, optional): The trailers to include in the response. Defaults to None.
+            is_streaming (bool, optional): Indicates if the connection is streaming. Defaults to False.
+
+        """
         self.writer = writer
         self._spec = spec
         self._peer = peer
@@ -252,6 +427,19 @@ class GRPCHandlerConn(StreamingHandlerConn):
         self._is_streaming = is_streaming
 
     def parse_timeout(self) -> float | None:
+        """Parse the gRPC timeout value from the request headers and returns it as seconds.
+
+        Returns:
+            float | None: The timeout value in seconds if present and valid, otherwise None.
+
+        Raises:
+            ConnectError: If the timeout value is present but invalid or too long.
+
+        Notes:
+            - The timeout is extracted from the gRPC header and must match the expected format.
+            - If the timeout unit is hours and exceeds the maximum allowed, None is returned.
+
+        """
         timeout = self._request_headers.get(GRPC_HEADER_TIMEOUT)
         if not timeout:
             return None
@@ -274,10 +462,22 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
     @property
     def spec(self) -> Spec:
+        """Returns the specification object associated with this instance.
+
+        Returns:
+            Spec: The specification object.
+
+        """
         return self._spec
 
     @property
     def peer(self) -> Peer:
+        """Returns the associated Peer object.
+
+        Returns:
+            Peer: The peer instance associated with this object.
+
+        """
         return self._peer
 
     def receive(self, message: Any) -> AsyncContentStream[Any]:
@@ -295,6 +495,12 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
     @property
     def request_headers(self) -> Headers:
+        """Returns the headers associated with the current request.
+
+        Returns:
+            Headers: The headers of the request.
+
+        """
         return self._request_headers
 
     async def send(self, messages: AsyncIterable[Any]) -> None:
@@ -333,10 +539,25 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
     @property
     def response_headers(self) -> Headers:
+        """Returns the response headers associated with the current request.
+
+        Returns:
+            Headers: The headers returned in the response.
+
+        """
         return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
+        """Returns the response trailers as headers.
+
+        Response trailers are additional metadata sent by the server after the response body,
+        typically used in gRPC and HTTP/2 protocols.
+
+        Returns:
+            Headers: The response trailers associated with the current response.
+
+        """
         return self._response_trailers
 
     async def marshal_with_error_handling(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
@@ -359,6 +580,18 @@ class GRPCHandlerConn(StreamingHandlerConn):
             grpc_error_to_trailer(self.response_trailers, error)
 
     async def send_error(self, error: ConnectError) -> None:
+        """Send an error response over gRPC by converting the provided ConnectError into gRPC trailers.
+
+        Args:
+            error (ConnectError): The error to be sent as a gRPC trailer.
+
+        Returns:
+            None
+
+        This method updates the response trailers with the error information and writes a streaming response
+        with the appropriate headers and trailers to the client.
+
+        """
         grpc_error_to_trailer(self.response_trailers, error)
 
         await self.writer.write(
@@ -369,6 +602,18 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
 
 def grpc_codec_from_content_type(web: bool, content_type: str) -> str:
+    """Determine the gRPC codec name from the given content type string.
+
+    Args:
+        web (bool): Indicates whether the request is a gRPC-web request.
+        content_type (str): The content type string to parse.
+
+    Returns:
+        str: The codec name extracted from the content type. If the content type matches the default gRPC or gRPC-web content type,
+             returns the default codec name. Otherwise, extracts and returns the codec name from the content type prefix, or returns
+             the original content type if no known prefix is found.
+
+    """
     if (not web and content_type == GRPC_CONTENT_TYPE_DEFAULT) or (
         web and content_type == GRPC_WEB_CONTENT_TYPE_DEFAULT
     ):
@@ -383,6 +628,21 @@ def grpc_codec_from_content_type(web: bool, content_type: str) -> str:
 
 
 def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
+    """Convert a ConnectError to gRPC trailer headers.
+
+    Args:
+        trailer (Headers): The trailer headers dictionary to update with gRPC error information.
+        error (ConnectError | None): The error to convert. If None, indicates success.
+
+    Side Effects:
+        Modifies the `trailer` dictionary in-place to include gRPC status, message, and optional details.
+
+    Notes:
+        - If `error` is None, sets the gRPC status header to "0" (OK).
+        - If `ConnectError.wire_error` is False, updates the trailer with error metadata excluding protocol headers.
+        - Serializes error details using protobuf if present, encoding them in base64 for the trailer.
+
+    """
     if error is None:
         trailer[GRPC_HEADER_STATUS] = "0"
         return

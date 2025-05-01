@@ -1,4 +1,4 @@
-from __future__ import annotations
+"""Streaming HTTP response with support for trailers."""
 
 import typing
 from functools import partial
@@ -17,6 +17,21 @@ AsyncContentStream = typing.AsyncIterable[typing.Any]
 
 
 class StreamingResponseWithTrailers(Response):
+    """A streaming HTTP response class that supports HTTP trailers.
+
+    This class extends the standard response to allow sending HTTP trailers
+    at the end of a streamed response body, if supported by the ASGI server.
+
+    Attributes:
+        body_iterator (AsyncContentStream): An asynchronous iterator over the response body content.
+        status_code (int): HTTP status code for the response.
+        media_type (str | None): The media type of the response.
+        background (BackgroundTask | None): Optional background task to run after response is sent.
+        headers (Mapping[str, str]): HTTP headers for the response.
+        _trailers (Mapping[str, str] | None): HTTP trailers to send after the response body.
+
+    """
+
     body_iterator: AsyncContentStream
 
     def __init__(
@@ -29,6 +44,21 @@ class StreamingResponseWithTrailers(Response):
         media_type: str | None = None,
         background: BackgroundTask | None = None,
     ) -> None:
+        """Initialize a response object with optional HTTP trailers.
+
+        Args:
+            content (ContentStream): The response body content, which can be an async iterable or a regular iterable.
+            status_code (int, optional): HTTP status code for the response. Defaults to 200.
+            headers (typing.Mapping[str, str] | None, optional): HTTP headers to include in the response. Defaults to None.
+            trailers (typing.Mapping[str, str] | None, optional): HTTP trailers to include in the response. Defaults to None.
+            media_type (str | None, optional): The media type of the response. If None, uses the default media type. Defaults to None.
+            background (BackgroundTask | None, optional): A background task to run after the response is sent. Defaults to None.
+
+        Notes:
+            - If `content` is not an async iterable, it will be wrapped to run in a thread pool.
+            - If trailers are provided, their names will be added to the "Trailer" header.
+
+        """
         if isinstance(content, typing.AsyncIterable):
             self.body_iterator = content
         else:
@@ -69,6 +99,24 @@ class StreamingResponseWithTrailers(Response):
             })
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Handle the ASGI call interface for streaming HTTP responses with optional support for HTTP trailers.
+
+        This method determines the ASGI spec version and whether HTTP response trailers are supported.
+        For ASGI spec version >= 2.4, it streams the response and handles client disconnects.
+        For earlier versions, it concurrently streams the response and listens for client disconnects,
+        cancelling the response stream if a disconnect is detected.
+
+        After sending the response, if a background task is provided, it is awaited.
+
+        Args:
+            scope (Scope): The ASGI connection scope.
+            receive (Receive): Awaitable callable to receive ASGI messages.
+            send (Send): Awaitable callable to send ASGI messages.
+
+        Raises:
+            ClientDisconnect: If the client disconnects during response streaming.
+
+        """
         spec_version = tuple(map(int, scope.get("asgi", {}).get("spec_version", "2.0").split(".")))
         trailers_supported = "http.response.trailers" in scope.get("extensions", {})
 

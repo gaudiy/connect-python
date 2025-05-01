@@ -668,7 +668,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    async def receive_message(self, message: Any) -> AsyncIterator[Any]:
+    async def _receive_message(self, message: Any) -> AsyncIterator[Any]:
         """Receives and unmarshals a message into an object.
 
         Args:
@@ -692,7 +692,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         return AsyncContentStream(
-            self.receive_message(message),
+            self._receive_message(message),
             stream_type=self.spec.stream_type,
         )
 

@@ -93,7 +93,6 @@ name = "connect-python"
 source = { directory = "../" }
 dependencies = [
     { name = "anyio" },
-    { name = "grpcio" },
     { name = "grpcio-status" },
     { name = "h2" },
     { name = "httpcore" },
@@ -107,7 +106,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.7.0" },
-    { name = "grpcio", specifier = ">=1.70.0" },
     { name = "grpcio-status", specifier = ">=1.70.0" },
     { name = "h2", specifier = ">=4.2.0" },
     { name = "httpcore", specifier = ">=1.0.7" },

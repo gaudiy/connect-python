@@ -279,7 +279,7 @@ class ConnectHandler(ProtocolHandler):
             query=request.query_params,
         )
 
-        conn: StreamingHandlerConn | None = None
+        conn: StreamingHandlerConn
         if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
                 writer=writer,
@@ -670,7 +670,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    async def _receive_message(self, message: Any) -> AsyncIterator[Any]:
+    async def _receive_messages(self, message: Any) -> AsyncIterator[Any]:
         """Receives and unmarshals a message into an object.
 
         Args:
@@ -694,7 +694,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
         """
         return AsyncContentStream(
-            self._receive_message(message),
+            self._receive_messages(message),
             stream_type=self.spec.stream_type,
         )
 
@@ -1374,7 +1374,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    async def _receive_message(self, message: Any) -> AsyncIterator[Any]:
+    async def _receive_messages(self, message: Any) -> AsyncIterator[Any]:
         """Asynchronously receives a message and yields unmarshaled objects.
 
         This method unmarshals the received message and yields each
@@ -1408,7 +1408,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
         """
         return AsyncContentStream(
-            iterable=self._receive_message(message),
+            iterable=self._receive_messages(message),
             stream_type=self.spec.stream_type,
         )
 
@@ -1422,7 +1422,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._request_headers
 
-    async def create_message_iterator(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+    async def _send_messages(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
         """Create an async iterator that marshals messages with error handling.
 
         Args:
@@ -1464,7 +1464,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         await self.writer.write(
             StreamingResponse(
-                content=self.create_message_iterator(messages),
+                content=self._send_messages(messages),
                 headers=self.response_headers,
                 status_code=200,
             )
@@ -1914,7 +1914,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         return self._peer
 
-    async def _receive_message(self, message: Any) -> AsyncIterator[Any]:
+    async def _receive_messages(self, message: Any) -> AsyncIterator[Any]:
         """Asynchronously receives and unmarshals a message, yielding the resulting object.
 
         Args:
@@ -1937,7 +1937,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
             AsyncIterator[Any]: An asynchronous iterator yielding processed message(s).
 
         """
-        return self._receive_message(message)
+        return self._receive_messages(message)
 
     @property
     def request_headers(self) -> Headers:

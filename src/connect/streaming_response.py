@@ -16,7 +16,7 @@ ContentStream = typing.Iterable[typing.Any] | typing.AsyncIterable[typing.Any]
 AsyncContentStream = typing.AsyncIterable[typing.Any]
 
 
-class StreamingResponseWithTrailers(Response):
+class StreamingResponse(Response):
     """A streaming HTTP response class that supports HTTP trailers.
 
     This class extends the standard response to allow sending HTTP trailers

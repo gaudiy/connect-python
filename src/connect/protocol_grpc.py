@@ -28,7 +28,7 @@ from connect.protocol import (
     negotiate_compression,
 )
 from connect.request import Request
-from connect.response_trailer import StreamingResponseWithTrailers
+from connect.streaming_response import StreamingResponse
 from connect.utils import aiterate
 from connect.writer import ServerResponseWriter
 
@@ -497,7 +497,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
         """
         await self.writer.write(
-            StreamingResponseWithTrailers(
+            StreamingResponse(
                 content=self.marshal_with_error_handling(messages),
                 headers=self.response_headers,
                 trailers=self.response_trailers,
@@ -563,7 +563,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
         grpc_error_to_trailer(self.response_trailers, error)
 
         await self.writer.write(
-            StreamingResponseWithTrailers(
+            StreamingResponse(
                 content=aiterate([b""]), headers=self.response_headers, trailers=self.response_trailers, status_code=200
             )
         )

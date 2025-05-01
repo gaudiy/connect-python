@@ -18,7 +18,6 @@ from urllib.parse import unquote
 import google.protobuf.any_pb2 as any_pb2
 import httpcore
 from google.protobuf import json_format
-from starlette.responses import Response, StreamingResponse
 from yarl import URL
 
 from connect.code import Code
@@ -55,7 +54,9 @@ from connect.protocol import (
     negotiate_compression,
 )
 from connect.request import Request
+from connect.response import Response
 from connect.session import AsyncClientSession
+from connect.streaming_response import StreamingResponse
 from connect.utils import (
     AsyncByteStream,
     aiterate,

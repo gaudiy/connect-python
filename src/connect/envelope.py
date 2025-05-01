@@ -226,7 +226,7 @@ class EnvelopeWriter:
 
             if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
                 raise ConnectError(
-                    f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                    f"compressed message size {len(data)} exceeds send_max_bytes {self.send_max_bytes}",
                     Code.RESOURCE_EXHAUSTED,
                 )
 

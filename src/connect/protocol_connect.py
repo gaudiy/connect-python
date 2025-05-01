@@ -563,7 +563,7 @@ class ConnectUnaryMarshaler:
         if len(data) < self.compress_min_bytes or self.compression is None:
             if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
                 raise ConnectError(
-                    f"message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
+                    f"message size {len(data)} exceeds send_max_bytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
                 )
 
             return data
@@ -572,7 +572,7 @@ class ConnectUnaryMarshaler:
 
         if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
             raise ConnectError(
-                f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
+                f"compressed message size {len(data)} exceeds send_max_bytes {self.send_max_bytes}",
                 Code.RESOURCE_EXHAUSTED,
             )
 
@@ -1054,7 +1054,7 @@ class ConnectUnaryRequestMarshaler:
 
         if self.connect_marshaler.send_max_bytes > 0 and len(data) > self.connect_marshaler.send_max_bytes:
             raise ConnectError(
-                f"compressed message size {len(data)} exceeds send_mas_bytes {self.connect_marshaler.send_max_bytes}",
+                f"compressed message size {len(data)} exceeds send_max_bytes {self.connect_marshaler.send_max_bytes}",
                 Code.RESOURCE_EXHAUSTED,
             )
 

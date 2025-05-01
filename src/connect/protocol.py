@@ -366,7 +366,6 @@ def exclude_protocol_headers(headers: Headers) -> Headers:
             "Grpc-Status",
             "Grpc-Accept-Encoding",
             "Grpc-Timeout",
-            "Grpc-Status",
             "Grpc-Message",
             "Grpc-Status-Details-Bin",
         ]:

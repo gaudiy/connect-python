@@ -343,7 +343,7 @@ class Handler:
             ConnectError: If an internal error occurs during the handling of the stream.
 
         """
-        conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer, is_streaming=True)
+        conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
         if conn is None:
             return
 

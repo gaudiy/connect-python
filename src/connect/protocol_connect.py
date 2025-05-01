@@ -34,7 +34,7 @@ from connect.connect import (
     StreamType,
     UnaryClientConn,
 )
-from connect.envelope import Envelope, EnvelopeFlags
+from connect.envelope import Envelope, EnvelopeFlags, EnvelopeWriter
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
 from connect.headers import Headers, include_request_headers
 from connect.idempotency_level import IdempotencyLevel
@@ -181,7 +181,6 @@ class ConnectHandler(ProtocolHandler):
         response_headers: Headers,
         response_trailers: Headers,
         writer: ServerResponseWriter,
-        is_streaming: bool = False,
     ) -> StreamingHandlerConn | None:
         """Handle a connection request.
 
@@ -201,18 +200,16 @@ class ConnectHandler(ProtocolHandler):
         """
         query_params = request.query_params
 
-        # Get content encoding and accept encoding appropriately based on stream type
-        if is_streaming:
-            content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
-            accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
-        else:
+        if self.params.spec.stream_type == StreamType.Unary:
             if HTTPMethod(request.method) == HTTPMethod.GET:
                 content_encoding = query_params.get(CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER, None)
             else:
                 content_encoding = request.headers.get(CONNECT_UNARY_HEADER_COMPRESSION, None)
             accept_encoding = request.headers.get(CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION, None)
+        else:
+            content_encoding = request.headers.get(CONNECT_STREAMING_HEADER_COMPRESSION, None)
+            accept_encoding = request.headers.get(CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION, None)
 
-        # Negotiate compression
         request_compression, response_compression, error = negotiate_compression(
             self.params.compressions, content_encoding, accept_encoding
         )
@@ -221,8 +218,7 @@ class ConnectHandler(ProtocolHandler):
             required = self.params.require_connect_protocol_header and self.params.spec.stream_type == StreamType.Unary
             error = connect_check_protocol_version(request, required)
 
-        # Process GET parameters for unary requests
-        if not is_streaming and HTTPMethod(request.method) == HTTPMethod.GET:
+        if HTTPMethod(request.method) == HTTPMethod.GET:
             encoding = query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER, "")
             message = query_params.get(CONNECT_UNARY_MESSAGE_QUERY_PARAMETER, "")
             if error is None and encoding == "":
@@ -254,7 +250,6 @@ class ConnectHandler(ProtocolHandler):
             content_type = request.headers.get(HEADER_CONTENT_TYPE, "")
             codec_name = connect_codec_from_content_type(self.params.spec.stream_type, content_type)
 
-        # Get codec
         codec = self.params.codecs.get(codec_name)
         if error is None and codec is None:
             error = ConnectError(
@@ -262,53 +257,28 @@ class ConnectHandler(ProtocolHandler):
                 Code.INVALID_ARGUMENT,
             )
 
-        # Set response headers
         response_headers[HEADER_CONTENT_TYPE] = content_type
 
-        if is_streaming:
+        if self.params.spec.stream_type == StreamType.Unary:
+            response_headers[CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION] = (
+                f"{', '.join(c.name for c in self.params.compressions)}"
+            )
+        else:
             if response_compression and response_compression.name != COMPRESSION_IDENTITY:
                 response_headers[CONNECT_STREAMING_HEADER_COMPRESSION] = response_compression.name
 
             response_headers[CONNECT_STREAMING_HEADER_ACCEPT_COMPRESSION] = (
                 f"{', '.join(c.name for c in self.params.compressions)}"
             )
-        else:
-            response_headers[CONNECT_UNARY_HEADER_ACCEPT_COMPRESSION] = (
-                f"{', '.join(c.name for c in self.params.compressions)}"
-            )
 
-        # Create peer
         peer = Peer(
             address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
             protocol=PROTOCOL_CONNECT,
             query=request.query_params,
         )
 
-        # Create appropriate handler connection based on stream type
         conn: StreamingHandlerConn | None = None
-        if is_streaming:
-            conn = ConnectStreamingHandlerConn(
-                writer=writer,
-                request=request,
-                peer=peer,
-                spec=self.params.spec,
-                marshaler=ConnectStreamingMarshaler(
-                    codec=codec,
-                    compress_min_bytes=self.params.compress_min_bytes,
-                    send_max_bytes=self.params.send_max_bytes,
-                    compression=response_compression,
-                ),
-                unmarshaler=ConnectStreamingUnmarshaler(
-                    stream=request.stream(),
-                    codec=codec,
-                    compression=request_compression,
-                    read_max_bytes=self.params.read_max_bytes,
-                ),
-                request_headers=Headers(request.headers, encoding="latin-1"),
-                response_headers=response_headers,
-                response_trailers=response_trailers,
-            )
-        else:
+        if self.params.spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryHandlerConn(
                 writer=writer,
                 request=request,
@@ -323,6 +293,29 @@ class ConnectHandler(ProtocolHandler):
                 ),
                 unmarshaler=ConnectUnaryUnmarshaler(
                     stream=request_stream,
+                    codec=codec,
+                    compression=request_compression,
+                    read_max_bytes=self.params.read_max_bytes,
+                ),
+                request_headers=Headers(request.headers, encoding="latin-1"),
+                response_headers=response_headers,
+                response_trailers=response_trailers,
+            )
+
+        else:
+            conn = ConnectStreamingHandlerConn(
+                writer=writer,
+                request=request,
+                peer=peer,
+                spec=self.params.spec,
+                marshaler=ConnectStreamingMarshaler(
+                    codec=codec,
+                    compress_min_bytes=self.params.compress_min_bytes,
+                    send_max_bytes=self.params.send_max_bytes,
+                    compression=response_compression,
+                ),
+                unmarshaler=ConnectStreamingUnmarshaler(
+                    stream=request.stream(),
                     codec=codec,
                     compression=request_compression,
                     read_max_bytes=self.params.read_max_bytes,
@@ -1167,7 +1160,7 @@ class HTTPCoreResponseAsyncByteStream(AsyncByteStream):
                 await aclose()
 
 
-class ConnectStreamingMarshaler:
+class ConnectStreamingMarshaler(EnvelopeWriter):
     """A class responsible for marshaling messages with optional compression.
 
     Attributes:
@@ -1198,96 +1191,21 @@ class ConnectStreamingMarshaler:
         self.send_max_bytes = send_max_bytes
         self.compression = compression
 
-    async def marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
-        """Asynchronously marshals and compresses messages from an asynchronous iterator.
+    def marshal_end_stream(self, error: ConnectError | None, response_trailers: Headers) -> bytes:
+        """Serialize the end-of-stream message with optional error and response trailers into a bytes envelope.
 
         Args:
-            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled.
-
-        Yields:
-            AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
-
-        Raises:
-            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
-
-        """
-        if self.codec is None:
-            raise ConnectError("codec is not set", Code.INTERNAL)
-
-        async for message in messages:
-            try:
-                data = self.codec.marshal(message)
-            except Exception as e:
-                raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
-
-            env = Envelope(data, EnvelopeFlags(0))
-
-            if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
-                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                    raise ConnectError(
-                        f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
-                    )
-                compressed_data = env.data
-            else:
-                compressed_data = self.compression.compress(data)
-                env.flags |= EnvelopeFlags.compressed
-
-                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                    raise ConnectError(
-                        f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
-                        Code.RESOURCE_EXHAUSTED,
-                    )
-
-            env.data = compressed_data
-            yield env.encode()
-
-    def write_envelope(self, env: Envelope) -> Envelope:
-        """Write an envelope, optionally compressing its data if certain conditions are met.
-
-        Args:
-            env (Envelope): The envelope to be written.
+            error (ConnectError | None): An optional error object to include in the end-of-stream message.
+            response_trailers (Headers): Headers to include as response trailers.
 
         Returns:
-            Envelope: The envelope with possibly compressed data and updated flags.
-
-        Raises:
-            ConnectError: If the size of the envelope data exceeds the maximum allowed size.
+            bytes: The serialized envelope containing the end-of-stream message.
 
         """
-        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(env.data) < self.compress_min_bytes:
-            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                raise ConnectError(
-                    f"message size {len(env.data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
-                )
-            compressed_data = env.data
-            flags = env.flags
-        else:
-            compressed_data = self.compression.compress(env.data)
-            flags = EnvelopeFlags(env.flags | EnvelopeFlags.compressed)
+        json_obj = end_stream_to_json(error, response_trailers)
+        json_str = json.dumps(json_obj)
 
-            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                raise ConnectError(
-                    f"compressed message size {len(env.data)} exceeds send_mas_bytes {self.send_max_bytes}",
-                    Code.RESOURCE_EXHAUSTED,
-                )
-
-        return Envelope(
-            data=compressed_data,
-            flags=flags,
-        )
-
-    def marshal_end_stream(self, data: bytes) -> bytes:
-        """Marshal the given data into an envelope with the end_stream flag set and encodes it.
-
-        Args:
-            data (bytes): The data to be marshaled.
-
-        Returns:
-            bytes: The encoded envelope containing the marshaled data.
-
-        """
-        env = Envelope(data, EnvelopeFlags(EnvelopeFlags.end_stream))
-        env = self.write_envelope(env)
+        env = self.write_envelope(json_str.encode(), EnvelopeFlags(EnvelopeFlags.end_stream))
 
         return env.encode()
 
@@ -1606,10 +1524,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
         finally:
-            json_obj = end_stream_to_json(error, self.response_trailers)
-            json_str = json.dumps(json_obj)
-
-            body = self.marshaler.marshal_end_stream(json_str.encode())
+            body = self.marshaler.marshal_end_stream(error, self.response_trailers)
             yield body
 
     async def send(self, messages: AsyncIterable[Any]) -> None:
@@ -1670,10 +1585,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
             None
 
         """
-        json_obj = end_stream_to_json(error, self.response_trailers)
-        json_str = json.dumps(json_obj)
-
-        body = self.marshaler.marshal_end_stream(json_str.encode())
+        body = self.marshaler.marshal_end_stream(error, self.response_trailers)
 
         await self.writer.write(
             StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)

@@ -161,7 +161,6 @@ class ProtocolHandler(abc.ABC):
         response_headers: Headers,
         response_trailers: Headers,
         writer: ServerResponseWriter,
-        is_streaming: bool = False,
     ) -> StreamingHandlerConn | None:
         """Handle a connection request.
 

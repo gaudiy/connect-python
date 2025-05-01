@@ -34,7 +34,7 @@ from connect.connect import (
     StreamType,
     UnaryClientConn,
 )
-from connect.envelope import Envelope, EnvelopeFlags
+from connect.envelope import Envelope, EnvelopeFlags, EnvelopeWriter
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
 from connect.headers import Headers, include_request_headers
 from connect.idempotency_level import IdempotencyLevel
@@ -1167,7 +1167,7 @@ class HTTPCoreResponseAsyncByteStream(AsyncByteStream):
                 await aclose()
 
 
-class ConnectStreamingMarshaler:
+class ConnectStreamingMarshaler(EnvelopeWriter):
     """A class responsible for marshaling messages with optional compression.
 
     Attributes:
@@ -1198,96 +1198,21 @@ class ConnectStreamingMarshaler:
         self.send_max_bytes = send_max_bytes
         self.compression = compression
 
-    async def marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
-        """Asynchronously marshals and compresses messages from an asynchronous iterator.
+    def marshal_end_stream(self, error: ConnectError | None, response_trailers: Headers) -> bytes:
+        """Serialize the end-of-stream message with optional error and response trailers into a bytes envelope.
 
         Args:
-            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled.
-
-        Yields:
-            AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
-
-        Raises:
-            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
-
-        """
-        if self.codec is None:
-            raise ConnectError("codec is not set", Code.INTERNAL)
-
-        async for message in messages:
-            try:
-                data = self.codec.marshal(message)
-            except Exception as e:
-                raise ConnectError(f"marshal message: {str(e)}", Code.INTERNAL) from e
-
-            env = Envelope(data, EnvelopeFlags(0))
-
-            if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(data) < self.compress_min_bytes:
-                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                    raise ConnectError(
-                        f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
-                    )
-                compressed_data = env.data
-            else:
-                compressed_data = self.compression.compress(data)
-                env.flags |= EnvelopeFlags.compressed
-
-                if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                    raise ConnectError(
-                        f"compressed message size {len(data)} exceeds send_mas_bytes {self.send_max_bytes}",
-                        Code.RESOURCE_EXHAUSTED,
-                    )
-
-            env.data = compressed_data
-            yield env.encode()
-
-    def write_envelope(self, env: Envelope) -> Envelope:
-        """Write an envelope, optionally compressing its data if certain conditions are met.
-
-        Args:
-            env (Envelope): The envelope to be written.
+            error (ConnectError | None): An optional error object to include in the end-of-stream message.
+            response_trailers (Headers): Headers to include as response trailers.
 
         Returns:
-            Envelope: The envelope with possibly compressed data and updated flags.
-
-        Raises:
-            ConnectError: If the size of the envelope data exceeds the maximum allowed size.
+            bytes: The serialized envelope containing the end-of-stream message.
 
         """
-        if env.is_set(EnvelopeFlags.compressed) or self.compression is None or len(env.data) < self.compress_min_bytes:
-            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                raise ConnectError(
-                    f"message size {len(env.data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
-                )
-            compressed_data = env.data
-            flags = env.flags
-        else:
-            compressed_data = self.compression.compress(env.data)
-            flags = EnvelopeFlags(env.flags | EnvelopeFlags.compressed)
+        json_obj = end_stream_to_json(error, response_trailers)
+        json_str = json.dumps(json_obj)
 
-            if self.send_max_bytes > 0 and len(env.data) > self.send_max_bytes:
-                raise ConnectError(
-                    f"compressed message size {len(env.data)} exceeds send_mas_bytes {self.send_max_bytes}",
-                    Code.RESOURCE_EXHAUSTED,
-                )
-
-        return Envelope(
-            data=compressed_data,
-            flags=flags,
-        )
-
-    def marshal_end_stream(self, data: bytes) -> bytes:
-        """Marshal the given data into an envelope with the end_stream flag set and encodes it.
-
-        Args:
-            data (bytes): The data to be marshaled.
-
-        Returns:
-            bytes: The encoded envelope containing the marshaled data.
-
-        """
-        env = Envelope(data, EnvelopeFlags(EnvelopeFlags.end_stream))
-        env = self.write_envelope(env)
+        env = self.write_envelope(json_str.encode(), EnvelopeFlags(EnvelopeFlags.end_stream))
 
         return env.encode()
 
@@ -1606,10 +1531,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
         finally:
-            json_obj = end_stream_to_json(error, self.response_trailers)
-            json_str = json.dumps(json_obj)
-
-            body = self.marshaler.marshal_end_stream(json_str.encode())
+            body = self.marshaler.marshal_end_stream(error, self.response_trailers)
             yield body
 
     async def send(self, messages: AsyncIterable[Any]) -> None:
@@ -1670,10 +1592,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
             None
 
         """
-        json_obj = end_stream_to_json(error, self.response_trailers)
-        json_str = json.dumps(json_obj)
-
-        body = self.marshaler.marshal_end_stream(json_str.encode())
+        body = self.marshaler.marshal_end_stream(error, self.response_trailers)
 
         await self.writer.write(
             StreamingResponse(content=aiterate([body]), headers=self.response_headers, status_code=200)

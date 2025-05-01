@@ -33,6 +33,7 @@ from connect.connect import (
     StreamingHandlerConn,
     StreamType,
     UnaryClientConn,
+    ensure_single,
 )
 from connect.envelope import Envelope, EnvelopeFlags, EnvelopeWriter
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
@@ -719,22 +720,10 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         """
         self.merge_response_trailers()
 
-        message = None
-        count = 0
-
-        async for msg in messages:
-            count += 1
-            if count > 1:
-                raise ConnectError("unary handler should only send one message", Code.INTERNAL)
-
-            message = msg
-
-        if message is None:
-            raise ConnectError("unary handler must send one message", Code.INTERNAL)
+        message = await ensure_single(messages)
 
         data = self.marshaler.marshal(message)
-        response = Response(content=data, headers=self.response_headers, status_code=HTTPStatus.OK)
-        await self.writer.write(response)
+        await self.writer.write(Response(data, HTTPStatus.OK, self.response_headers))
 
     @property
     def response_headers(self) -> Headers:

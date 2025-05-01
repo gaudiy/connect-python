@@ -350,43 +350,6 @@ class AsyncContentStream[T](AsyncIterable[T]):
         self._iterable = iterable
         self.stream_type = stream_type
 
-    def _needs_single_content_validation(self) -> bool:
-        """Determine if single message validation is required based on the stream type.
-
-        Returns:
-            bool: True if the stream type is Unary or ServerStream, indicating that single message validation is needed; False otherwise.
-
-        """
-        return self.stream_type == StreamType.Unary or self.stream_type == StreamType.ServerStream
-
-    async def _validate_single_content_stream(self, iterable: AsyncIterable[T]) -> AsyncIterator[T]:
-        """Validate that the given asynchronous iterable yields exactly one item.
-
-        Iterates over the provided async iterable and ensures that it produces a single item.
-        If more than one item is yielded, raises a ConnectError indicating a protocol error.
-        If no items are yielded, also raises a ConnectError indicating a protocol error.
-
-        Args:
-            iterable (AsyncIterable[T]): The asynchronous iterable to validate.
-
-        Yields:
-            T: The single item from the iterable.
-
-        Raises:
-            ConnectError: If the iterable yields zero or more than one item.
-
-        """
-        count = 0
-        async for item in iterable:
-            if count > 0:
-                raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
-
-            yield item
-            count += 1
-
-        if count == 0:
-            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
-
     async def __aiter__(self) -> AsyncIterator[T]:
         """Asynchronously iterates over the underlying iterable.
 
@@ -397,35 +360,68 @@ class AsyncContentStream[T](AsyncIterable[T]):
             T: Items from the underlying asynchronous iterable.
 
         """
-        if self._needs_single_content_validation():
-            async for item in self._validate_single_content_stream(self._iterable):
+        if self.stream_type == StreamType.Unary or self.stream_type == StreamType.ServerStream:
+            async for item in validate_single_content_stream(self._iterable):
                 yield item
         else:
             async for item in self._iterable:
                 yield item
 
-    async def ensure_single(self) -> T:
-        """Asynchronously ensures that exactly one message is present in the iterable.
 
-        Iterates over the provided asynchronous iterable and retrieves a single message.
-        Raises a ConnectError if no messages are found. If multiple messages are present,
-        only the last one will be returned (potential protocol error).
+async def validate_single_content_stream[T](iterable: AsyncIterable[T]) -> AsyncIterator[T]:
+    """Validate that an asynchronous iterable yields exactly one item.
 
-        Returns:
-            T: The single message retrieved from the iterable.
+    This async generator iterates over the provided `iterable` and ensures that it produces exactly one item.
+    If more than one item is yielded, a `ConnectError` is raised indicating a protocol error.
+    If no items are yielded, a `ConnectError` is also raised.
 
-        Raises:
-            ConnectError: If no messages are found in the iterable.
+    Args:
+        iterable (AsyncIterable[T]): The asynchronous iterable to validate.
 
-        """
-        message = None
-        async for item in self._validate_single_content_stream(self._iterable):
-            message = item
+    Yields:
+        T: The single item from the iterable.
 
-        if message is None:
-            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+    Raises:
+        ConnectError: If the iterable yields zero or more than one item.
 
-        return message
+    """
+    count = 0
+    async for item in iterable:
+        if count > 0:
+            raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
+
+        yield item
+        count += 1
+
+    if count == 0:
+        raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+
+
+async def ensure_single[T](iterable: AsyncIterable[T]) -> T:
+    """Asynchronously ensures that the given async iterable yields exactly one item.
+
+    Iterates over the provided async iterable (after validating its content stream)
+    and returns the single item if present. Raises a ConnectError if the iterable
+    is empty or contains more than one item.
+
+    Args:
+        iterable (AsyncIterable[T]): An asynchronous iterable expected to yield exactly one item.
+
+    Returns:
+        T: The single item yielded by the iterable.
+
+    Raises:
+        ConnectError: If the iterable yields no items or more than one item.
+
+    """
+    message = None
+    async for item in validate_single_content_stream(iterable):
+        message = item
+
+    if message is None:
+        raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
+
+    return message
 
 
 class StreamingHandlerConn(abc.ABC):
@@ -670,7 +666,7 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Un
 
     """
     stream = conn.receive(t)
-    message = await stream.ensure_single()
+    message = await ensure_single(stream)
 
     method = HTTPMethod.POST
     get_http_method = get_callable_attribute(conn, "get_http_method")

@@ -20,6 +20,7 @@ import httpcore
 from google.protobuf import json_format
 from yarl import URL
 
+from connect.byte_stream import HTTPCoreResponseAsyncByteStream
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
@@ -58,7 +59,6 @@ from connect.response import Response
 from connect.session import AsyncClientSession
 from connect.streaming_response import StreamingResponse
 from connect.utils import (
-    AsyncByteStream,
     aiterate,
     get_acallable_attribute,
     map_httpcore_exceptions,
@@ -1104,50 +1104,6 @@ class ConnectUnaryRequestMarshaler:
             del self.connect_marshaler.headers[HEADER_CONTENT_LENGTH]
 
         self.url = url
-
-
-class HTTPCoreResponseAsyncByteStream(AsyncByteStream):
-    """An asynchronous byte stream for reading and writing byte chunks."""
-
-    aiterator: AsyncIterable[bytes] | None
-    _closed: bool
-
-    def __init__(
-        self,
-        aiterator: AsyncIterable[bytes] | None = None,
-    ) -> None:
-        """Initialize the protocol connect instance.
-
-        Args:
-            aiterator (AsyncIterable[bytes] | None): An optional asynchronous iterable of bytes.
-
-        Returns:
-            None
-
-        """
-        self.aiterator = aiterator
-        self._closed = False
-
-    async def __aiter__(self) -> AsyncIterator[bytes]:
-        """Asynchronous iterator method to read byte chunks from the stream."""
-        if self.aiterator:
-            try:
-                with map_httpcore_exceptions():
-                    async for chunk in self.aiterator:
-                        yield chunk
-            except BaseException as exc:
-                await self.aclose()
-                raise exc
-
-    async def aclose(self) -> None:
-        """Asynchronously close the stream."""
-        if not self._closed and self.aiterator:
-            aclose = get_acallable_attribute(self.aiterator, "aclose")
-            if not aclose:
-                return
-
-            with map_httpcore_exceptions():
-                await aclose()
 
 
 class ConnectStreamingMarshaler(EnvelopeWriter):

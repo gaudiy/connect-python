@@ -84,6 +84,12 @@ class ClientOptions(BaseModel):
     enable_get: bool = Field(default=False)
     """A boolean indicating whether to enable GET requests."""
 
+    grpc: bool = Field(default=False)
+    """A boolean indicating whether to use gRPC."""
+
+    grpc_web: bool = Field(default=False)
+    """A boolean indicating whether to use gRPC-Web."""
+
     def merge(self, override_options: "ClientOptions | None" = None) -> "ClientOptions":
         """Merge this options object with an override options object.
 

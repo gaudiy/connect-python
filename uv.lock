@@ -101,7 +101,7 @@ name = "connect-python"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
-    { name = "grpcio-status" },
+    { name = "googleapis-common-protos" },
     { name = "h2" },
     { name = "httpcore" },
     { name = "protobuf" },
@@ -128,7 +128,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.7.0" },
-    { name = "grpcio-status", specifier = ">=1.70.0" },
+    { name = "googleapis-common-protos", specifier = ">=1.70.0" },
     { name = "h2", specifier = ">=4.2.0" },
     { name = "httpcore", specifier = ">=1.0.7" },
     { name = "protobuf", specifier = ">=5.29.1" },
@@ -179,20 +179,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/79/6a/5df64b6df405a1ed1482cb6c10044b06ec47fd28e87c2232dbcf435ecb33/grpcio-1.70.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:0a5c78d5198a1f0aa60006cd6eb1c912b4a1520b6a3968e677dbcba215fabb40", size = 6190982, upload_time = "2025-01-23T17:54:58.405Z" },
     { url = "https://files.pythonhosted.org/packages/42/aa/aeaac87737e6d25d1048c53b8ec408c056d3ed0c922e7c5efad65384250c/grpcio-1.70.0-cp313-cp313-win32.whl", hash = "sha256:fe9dbd916df3b60e865258a8c72ac98f3ac9e2a9542dcb72b7a34d236242a5ce", size = 3598359, upload_time = "2025-01-23T17:55:00.671Z" },
     { url = "https://files.pythonhosted.org/packages/1f/79/8edd2442d2de1431b4a3de84ef91c37002f12de0f9b577fb07b452989dbc/grpcio-1.70.0-cp313-cp313-win_amd64.whl", hash = "sha256:4119fed8abb7ff6c32e3d2255301e59c316c22d31ab812b3fbcbaf3d0d87cc68", size = 4293938, upload_time = "2025-01-23T17:55:02.821Z" },
-]
-
-[[package]]
-name = "grpcio-status"
-version = "1.70.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "googleapis-common-protos" },
-    { name = "grpcio" },
-    { name = "protobuf" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4c/d1/2397797c810020eac424e1aac10fbdc5edb6b9b4ad6617e0ed53ca907653/grpcio_status-1.70.0.tar.gz", hash = "sha256:0e7b42816512433b18b9d764285ff029bde059e9d41f8fe10a60631bd8348101", size = 13681, upload_time = "2025-01-23T18:00:33.637Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/34/49e558040e069feebac70cdd1b605f38738c0277ac5d38e2ce3d03e1b1ec/grpcio_status-1.70.0-py3-none-any.whl", hash = "sha256:fc5a2ae2b9b1c1969cc49f3262676e6854aa2398ec69cb5bd6c47cd501904a85", size = 14429, upload_time = "2025-01-23T17:57:35.392Z" },
 ]
 
 [[package]]

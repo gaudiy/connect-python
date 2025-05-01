@@ -126,6 +126,27 @@ class Envelope:
 
 
 class EnvelopeWriter:
+    """EnvelopeWriter is responsible for marshaling messages, optionally compressing them, and writing them into envelopes for transmission.
+
+    Attributes:
+        codec (Codec | None): The codec used for encoding and decoding messages.
+        send_max_bytes (int): The maximum number of bytes allowed per message.
+        compression (Compression | None): The compression method to use, or None for no compression.
+
+    Methods:
+        __init__(codec, compression, compress_min_bytes, send_max_bytes):
+            Initializes the EnvelopeWriter with the specified codec, compression, and size constraints.
+
+        async _marshal(messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+            Asynchronously marshals and optionally compresses messages from an async iterable, yielding encoded envelope bytes.
+            Raises ConnectError if marshaling fails or message size exceeds the allowed limit.
+
+        write_envelope(data: bytes, flags: EnvelopeFlags) -> Envelope:
+            Writes an envelope, optionally compressing its data if conditions are met, and updates envelope flags accordingly.
+            Raises ConnectError if the (compressed) message size exceeds the allowed maximum.
+
+    """
+
     codec: Codec | None
     compress_min_bytes: int
     send_max_bytes: int
@@ -174,16 +195,22 @@ class EnvelopeWriter:
             yield env.encode()
 
     def write_envelope(self, data: bytes, flags: EnvelopeFlags) -> Envelope:
-        """Write an envelope, optionally compressing its data if certain conditions are met.
+        """Write an envelope containing the provided data, applying compression if required.
 
         Args:
-            env (Envelope): The envelope to be written.
+            data (bytes): The message payload to be written into the envelope.
+            flags (EnvelopeFlags): Flags indicating envelope properties, such as compression.
 
         Returns:
-            Envelope: The envelope with possibly compressed data and updated flags.
+            Envelope: An envelope object containing the (optionally compressed) data and updated flags.
 
         Raises:
-            ConnectError: If the size of the envelope data exceeds the maximum allowed size.
+            ConnectError: If the (compressed or uncompressed) data size exceeds the configured send_max_bytes limit.
+
+        Notes:
+            - Compression is applied only if the flags do not already indicate compression,
+              compression is enabled, and the data size exceeds the minimum threshold.
+            - The flags are updated to include the compressed flag if compression is performed.
 
         """
         if flags in EnvelopeFlags.compressed or self.compression is None or len(data) < self.compress_min_bytes:

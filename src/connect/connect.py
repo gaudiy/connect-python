@@ -5,7 +5,7 @@ import asyncio
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from enum import Enum
 from http import HTTPMethod
-from typing import Any, Protocol, cast
+from typing import Any, cast
 
 from pydantic import BaseModel
 
@@ -319,16 +319,63 @@ class StreamResponse[T](ResponseCommon):
 
 
 class AsyncContentStream[T](AsyncIterable[T]):
-    """AsyncContentStream is a wrapper around AsyncIterable to provide a consistent interface."""
+    """AsyncContentStream is a generic asynchronous stream wrapper for async iterables, providing validation and iteration utilities based on stream type.
+
+    Type Parameters:
+        T: The type of elements yielded by the asynchronous iterable.
+
+        iterable (AsyncIterable[T]): The asynchronous iterable to wrap.
+        stream_type (StreamType): The type of stream (e.g., Unary, ServerStream) that determines validation behavior.
+
+    Attributes:
+        _iterable (AsyncIterable[T]): The underlying asynchronous iterable.
+        stream_type (StreamType): The type of stream this instance represents.
+
+    """
 
     def __init__(self, iterable: AsyncIterable[T], stream_type: StreamType) -> None:
+        """Initialize a stream wrapper for an async iterable.
+
+        This constructor stores the provided async iterable and its corresponding
+        stream type for later processing.
+
+        Args:
+            iterable: An asynchronous iterable containing elements of type T.
+            stream_type: The type of stream this iterable represents.
+
+        Returns:
+            None
+
+        """
         self._iterable = iterable
         self.stream_type = stream_type
 
-    def _needs_single_message_validation(self) -> bool:
+    def _needs_single_content_validation(self) -> bool:
+        """Determine if single message validation is required based on the stream type.
+
+        Returns:
+            bool: True if the stream type is Unary or ServerStream, indicating that single message validation is needed; False otherwise.
+
+        """
         return self.stream_type == StreamType.Unary or self.stream_type == StreamType.ServerStream
 
-    async def _ensure_single(self, iterable: AsyncIterable[T]) -> AsyncIterator[T]:
+    async def _validate_single_content_stream(self, iterable: AsyncIterable[T]) -> AsyncIterator[T]:
+        """Validate that the given asynchronous iterable yields exactly one item.
+
+        Iterates over the provided async iterable and ensures that it produces a single item.
+        If more than one item is yielded, raises a ConnectError indicating a protocol error.
+        If no items are yielded, also raises a ConnectError indicating a protocol error.
+
+        Args:
+            iterable (AsyncIterable[T]): The asynchronous iterable to validate.
+
+        Yields:
+            T: The single item from the iterable.
+
+        Raises:
+            ConnectError: If the iterable yields zero or more than one item.
+
+        """
         count = 0
         async for item in iterable:
             if count > 0:
@@ -341,17 +388,38 @@ class AsyncContentStream[T](AsyncIterable[T]):
             raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
 
     async def __aiter__(self) -> AsyncIterator[T]:
-        """Asynchronously iterate over the content stream."""
-        if self._needs_single_message_validation():
-            async for item in self._ensure_single(self._iterable):
+        """Asynchronously iterates over the underlying iterable.
+
+        If single message validation is required, wraps the iterable with a validation step.
+        Otherwise, yields items directly from the iterable.
+
+        Yields:
+            T: Items from the underlying asynchronous iterable.
+
+        """
+        if self._needs_single_content_validation():
+            async for item in self._validate_single_content_stream(self._iterable):
                 yield item
         else:
             async for item in self._iterable:
                 yield item
 
     async def ensure_single(self) -> T:
+        """Asynchronously ensures that exactly one message is present in the iterable.
+
+        Iterates over the provided asynchronous iterable and retrieves a single message.
+        Raises a ConnectError if no messages are found. If multiple messages are present,
+        only the last one will be returned (potential protocol error).
+
+        Returns:
+            T: The single message retrieved from the iterable.
+
+        Raises:
+            ConnectError: If no messages are found in the iterable.
+
+        """
         message = None
-        async for item in self._ensure_single(self._iterable):
+        async for item in self._validate_single_content_stream(self._iterable):
             message = item
 
         if message is None:
@@ -399,14 +467,16 @@ class StreamingHandlerConn(abc.ABC):
 
     @abc.abstractmethod
     def receive(self, message: Any) -> AsyncContentStream[Any]:
-        """Receives a message and processes it.
+        """Receives a message and returns an asynchronous content stream.
 
         Args:
-            message (Any): The message to be received and processed.
+            message (Any): The message to be processed.
 
         Returns:
-            AsyncIterator[Any]: An async iterator of processing results.
-                               For unary operations, this will yield exactly one item.
+            AsyncContentStream[Any]: An asynchronous stream of content resulting from processing the message.
+
+        Raises:
+            NotImplementedError: This method should be implemented by subclasses.
 
         """
         raise NotImplementedError()
@@ -477,15 +547,6 @@ class StreamingHandlerConn(abc.ABC):
         """
         raise NotImplementedError()
 
-    def is_unary(self) -> bool:
-        """Check if this connection is for a unary operation.
-
-        Returns:
-            bool: True if this is a unary operation connection, False otherwise.
-
-        """
-        return self.spec.stream_type == StreamType.Unary
-
 
 class UnaryClientConn:
     """Abstract base class for a streaming client connection."""
@@ -533,6 +594,11 @@ class UnaryClientConn:
     @abc.abstractmethod
     def on_request_send(self, fn: Callable[..., Any]) -> None:
         """Handle the request send event."""
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    async def aclose(self) -> None:
+        """Asynchronously close the connection."""
         raise NotImplementedError()
 
 
@@ -589,43 +655,6 @@ class StreamingClientConn:
     @abc.abstractmethod
     async def aclose(self) -> None:
         """Asynchronously close the connection."""
-        raise NotImplementedError()
-
-
-class ReceiveConn(Protocol):
-    """A protocol that defines the methods required for receiving connections."""
-
-    @property
-    @abc.abstractmethod
-    def spec(self) -> Spec:
-        """Retrieve the specification for the current object.
-
-        This method should be implemented by subclasses to return an instance
-        of the `Spec` class that defines the specification for the object.
-
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
-
-        Returns:
-            Spec: The specification for the current object.
-
-        """
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Receives a message and processes it.
-
-        Args:
-            message (Any): The message to be received and processed.
-
-        Returns:
-            AsyncIterator[Any]: An async iterator of processing results.
-
-        Raises:
-            NotImplementedError: This method should be implemented by subclasses.
-
-        """
         raise NotImplementedError()
 
 
@@ -770,36 +799,22 @@ async def recieve_stream_response[T](
         return StreamResponse(receive_stream, conn.response_headers, conn.response_trailers)
 
 
-async def receive_unary_message[T](conn: ReceiveConn, t: type[T]) -> T:
-    """Receive a unary message from the given connection.
+async def receive_unary_message[T](conn: UnaryClientConn, t: type[T]) -> T:
+    """Asynchronously receives a single unary message from the given connection.
 
     Args:
-        conn (ReceiveConn): The connection object to receive the message from.
-        t (type[T]): The type of the message to be received.
+        conn (UnaryClientConn): The unary client connection to receive the message from.
+        t (type[T]): The expected type of the message to be received.
 
     Returns:
         T: The received message of type T.
 
     Raises:
-        ConnectError: If no message is received or multiple messages are received.
+        Exception: If receiving the message fails or more than one message is received.
+
+    Note:
+        This function ensures that exactly one message is received from the connection.
 
     """
-    first = None
-    count = 0
-
-    async for message in conn.receive(t):
-        count += 1
-        if count > 1:
-            raise ConnectError(
-                f"received extra input message for {conn.spec.procedure} method",
-                Code.UNIMPLEMENTED,
-            )
-        first = message
-
-    if first is None:
-        raise ConnectError(
-            f"missing input message for {conn.spec.procedure} method",
-            Code.UNIMPLEMENTED,
-        )
-
-    return first
+    single_message = await _receive_exactly_one(conn.receive(t), conn.aclose)
+    return single_message

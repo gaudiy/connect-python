@@ -27,8 +27,9 @@ from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
 from connect.options import ClientOptions
-from connect.protocol import ProtocolClient, ProtocolClientParams
+from connect.protocol import Protocol, ProtocolClient, ProtocolClientParams
 from connect.protocol_connect import ProtocolConnect
+from connect.protocol_grpc import ProtocolGRPC
 from connect.session import AsyncClientSession
 
 
@@ -75,7 +76,7 @@ class ClientConfig:
     """
 
     url: URL
-    protocol: ProtocolConnect
+    protocol: Protocol
     procedure: str
     codec: Codec
     request_compression_name: str | None
@@ -113,6 +114,10 @@ class ClientConfig:
 
         self.url = url
         self.protocol = ProtocolConnect()
+        if options.grpc:
+            self.protocol = ProtocolGRPC(web=False)
+        if options.grpc_web:
+            self.protocol = ProtocolGRPC(web=True)
         self.procedure = proto_path
         self.codec = ProtoBinaryCodec()
         self.request_compression_name = options.request_compression_name

@@ -1,1 +1,1 @@
-gRPC Unexpected Requests/HTTPVersion:2/TLS:true/unary/multiple-requests
+Basic/HTTPVersion:2/Protocol:PROTOCOL_GRPC/Codec:CODEC_PROTO/Compression:COMPRESSION_IDENTITY/TLS:false/client-stream/success

@@ -1,24 +1,40 @@
 """Provaides classes and functions for handling gRPC protocol."""
 
+import asyncio
 import base64
+import contextlib
 import re
 import urllib.parse
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from http import HTTPMethod
 from typing import Any
 
+import httpcore
 from google.rpc import status_pb2
+from yarl import URL
 
+from connect.byte_stream import HTTPCoreResponseAsyncByteStream
 from connect.code import Code
 from connect.codec import Codec, CodecNameType
-from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Address, AsyncContentStream, Peer, Spec, StreamingHandlerConn
+from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
+from connect.connect import (
+    Address,
+    AsyncContentStream,
+    Peer,
+    Spec,
+    StreamingClientConn,
+    StreamingHandlerConn,
+    StreamType,
+    UnaryClientConn,
+)
 from connect.envelope import EnvelopeReader, EnvelopeWriter
 from connect.error import ConnectError
-from connect.headers import Headers
+from connect.headers import Headers, include_request_headers
 from connect.protocol import (
     HEADER_CONTENT_TYPE,
+    HEADER_USER_AGENT,
     PROTOCOL_GRPC,
+    PROTOCOL_GRPC_WEB,
     Protocol,
     ProtocolClient,
     ProtocolClientParams,
@@ -28,8 +44,10 @@ from connect.protocol import (
     negotiate_compression,
 )
 from connect.request import Request
+from connect.session import AsyncClientSession
 from connect.streaming_response import StreamingResponse
-from connect.utils import aiterate
+from connect.utils import aiterate, map_httpcore_exceptions
+from connect.version import __version__
 from connect.writer import ServerResponseWriter
 
 GRPC_HEADER_COMPRESSION = "Grpc-Encoding"
@@ -44,7 +62,11 @@ GRPC_WEB_CONTENT_TYPE_DEFAULT = "application/grpc-web"
 GRPC_CONTENT_TYPE_PREFIX = GRPC_CONTENT_TYPE_DEFAULT + "+"
 GRPC_WEB_CONTENT_TYPE_PREFIX = GRPC_WEB_CONTENT_TYPE_DEFAULT + "+"
 
+HEADER_X_USER_AGENT = "X-User-Agent"
+
 GRPC_ALLOWED_METHODS = [HTTPMethod.POST]
+
+DEFAULT_GRPC_USER_AGENT = f"connect-python/{__version__} (Python/{__version__})"
 
 
 _RE = re.compile(r"^(\d{1,8})([HMSmun])$")
@@ -59,8 +81,8 @@ _UNIT_TO_SECONDS = {
 _MAX_HOURS = (2**63 - 1) // (60 * 60 * 1_000_000_000)
 
 
-class ProtocolGPRC(Protocol):
-    """ProtocolGPRC is a protocol implementation for handling gRPC and gRPC-Web requests.
+class ProtocolGRPC(Protocol):
+    """ProtocolGRPC is a protocol implementation for handling gRPC and gRPC-Web requests.
 
     Attributes:
         web (bool): Indicates whether to use gRPC-Web (True) or standard gRPC (False).
@@ -115,7 +137,15 @@ class ProtocolGPRC(Protocol):
             ProtocolClient: An instance of GRPCClient.
 
         """
-        raise NotImplementedError("GRPC client is not implemented yet.")
+        peer = Peer(
+            address=Address(host=params.url.host or "", port=params.url.port or 80),
+            protocol=PROTOCOL_GRPC,
+            query={},
+        )
+        if self.web:
+            peer.protocol = PROTOCOL_GRPC_WEB
+
+        return GRPCClient(params, peer, self.web)
 
 
 class GRPCHandler(ProtocolHandler):
@@ -233,7 +263,6 @@ class GRPCHandler(ProtocolHandler):
             spec=self.params.spec,
             peer=peer,
             marshaler=GRPCMarshaler(
-                self.web,
                 codec,
                 response_compression,
                 self.params.compress_min_bytes,
@@ -257,11 +286,70 @@ class GRPCHandler(ProtocolHandler):
         return conn
 
 
+class GRPCClient(ProtocolClient):
+    params: ProtocolClientParams
+    _peer: Peer
+    web: bool
+
+    def __init__(self, params: ProtocolClientParams, peer: Peer, web: bool) -> None:
+        self.params = params
+        self._peer = peer
+        self.web = web
+
+    @property
+    def peer(self) -> Peer:
+        return self._peer
+
+    def write_request_headers(self, stream_type: StreamType, headers: Headers) -> None:
+        if headers.get(HEADER_USER_AGENT, None) is None:
+            headers[HEADER_USER_AGENT] = DEFAULT_GRPC_USER_AGENT
+
+        if self.web and headers.get(HEADER_X_USER_AGENT, None) is None:
+            headers[HEADER_X_USER_AGENT] = DEFAULT_GRPC_USER_AGENT
+
+        headers[HEADER_CONTENT_TYPE] = grpc_content_type_from_codec_name(self.web, self.params.codec.name)
+
+        headers["Accept-Encoding"] = COMPRESSION_IDENTITY
+        if self.params.compression_name and self.params.compression_name != COMPRESSION_IDENTITY:
+            headers[GRPC_HEADER_COMPRESSION] = self.params.compression_name
+
+        if self.params.compressions:
+            headers[GRPC_HEADER_ACCEPT_COMPRESSION] = ", ".join(c.name for c in self.params.compressions)
+
+        if not self.web:
+            headers["Te"] = "trailers"
+
+    def conn(self, spec: Spec, headers: Headers) -> UnaryClientConn:
+        """Return the connection for the client."""
+        raise NotImplementedError()
+
+    def stream_conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+        """Return the streaming connection for the client."""
+        return GRPCClientConn(
+            session=self.params.session,
+            spec=spec,
+            peer=self.peer,
+            url=self.params.url,
+            codec=self.params.codec,
+            compressions=self.params.compressions,
+            marshaler=GRPCMarshaler(
+                codec=self.params.codec,
+                compress_min_bytes=self.params.compress_min_bytes,
+                send_max_bytes=self.params.send_max_bytes,
+                compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+            ),
+            unmarshaler=GRPCUnmarshaler(
+                codec=self.params.codec,
+                read_max_bytes=self.params.read_max_bytes,
+            ),
+            request_headers=headers,
+        )
+
+
 class GRPCMarshaler(EnvelopeWriter):
     """GRPCMarshaler is responsible for marshaling messages into the gRPC wire format.
 
     Args:
-        web (bool): Indicates whether to use the gRPC-web protocol.
         codec (Codec | None): The codec used for encoding/decoding messages.
         compression (Compression | None): The compression algorithm to use, if any.
         compress_min_bytes (int): Minimum message size in bytes before compression is applied.
@@ -274,11 +362,8 @@ class GRPCMarshaler(EnvelopeWriter):
 
     """
 
-    web: bool
-
     def __init__(
         self,
-        web: bool,
         codec: Codec | None,
         compression: Compression | None,
         compress_min_bytes: int,
@@ -287,7 +372,6 @@ class GRPCMarshaler(EnvelopeWriter):
         """Initialize the protocol with the specified configuration.
 
         Args:
-            web (bool): Indicates whether the protocol is used in a web context.
             codec (Codec | None): The codec to use for encoding/decoding messages, or None for default.
             compression (Compression | None): The compression algorithm to use, or None for no compression.
             compress_min_bytes (int): The minimum number of bytes before compression is applied.
@@ -298,7 +382,6 @@ class GRPCMarshaler(EnvelopeWriter):
 
         """
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes)
-        self.web = web
 
 
 class GRPCUnmarshaler(EnvelopeReader):
@@ -347,6 +430,165 @@ class GRPCUnmarshaler(EnvelopeReader):
         """
         async for obj, _ in super().unmarshal(message):
             yield obj
+
+
+EventHook = Callable[..., Any]
+
+
+class GRPCClientConn(StreamingClientConn):
+    session: AsyncClientSession
+    _spec: Spec
+    _peer: Peer
+    url: URL
+    codec: Codec | None
+    compressions: list[Compression]
+    marshaler: GRPCMarshaler
+    unmarshaler: GRPCUnmarshaler
+    _response_headers: Headers
+    _response_trailers: Headers
+    _request_headers: Headers
+
+    def __init__(
+        self,
+        session: AsyncClientSession,
+        spec: Spec,
+        peer: Peer,
+        url: URL,
+        codec: Codec | None,
+        compressions: list[Compression],
+        request_headers: Headers,
+        marshaler: GRPCMarshaler,
+        unmarshaler: GRPCUnmarshaler,
+        event_hooks: None | (Mapping[str, list[EventHook]]) = None,
+    ) -> None:
+        event_hooks = {} if event_hooks is None else event_hooks
+
+        self.session = session
+        self._spec = spec
+        self._peer = peer
+        self.url = url
+        self.codec = codec
+        self.compressions = compressions
+        self.marshaler = marshaler
+        self.unmarshaler = unmarshaler
+        self.response_content = None
+        self._response_headers = Headers()
+        self._response_trailers = Headers()
+        self._request_headers = request_headers
+
+        self._event_hooks = {
+            "request": list(event_hooks.get("request", [])),
+            "response": list(event_hooks.get("response", [])),
+        }
+
+    @property
+    def spec(self) -> Spec:
+        """Return the specification details."""
+        return self._spec
+
+    @property
+    def peer(self) -> Peer:
+        """Return the peer information."""
+        raise NotImplementedError()
+
+    async def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
+        """Receives a message and processes it."""
+        async for obj in self.unmarshaler.unmarshal(message):
+            if abort_event and abort_event.is_set():
+                raise ConnectError("receive operation aborted", Code.CANCELED)
+
+            yield obj
+
+    @property
+    def request_headers(self) -> Headers:
+        """Return the request headers."""
+        return self._request_headers
+
+    async def send(
+        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+    ) -> None:
+        if abort_event and abort_event.is_set():
+            raise ConnectError("request aborted", Code.CANCELED)
+
+        extensions = {}
+        if timeout:
+            extensions["timeout"] = {"read": timeout}
+            self._request_headers[GRPC_HEADER_TIMEOUT] = str(int(timeout * 1000))
+
+        content_iterator = self.marshaler.marshal(messages)
+
+        request = httpcore.Request(
+            method=HTTPMethod.POST,
+            url=httpcore.URL(
+                scheme=self.url.scheme,
+                host=self.url.host or "",
+                port=self.url.port,
+                target=self.url.raw_path,
+            ),
+            headers=list(
+                include_request_headers(
+                    headers=self._request_headers, url=self.url, content=content_iterator, method=HTTPMethod.POST
+                ).items()
+            ),
+            content=content_iterator,
+            extensions=extensions,
+        )
+
+        for hook in self._event_hooks["request"]:
+            hook(request)
+
+        with map_httpcore_exceptions():
+            if not abort_event:
+                response = await self.session.pool.handle_async_request(request)
+            else:
+                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                abort_task = asyncio.create_task(abort_event.wait())
+
+                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+
+                if abort_task in done:
+                    request_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await request_task
+
+                    raise ConnectError("request aborted", Code.CANCELED)
+
+                abort_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await abort_task
+
+                response = await request_task
+
+        for hook in self._event_hooks["response"]:
+            hook(response)
+
+        assert isinstance(response.stream, AsyncIterable)
+        self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(aiterator=response.stream)
+
+        await self._validate_response(response)
+
+    async def _validate_response(self, response: httpcore.Response) -> None:
+        response_headers = Headers(response.headers)
+
+        compression = response_headers.get(GRPC_HEADER_COMPRESSION, None)
+        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+        self._response_headers.update(response_headers)
+
+    @property
+    def response_headers(self) -> Headers:
+        """Return the response headers."""
+        return self._response_headers
+
+    @property
+    def response_trailers(self) -> Headers:
+        """Return response trailers."""
+        return self._response_trailers
+
+    def on_request_send(self, fn: EventHook) -> None:
+        self._event_hooks["request"].append(fn)
+
+    async def aclose(self) -> None:
+        await self.unmarshaler.aclose()
 
 
 class GRPCHandlerConn(StreamingHandlerConn):
@@ -634,3 +876,13 @@ def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
     trailer[GRPC_HEADER_MESSAGE] = urllib.parse.quote(message)
     if bin:
         trailer[GRPC_HEADER_DETAILS] = base64.b64encode(bin).decode().rstrip("=")
+
+
+def grpc_content_type_from_codec_name(web: bool, codec_name: str) -> str:
+    if web:
+        return GRPC_WEB_CONTENT_TYPE_PREFIX + codec_name
+
+    if codec_name == CodecNameType.PROTO:
+        return GRPC_CONTENT_TYPE_DEFAULT
+
+    return GRPC_CONTENT_TYPE_PREFIX + codec_name

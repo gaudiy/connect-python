@@ -41,7 +41,7 @@ from connect.protocol import (
 from connect.protocol_connect import (
     ProtocolConnect,
 )
-from connect.protocol_grpc import ProtocolGPRC
+from connect.protocol_grpc import ProtocolGRPC
 from connect.request import Request
 from connect.response import Response
 from connect.utils import aiterate
@@ -123,7 +123,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
         list[ProtocolHandler]: A list of initialized protocol handlers.
 
     """
-    protocols = [ProtocolConnect(), ProtocolGPRC(web=False)]
+    protocols = [ProtocolConnect(), ProtocolGRPC(web=False)]
 
     codecs = CodecMap(config.codecs)
 

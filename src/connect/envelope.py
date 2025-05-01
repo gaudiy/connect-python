@@ -224,9 +224,9 @@ class EnvelopeWriter:
             compressed_data = self.compression.compress(data)
             flags |= EnvelopeFlags.compressed
 
-            if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
+            if self.send_max_bytes > 0 and len(compressed_data) > self.send_max_bytes:
                 raise ConnectError(
-                    f"compressed message size {len(data)} exceeds send_max_bytes {self.send_max_bytes}",
+                    f"compressed message size {len(compressed_data)} exceeds send_max_bytes {self.send_max_bytes}",
                     Code.RESOURCE_EXHAUSTED,
                 )
 

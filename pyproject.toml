@@ -12,7 +12,6 @@ requires-python = ">=3.13"
 dynamic = ["version"]
 dependencies = [
   "anyio>=4.7.0",
-  "grpcio>=1.70.0",
   "grpcio-status>=1.70.0",
   "h2>=4.2.0",
   "httpcore>=1.0.7",

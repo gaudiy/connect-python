@@ -34,7 +34,7 @@ from connect.connect import (
     UnaryClientConn,
     ensure_single,
 )
-from connect.envelope import Envelope, EnvelopeFlags, EnvelopeWriter
+from connect.envelope import EnvelopeFlags, EnvelopeReader, EnvelopeWriter
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
 from connect.headers import Headers, include_request_headers
 from connect.idempotency_level import IdempotencyLevel
@@ -1195,12 +1195,12 @@ class ConnectStreamingMarshaler(EnvelopeWriter):
         json_obj = end_stream_to_json(error, response_trailers)
         json_str = json.dumps(json_obj)
 
-        env = self.write_envelope(json_str.encode(), EnvelopeFlags(EnvelopeFlags.end_stream))
+        env = self.write_envelope(json_str.encode(), EnvelopeFlags.end_stream)
 
         return env.encode()
 
 
-class ConnectStreamingUnmarshaler:
+class ConnectStreamingUnmarshaler(EnvelopeReader):
     """A class to handle the unmarshaling of streaming data.
 
     Attributes:
@@ -1211,11 +1211,6 @@ class ConnectStreamingUnmarshaler:
 
     """
 
-    codec: Codec | None
-    read_max_bytes: int
-    compression: Compression | None
-    stream: AsyncIterable[bytes] | None
-    buffer: bytes
     _end_stream_error: ConnectError | None
     _trailers: Headers
 
@@ -1235,11 +1230,7 @@ class ConnectStreamingUnmarshaler:
             compression (Compression | None, optional): The compression method to use. Defaults to None.
 
         """
-        self.codec = codec
-        self.read_max_bytes = read_max_bytes
-        self.compression = compression
-        self.stream = stream
-        self.buffer = b""
+        super().__init__(codec, read_max_bytes, stream, compression)
         self._end_stream_error = None
         self._trailers = Headers()
 
@@ -1257,62 +1248,13 @@ class ConnectStreamingUnmarshaler:
                           unmarshaling process, or if there is a protocol error.
 
         """
-        if self.stream is None:
-            raise ConnectError("stream is not set", Code.INTERNAL)
+        async for obj, end in super().unmarshal(message):
+            if self.last_data:
+                error, trailers = end_stream_from_bytes(self.last_data)
+                self._end_stream_error = error
+                self._trailers = trailers
 
-        if self.codec is None:
-            raise ConnectError("codec is not set", Code.INTERNAL)
-
-        async for chunk in self.stream:
-            self.buffer += chunk
-
-            while True:
-                env, data_len = Envelope.decode(self.buffer)
-                if env is None:
-                    break
-
-                if self.read_max_bytes > 0 and data_len > self.read_max_bytes:
-                    raise ConnectError(
-                        f"message size {data_len} is larger than configured readMaxBytes {self.read_max_bytes}",
-                        Code.RESOURCE_EXHAUSTED,
-                    )
-
-                self.buffer = self.buffer[5 + data_len :]
-
-                if env.is_set(EnvelopeFlags.compressed):
-                    if not self.compression:
-                        raise ConnectError(
-                            "protocol error: sent compressed message without compression support", Code.INTERNAL
-                        )
-
-                    env.data = self.compression.decompress(env.data, self.read_max_bytes)
-
-                if env.is_set(EnvelopeFlags.end_stream):
-                    error, trailers = end_stream_from_bytes(env.data)
-                    self._end_stream_error = error
-                    self._trailers = trailers
-                    end = True
-                    obj = None
-                else:
-                    try:
-                        obj = self.codec.unmarshal(env.data, message)
-                    except Exception as e:
-                        raise ConnectError(
-                            f"unmarshal message: {str(e)}",
-                            Code.INVALID_ARGUMENT,
-                        ) from e
-
-                    end = False
-
-                yield obj, end
-
-        if len(self.buffer) > 0:
-            header = Envelope.decode_header(self.buffer)
-            if header:
-                message = (
-                    f"protocol error: promised {header[1]} bytes in enveloped message, got {len(self.buffer) - 5} bytes"
-                )
-                raise ConnectError(message, Code.INVALID_ARGUMENT)
+            yield obj, end
 
     @property
     def trailers(self) -> Headers:
@@ -1336,20 +1278,6 @@ class ConnectStreamingUnmarshaler:
 
         """
         return self._end_stream_error
-
-    async def aclose(self) -> None:
-        """Asynchronously closes the stream if it has an `aclose` method.
-
-        This method checks if the `self.stream` object has an asynchronous
-        `aclose` method. If the method exists, it is invoked to close the stream.
-
-        Returns:
-            None
-
-        """
-        aclose = get_acallable_attribute(self.stream, "aclose")
-        if aclose:
-            await aclose()
 
 
 class ConnectStreamingHandlerConn(StreamingHandlerConn):

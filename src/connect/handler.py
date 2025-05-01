@@ -302,28 +302,6 @@ class Handler:
         else:
             await self.stream_handle(request, response_headers, response_trailers, writer)
 
-    def is_stream(self) -> bool:
-        """Determine if this handler is a stream handler.
-
-        Returns:
-            bool: True if this is a stream handler, False otherwise.
-
-        """
-        # Since we've consolidated to a single connection type, use a sentinel value
-        is_stream_handler = getattr(self, "_is_stream_handler", False)
-        return is_stream_handler
-
-    def is_unary(self) -> bool:
-        """Determine if this handler is a unary handler.
-
-        Returns:
-            bool: True if this is a unary handler, False otherwise.
-
-        """
-        # Since we've consolidated to a single connection type, use a sentinel value
-        is_stream_handler = getattr(self, "_is_stream_handler", False)
-        return not is_stream_handler
-
     async def stream_handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> None:

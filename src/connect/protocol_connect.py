@@ -1538,7 +1538,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    async def receive_message(self, message: Any) -> AsyncIterator[Any]:
+    async def _receive_message(self, message: Any) -> AsyncIterator[Any]:
         """Asynchronously receives a message and yields unmarshaled objects.
 
         This method unmarshals the received message and yields each
@@ -1572,7 +1572,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
         """
         return AsyncContentStream(
-            iterable=self.receive_message(message),
+            iterable=self._receive_message(message),
             stream_type=self.spec.stream_type,
         )
 
@@ -2084,22 +2084,30 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         return self._peer
 
-    def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Asynchronously receives a message, unmarshals it, and returns the resulting object.
+    async def _receive_message(self, message: Any) -> AsyncIterator[Any]:
+        """Asynchronously receives and unmarshals a message, yielding the resulting object.
 
         Args:
             message (Any): The message to be unmarshaled.
 
-        Returns:
-            AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
+        Yields:
+            Any: The unmarshaled object.
 
         """
+        obj = await self.unmarshaler.unmarshal(message)
+        yield obj
 
-        async def _receive() -> AsyncIterator[Any]:
-            obj = await self.unmarshaler.unmarshal(message)
-            yield obj
+    def receive(self, message: Any) -> AsyncIterator[Any]:
+        """Receives a message and returns an asynchronous iterator over the processed message.
 
-        return _receive()
+        Args:
+            message (Any): The message to be received and processed.
+
+        Returns:
+            AsyncIterator[Any]: An asynchronous iterator yielding processed message(s).
+
+        """
+        return self._receive_message(message)
 
     @property
     def request_headers(self) -> Headers:
@@ -2315,6 +2323,18 @@ class ConnectUnaryClientConn(UnaryClientConn):
             "request": list(event_hooks.get("request", [])),
             "response": list(event_hooks.get("response", [])),
         }
+
+    async def aclose(self) -> None:
+        """Asynchronously closes the connection or releases any resources held by the object.
+
+        This method should be called when the object is no longer needed to ensure proper cleanup.
+        Currently, this implementation does not perform any actions, but it can be overridden in subclasses.
+
+        Returns:
+            None
+
+        """
+        return
 
 
 def connect_validate_unary_response_content_type(

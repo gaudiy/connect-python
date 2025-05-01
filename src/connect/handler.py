@@ -297,13 +297,10 @@ class Handler:
     async def _handle(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> None:
-        # Check the stream type of the handler
-        if getattr(self, "stream_type", StreamType.Unary) != StreamType.Unary:
-            self._is_stream_handler = True
-            await self.stream_handle(request, response_headers, response_trailers, writer)
-        else:
-            self._is_stream_handler = False
+        if getattr(self, "stream_type", StreamType.Unary) == StreamType.Unary:
             await self.unary_handle(request, response_headers, response_trailers, writer)
+        else:
+            await self.stream_handle(request, response_headers, response_trailers, writer)
 
     def is_stream(self) -> bool:
         """Determine if this handler is a stream handler.
@@ -346,7 +343,6 @@ class Handler:
             ConnectError: If an internal error occurs during the handling of the stream.
 
         """
-        self._is_stream_handler = True
         conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer, is_streaming=True)
         if conn is None:
             return
@@ -359,6 +355,7 @@ class Handler:
                     await self.implementation(conn, timeout_ms)
             else:
                 await self.implementation(conn, None)
+
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
             await conn.send_error(error)
@@ -382,7 +379,6 @@ class Handler:
             None
 
         """
-        self._is_stream_handler = False
         conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
         if conn is None:
             return
@@ -395,6 +391,7 @@ class Handler:
                     await self.implementation(conn, timeout_ms)
             else:
                 await self.implementation(conn, None)
+
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
 
@@ -513,7 +510,7 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
         procedure: str,
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
-        output: type[T_Response],  # noqa: ARG002
+        output: type[T_Response],
         options: ConnectOptions | None = None,
     ) -> None:
         """Initialize a new handler instance.
@@ -596,7 +593,7 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
         procedure: str,
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
-        output: type[T_Response],  # noqa: ARG002
+        output: type[T_Response],
         options: ConnectOptions | None = None,
     ) -> None:
         """Initialize a new instance of the handler.
@@ -696,7 +693,7 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
         procedure: str,
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
-        output: type[T_Response],  # noqa: ARG002
+        output: type[T_Response],
         options: ConnectOptions | None = None,
     ) -> None:
         """Initialize a bidirectional streaming handler.

@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import contextlib
+import functools
 import re
 import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
@@ -447,6 +448,7 @@ class GRPCClientConn(StreamingClientConn):
     _response_headers: Headers
     _response_trailers: Headers
     _request_headers: Headers
+    receive_trailers: Callable[[], None] | None
 
     def __init__(
         self,
@@ -498,6 +500,13 @@ class GRPCClientConn(StreamingClientConn):
                 raise ConnectError("receive operation aborted", Code.CANCELED)
 
             yield obj
+
+        if callable(self.receive_trailers):
+            self.receive_trailers()
+
+    def _receive_trailers(self, response: httpcore.Response) -> None:
+        trailers = response.extensions["trailing_headers"]
+        self._response_trailers.update(Headers(trailers))
 
     @property
     def request_headers(self) -> Headers:
@@ -564,6 +573,7 @@ class GRPCClientConn(StreamingClientConn):
 
         assert isinstance(response.stream, AsyncIterable)
         self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(aiterator=response.stream)
+        self.receive_trailers = functools.partial(self._receive_trailers, response)
 
         await self._validate_response(response)
 

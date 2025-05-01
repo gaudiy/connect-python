@@ -107,9 +107,6 @@ class ProtocolClient(abc.ABC):
         raise NotImplementedError()
 
 
-HanderConn = StreamingHandlerConn
-
-
 class ProtocolHandler(abc.ABC):
     """Abstract base class for handling different protocols."""
 

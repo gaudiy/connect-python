@@ -169,7 +169,7 @@ class EnvelopeWriter:
         self.send_max_bytes = send_max_bytes
         self.compression = compression
 
-    async def _marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+    async def marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
         """Asynchronously marshals and compresses messages from an asynchronous iterator.
 
         Args:
@@ -213,7 +213,7 @@ class EnvelopeWriter:
             - The flags are updated to include the compressed flag if compression is performed.
 
         """
-        if flags in EnvelopeFlags.compressed or self.compression is None or len(data) < self.compress_min_bytes:
+        if EnvelopeFlags.compressed in flags or self.compression is None or len(data) < self.compress_min_bytes:
             if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
                 raise ConnectError(
                     f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}", Code.RESOURCE_EXHAUSTED
@@ -277,7 +277,7 @@ class EnvelopeReader:
         self.buffer = b""
         self.last_data = None
 
-    async def _unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
+    async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals messages from the stream.
 
         Args:

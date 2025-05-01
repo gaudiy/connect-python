@@ -12,7 +12,7 @@ from google.rpc import status_pb2
 from connect.code import Code
 from connect.codec import Codec, CodecNameType
 from connect.compression import COMPRESSION_IDENTITY, Compression
-from connect.connect import Address, AsyncContentStream, Peer, Spec, StreamingHandlerConn, StreamType
+from connect.connect import Address, AsyncContentStream, Peer, Spec, StreamingHandlerConn
 from connect.envelope import EnvelopeReader, EnvelopeWriter
 from connect.error import ConnectError
 from connect.headers import Headers
@@ -192,7 +192,6 @@ class GRPCHandler(ProtocolHandler):
         response_headers: Headers,
         response_trailers: Headers,
         writer: ServerResponseWriter,
-        is_streaming: bool = False,
     ) -> StreamingHandlerConn | None:
         """Handle a connection request.
 
@@ -249,7 +248,6 @@ class GRPCHandler(ProtocolHandler):
             request_headers=Headers(request.headers, encoding="latin-1"),
             response_headers=response_headers,
             response_trailers=response_trailers,
-            is_streaming=is_streaming,
         )
 
         if error:
@@ -302,19 +300,6 @@ class GRPCMarshaler(EnvelopeWriter):
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes)
         self.web = web
 
-    async def marshal(self, messages: AsyncIterable[bytes]) -> AsyncIterator[bytes]:
-        """Asynchronously marshals a stream of byte messages.
-
-        Args:
-            messages (AsyncIterable[bytes]): An asynchronous iterable of byte messages to be marshaled.
-
-        Yields:
-            AsyncIterator[bytes]: An asynchronous iterator yielding marshaled byte messages.
-
-        """
-        async for message in self._marshal(messages):
-            yield message
-
 
 class GRPCUnmarshaler(EnvelopeReader):
     """GRPCUnmarshaler is a specialized EnvelopeReader for handling gRPC message unmarshaling.
@@ -360,7 +345,7 @@ class GRPCUnmarshaler(EnvelopeReader):
             Any: Each object obtained from unmarshaling the message.
 
         """
-        async for obj, _ in self._unmarshal(message):
+        async for obj, _ in super().unmarshal(message):
             yield obj
 
 
@@ -388,7 +373,6 @@ class GRPCHandlerConn(StreamingHandlerConn):
     _request_headers: Headers
     _response_headers: Headers
     _response_trailers: Headers
-    _is_streaming: bool
 
     def __init__(
         self,
@@ -400,7 +384,6 @@ class GRPCHandlerConn(StreamingHandlerConn):
         request_headers: Headers,
         response_headers: Headers,
         response_trailers: Headers | None = None,
-        is_streaming: bool = False,
     ) -> None:
         """Initialize a new instance of the class.
 
@@ -424,7 +407,6 @@ class GRPCHandlerConn(StreamingHandlerConn):
         self._request_headers = request_headers
         self._response_headers = response_headers
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
-        self._is_streaming = is_streaming
 
     def parse_timeout(self) -> float | None:
         """Parse the gRPC timeout value from the request headers and returns it as seconds.
@@ -514,20 +496,6 @@ class GRPCHandlerConn(StreamingHandlerConn):
             None
 
         """
-        # Validation for unary streams - ensure exactly one message
-        if not self._is_streaming and self.spec.stream_type == StreamType.Unary:
-            message_list = []
-            async for msg in messages:
-                message_list.append(msg)
-
-            if len(message_list) != 1:
-                raise ConnectError(
-                    f"unary handler expected to send exactly one message, got {len(message_list)}", Code.INTERNAL
-                )
-
-            messages = aiterate(message_list)
-
-        # Use the common marshaling method
         await self.writer.write(
             StreamingResponseWithTrailers(
                 content=self.marshal_with_error_handling(messages),

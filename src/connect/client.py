@@ -31,6 +31,7 @@ from connect.protocol import Protocol, ProtocolClient, ProtocolClientParams
 from connect.protocol_connect import ProtocolConnect
 from connect.protocol_grpc import ProtocolGRPC
 from connect.session import AsyncClientSession
+from connect.utils import aiterate
 
 
 def parse_request_url(raw_url: str) -> URL:
@@ -233,9 +234,9 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.message, request.timeout, abort_event=request.abort_event)
+            await conn.send(aiterate([request.message]), request.timeout, abort_event=request.abort_event)
 
-            response = await recieve_unary_response(conn=conn, t=output)
+            response = await recieve_unary_response(conn=conn, t=output, abort_event=request.abort_event)
             return response
 
         unary_func = apply_interceptors(_unary_func, options.interceptors)
@@ -262,7 +263,7 @@ class Client[T_Request, T_Response]:
             return response
 
         async def _stream_func(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-            conn = protocol_client.stream_conn(request.spec, request.headers)
+            conn = protocol_client.conn(request.spec, request.headers)
 
             def on_request_send(r: httpcore.Request) -> None:
                 method = r.method

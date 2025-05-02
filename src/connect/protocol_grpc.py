@@ -26,7 +26,6 @@ from connect.connect import (
     StreamingClientConn,
     StreamingHandlerConn,
     StreamType,
-    UnaryClientConn,
 )
 from connect.envelope import EnvelopeReader, EnvelopeWriter
 from connect.error import ConnectError
@@ -320,11 +319,7 @@ class GRPCClient(ProtocolClient):
         if not self.web:
             headers["Te"] = "trailers"
 
-    def conn(self, spec: Spec, headers: Headers) -> UnaryClientConn:
-        """Return the connection for the client."""
-        raise NotImplementedError()
-
-    def stream_conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
+    def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
         """Return the streaming connection for the client."""
         return GRPCClientConn(
             session=self.params.session,

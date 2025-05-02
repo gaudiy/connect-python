@@ -705,18 +705,29 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
     )
 
 
-async def recieve_unary_response[T](conn: UnaryClientConn, t: type[T]) -> UnaryResponse[T]:
-    """Receive a unary response from a streaming client connection.
+async def recieve_unary_response[T](
+    conn: StreamingClientConn, t: type[T], abort_event: asyncio.Event | None
+) -> UnaryResponse[T]:
+    """Receives a unary response message from a streaming client connection.
+
+    This asynchronous function waits for a unary message of the specified type from the given
+    streaming client connection. It also handles optional abortion via an asyncio event.
+    The response, along with any headers and trailers from the connection, is wrapped in a
+    UnaryResponse object and returned.
 
     Args:
-        conn (StreamingClientConn): The streaming client connection.
-        t (type[T]): The type of the expected response message.
+        conn (StreamingClientConn): The streaming client connection to receive the message from.
+        t (type[T]): The expected type of the message to be received.
+        abort_event (asyncio.Event | None): Optional event to signal abortion of the receive operation.
 
     Returns:
-        UnaryResponse[T]: The response containing the message, response headers, and response trailers.
+        UnaryResponse[T]: The received message and associated response metadata.
+
+    Raises:
+        Any exceptions raised by `receive_unary_message` or connection errors.
 
     """
-    message = await receive_unary_message(conn, t)
+    message = await receive_unary_message(conn, t, abort_event)
 
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
@@ -795,22 +806,20 @@ async def recieve_stream_response[T](
         return StreamResponse(receive_stream, conn.response_headers, conn.response_trailers)
 
 
-async def receive_unary_message[T](conn: UnaryClientConn, t: type[T]) -> T:
-    """Asynchronously receives a single unary message from the given connection.
+async def receive_unary_message[T](conn: StreamingClientConn, t: type[T], abort_event: asyncio.Event | None) -> T:
+    """Receives exactly one unary message of the specified type from a streaming connection.
 
     Args:
-        conn (UnaryClientConn): The unary client connection to receive the message from.
-        t (type[T]): The expected type of the message to be received.
+        conn (StreamingClientConn): The streaming client connection to receive the message from.
+        t (type[T]): The expected type of the message to receive.
+        abort_event (asyncio.Event | None): An optional event to signal abortion of the receive operation.
 
     Returns:
-        T: The received message of type T.
+        T: The single message received of type `t`.
 
     Raises:
-        Exception: If receiving the message fails or more than one message is received.
-
-    Note:
-        This function ensures that exactly one message is received from the connection.
+        Exception: If zero or more than one message is received, or if the receive operation fails.
 
     """
-    single_message = await _receive_exactly_one(conn.receive(t), conn.aclose)
+    single_message = await _receive_exactly_one(conn.receive(t, abort_event), conn.aclose)
     return single_message

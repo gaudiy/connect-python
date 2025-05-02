@@ -32,7 +32,6 @@ from connect.connect import (
     StreamingClientConn,
     StreamingHandlerConn,
     StreamType,
-    UnaryClientConn,
     ensure_single,
 )
 from connect.envelope import EnvelopeFlags, EnvelopeReader, EnvelopeWriter
@@ -865,7 +864,7 @@ class ConnectClient(ProtocolClient):
         if self.params.compressions:
             headers[accept_compression_header] = ", ".join(c.name for c in self.params.compressions)
 
-    def conn(self, spec: Spec, headers: Headers) -> UnaryClientConn:
+    def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
         """Establish a unary client connection with the given specifications and headers.
 
         Args:
@@ -876,32 +875,54 @@ class ConnectClient(ProtocolClient):
             UnaryClientConn: The established unary client connection.
 
         """
-        conn = ConnectUnaryClientConn(
-            session=self.params.session,
-            spec=spec,
-            peer=self.peer,
-            url=self.params.url,
-            compressions=self.params.compressions,
-            request_headers=headers,
-            marshaler=ConnectUnaryRequestMarshaler(
-                connect_marshaler=ConnectUnaryMarshaler(
+        conn: StreamingClientConn
+        if spec.stream_type == StreamType.Unary:
+            conn = ConnectUnaryClientConn(
+                session=self.params.session,
+                spec=spec,
+                peer=self.peer,
+                url=self.params.url,
+                compressions=self.params.compressions,
+                request_headers=headers,
+                marshaler=ConnectUnaryRequestMarshaler(
+                    connect_marshaler=ConnectUnaryMarshaler(
+                        codec=self.params.codec,
+                        compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                        compress_min_bytes=self.params.compress_min_bytes,
+                        send_max_bytes=self.params.send_max_bytes,
+                        headers=headers,
+                    )
+                ),
+                unmarshaler=ConnectUnaryUnmarshaler(
                     codec=self.params.codec,
-                    compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                    read_max_bytes=self.params.read_max_bytes,
+                ),
+            )
+            if spec.idempotency_level == IdempotencyLevel.NO_SIDE_EFFECTS:
+                conn.marshaler.enable_get = self.params.enable_get
+                conn.marshaler.url = self.params.url
+                if isinstance(self.params.codec, StableCodec):
+                    conn.marshaler.stable_codec = self.params.codec
+        else:
+            conn = ConnectStreamingClientConn(
+                session=self.params.session,
+                spec=spec,
+                peer=self.peer,
+                url=self.params.url,
+                codec=self.params.codec,
+                compressions=self.params.compressions,
+                request_headers=headers,
+                marshaler=ConnectStreamingMarshaler(
+                    codec=self.params.codec,
                     compress_min_bytes=self.params.compress_min_bytes,
                     send_max_bytes=self.params.send_max_bytes,
-                    headers=headers,
-                )
-            ),
-            unmarshaler=ConnectUnaryUnmarshaler(
-                codec=self.params.codec,
-                read_max_bytes=self.params.read_max_bytes,
-            ),
-        )
-        if spec.idempotency_level == IdempotencyLevel.NO_SIDE_EFFECTS:
-            conn.marshaler.enable_get = self.params.enable_get
-            conn.marshaler.url = self.params.url
-            if isinstance(self.params.codec, StableCodec):
-                conn.marshaler.stable_codec = self.params.codec
+                    compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                ),
+                unmarshaler=ConnectStreamingUnmarshaler(
+                    codec=self.params.codec,
+                    read_max_bytes=self.params.read_max_bytes,
+                ),
+            )
 
         return conn
 
@@ -1774,7 +1795,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         await self.unmarshaler.aclose()
 
 
-class ConnectUnaryClientConn(UnaryClientConn):
+class ConnectUnaryClientConn(StreamingClientConn):
     """A client connection for unary RPCs using the Connect protocol.
 
     Attributes:
@@ -1883,7 +1904,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
         obj = await self.unmarshaler.unmarshal(message)
         yield obj
 
-    def receive(self, message: Any) -> AsyncIterator[Any]:
+    def receive(self, message: Any, _abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
         """Receives a message and returns an asynchronous iterator over the processed message.
 
         Args:
@@ -1916,22 +1937,28 @@ class ConnectUnaryClientConn(UnaryClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def send(self, message: Any, timeout: float | None, abort_event: asyncio.Event | None) -> bytes:
-        """Send a message asynchronously using the specified HTTP method and handles the response.
+    async def send(
+        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+    ) -> None:
+        """Send a single message asynchronously using either HTTP GET or POST, with support for timeouts and request abortion.
 
         Args:
-            message (Any): The message to be sent, which will be marshaled before sending.
-            timeout (float | None): The timeout for the request in seconds. If provided, it will be
-                included in the request headers and extensions.
-            abort_event (asyncio.Event | None): An optional asyncio event that can be used to abort
-                the request. If the event is set, the request will be canceled.
-
-        Returns:
-            bytes: The marshaled data of the message that was sent.
+            messages (AsyncIterable[Any]): An asynchronous iterable yielding the message(s) to send. Only a single message is allowed.
+            timeout (float | None): Optional timeout in seconds for the request. If provided, sets a read timeout for the request.
+            abort_event (asyncio.Event | None): Optional asyncio event that, if set, aborts the request.
 
         Raises:
-            ConnectError: If the request is aborted or if there are issues during the request/response
-                lifecycle.
+            ConnectError: If the request is aborted before or during execution, or if other connection errors occur.
+
+        Side Effects:
+            - Modifies request headers for timeout and content length as needed.
+            - Invokes registered request and response event hooks.
+            - Sets the unmarshaler's stream to the response stream for further processing.
+            - Validates the response after receiving it.
+
+        Notes:
+            - If `marshaler.enable_get` is True, sends the request as HTTP GET; otherwise, uses HTTP POST.
+            - Handles cancellation and cleanup if the abort event is triggered during the request.
 
         """
         if abort_event and abort_event.is_set():
@@ -1942,6 +1969,7 @@ class ConnectUnaryClientConn(UnaryClientConn):
             extensions["timeout"] = {"read": timeout}
             self._request_headers[CONNECT_HEADER_TIMEOUT] = str(int(timeout * 1000))
 
+        message = await ensure_single(messages)
         data = self.marshaler.marshal(message)
 
         if self.marshaler.enable_get:
@@ -2014,8 +2042,6 @@ class ConnectUnaryClientConn(UnaryClientConn):
         self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(response.stream)
 
         await self._validate_response(response)
-
-        return data
 
     @property
     def response_headers(self) -> Headers:

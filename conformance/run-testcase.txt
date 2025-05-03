@@ -1,1 +1,1 @@
-gRPC Trailers/Compression:COMPRESSION_GZIP/TLS:false/trailers-only/duplicate-metadata
+gRPC Unexpected Responses/HTTPVersion:2/TLS:true/trailers-only/ignore-header-if-trailer-present

@@ -9,6 +9,7 @@ import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from http import HTTPMethod
 from typing import Any
+from urllib.parse import unquote
 
 import httpcore
 from google.protobuf.message import DecodeError
@@ -972,8 +973,9 @@ def grpc_error_from_trailer(trailers: Headers) -> ConnectError | None:
             f"protocol error: invalid error code {code_header} in trailers",
         )
 
-    message = trailers.get(GRPC_HEADER_MESSAGE, None)
-    if message is None:
+    try:
+        message = unquote(trailers.get(GRPC_HEADER_MESSAGE, ""))
+    except Exception:
         return ConnectError(
             f"protocol error: invalid error message {code_header} in trailers",
             code=Code.UNKNOWN,

@@ -541,7 +541,7 @@ class GRPCClientConn(StreamingClientConn):
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
-            self._request_headers[GRPC_HEADER_TIMEOUT] = str(int(timeout * 1000))
+            self._request_headers[GRPC_HEADER_TIMEOUT] = grpc_encode_timeout(timeout)
 
         content_iterator = self.marshaler.marshal(messages)
 
@@ -1020,3 +1020,27 @@ def decode_binary_header(data: str) -> bytes:
         data += "=" * (-len(data) % 4)
 
     return base64.b64decode(data, validate=True)
+
+
+def grpc_encode_timeout(timeout: float) -> str:
+    if timeout <= 0:
+        return "0n"
+
+    grpc_timeout_max_value = 10**8
+
+    _units = (
+        (1e-9, "n"),
+        (1e-6, "u"),
+        (1e-3, "m"),
+        (1.0, "S"),
+        (60.0, "M"),
+        (3600.0, "H"),
+    )
+
+    for size, unit in _units:
+        if timeout < size * grpc_timeout_max_value:
+            value = int(timeout / size)
+            return f"{value}{unit}"
+
+    value = int(timeout / 3600.0)
+    return f"{value}H"

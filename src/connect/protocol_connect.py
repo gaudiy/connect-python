@@ -926,39 +926,6 @@ class ConnectClient(ProtocolClient):
 
         return conn
 
-    def stream_conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
-        """Establish a streaming connection using the provided specification and headers.
-
-        Args:
-            spec (Spec): The specification for the streaming connection.
-            headers (Headers): The headers to be included in the connection request.
-
-        Returns:
-            StreamingClientConn: An instance of the streaming client connection.
-
-        """
-        conn = ConnectStreamingClientConn(
-            session=self.params.session,
-            spec=spec,
-            peer=self.peer,
-            url=self.params.url,
-            codec=self.params.codec,
-            compressions=self.params.compressions,
-            request_headers=headers,
-            marshaler=ConnectStreamingMarshaler(
-                codec=self.params.codec,
-                compress_min_bytes=self.params.compress_min_bytes,
-                send_max_bytes=self.params.send_max_bytes,
-                compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
-            ),
-            unmarshaler=ConnectStreamingUnmarshaler(
-                codec=self.params.codec,
-                read_max_bytes=self.params.read_max_bytes,
-            ),
-        )
-
-        return conn
-
 
 class ConnectUnaryRequestMarshaler:
     """A class responsible for marshaling unary requests using a provided ConnectUnaryMarshaler.

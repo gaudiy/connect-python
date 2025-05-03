@@ -252,6 +252,7 @@ class EnvelopeReader:
     compression: Compression | None
     stream: AsyncIterable[bytes] | None
     buffer: bytes
+    bytes_read: int
     last_data: bytes | None
 
     def __init__(
@@ -275,6 +276,7 @@ class EnvelopeReader:
         self.compression = compression
         self.stream = stream
         self.buffer = b""
+        self.bytes_read = 0
         self.last_data = None
 
     async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
@@ -299,6 +301,7 @@ class EnvelopeReader:
 
         async for chunk in self.stream:
             self.buffer += chunk
+            self.bytes_read += len(chunk)
 
             while True:
                 env, data_len = Envelope.decode(self.buffer)
@@ -351,6 +354,8 @@ class EnvelopeReader:
 
         This method checks if the `self.stream` object has an asynchronous
         `aclose` method. If the method exists, it is invoked to close the stream.
+
+        The bytes_read counter is not reset when closing the stream.
 
         Returns:
             None

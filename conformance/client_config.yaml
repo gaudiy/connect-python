@@ -3,7 +3,8 @@ features:
     - HTTP_VERSION_1
     - HTTP_VERSION_2
   protocols:
-    - PROTOCOL_CONNECT
+    # - PROTOCOL_CONNECT
+    - PROTOCOL_GRPC
   codecs:
     - CODEC_PROTO
   compressions:
@@ -11,9 +12,9 @@ features:
     - COMPRESSION_GZIP
   stream_types:
     - STREAM_TYPE_UNARY
-    - STREAM_TYPE_CLIENT_STREAM
-    - STREAM_TYPE_SERVER_STREAM
-    - STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
+    # - STREAM_TYPE_CLIENT_STREAM
+    # - STREAM_TYPE_SERVER_STREAM
+    # - STREAM_TYPE_HALF_DUPLEX_BIDI_STREAM
     # - STREAM_TYPE_FULL_DUPLEX_BIDI_STREAM
 
   supports_h2c: true
@@ -22,4 +23,4 @@ features:
   supports_trailers: true
   supports_half_duplex_bidi_over_http1: true
   supports_connect_get: true
-  supports_message_receive_limit: true
+  supports_message_receive_limit: false

@@ -11,6 +11,7 @@ from http import HTTPMethod
 from typing import Any
 
 import httpcore
+from google.protobuf.message import DecodeError
 from google.rpc import status_pb2
 from yarl import URL
 
@@ -28,7 +29,7 @@ from connect.connect import (
     StreamType,
 )
 from connect.envelope import EnvelopeReader, EnvelopeWriter
-from connect.error import ConnectError
+from connect.error import ConnectError, ErrorDetail
 from connect.headers import Headers, include_request_headers
 from connect.protocol import (
     HEADER_CONTENT_TYPE,
@@ -40,6 +41,7 @@ from connect.protocol import (
     ProtocolClientParams,
     ProtocolHandler,
     ProtocolHandlerParams,
+    code_from_http_status,
     exclude_protocol_headers,
     negotiate_compression,
 )
@@ -322,6 +324,7 @@ class GRPCClient(ProtocolClient):
     def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
         """Return the streaming connection for the client."""
         return GRPCClientConn(
+            web=self.web,
             session=self.params.session,
             spec=spec,
             peer=self.peer,
@@ -432,6 +435,7 @@ EventHook = Callable[..., Any]
 
 
 class GRPCClientConn(StreamingClientConn):
+    web: bool
     session: AsyncClientSession
     _spec: Spec
     _peer: Peer
@@ -447,6 +451,7 @@ class GRPCClientConn(StreamingClientConn):
 
     def __init__(
         self,
+        web: bool,
         session: AsyncClientSession,
         spec: Spec,
         peer: Peer,
@@ -460,6 +465,7 @@ class GRPCClientConn(StreamingClientConn):
     ) -> None:
         event_hooks = {} if event_hooks is None else event_hooks
 
+        self.web = web
         self.session = session
         self._spec = spec
         self._peer = peer
@@ -499,7 +505,24 @@ class GRPCClientConn(StreamingClientConn):
         if callable(self.receive_trailers):
             self.receive_trailers()
 
+        if self.unmarshaler.bytes_read == 0 and len(self.response_trailers) == 0:
+            self.response_trailers.update(self._response_headers)
+            del self._response_headers[HEADER_CONTENT_TYPE]
+            server_error = grpc_error_from_trailer(self.response_trailers)
+            if server_error:
+                server_error.metadata = self.response_headers.copy()
+                raise server_error
+
+        server_error = grpc_error_from_trailer(self.response_trailers)
+        if server_error:
+            server_error.metadata = self.response_headers.copy()
+            server_error.metadata.update(self.response_trailers)
+            raise server_error
+
     def _receive_trailers(self, response: httpcore.Response) -> None:
+        if "trailing_headers" not in response.extensions:
+            return
+
         trailers = response.extensions["trailing_headers"]
         self._response_trailers.update(Headers(trailers))
 
@@ -574,9 +597,22 @@ class GRPCClientConn(StreamingClientConn):
 
     async def _validate_response(self, response: httpcore.Response) -> None:
         response_headers = Headers(response.headers)
+        if response.status != 200:
+            raise ConnectError(
+                f"HTTP {response.status}",
+                code_from_http_status(response.status),
+            )
+
+        grpc_validate_response_content_type(
+            self.web,
+            self.marshaler.codec.name if self.marshaler.codec else "",
+            response_headers.get(HEADER_CONTENT_TYPE, ""),
+        )
 
         compression = response_headers.get(GRPC_HEADER_COMPRESSION, None)
-        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+        if compression and compression != COMPRESSION_IDENTITY:
+            self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+
         self._response_headers.update(response_headers)
 
     @property
@@ -891,3 +927,94 @@ def grpc_content_type_from_codec_name(web: bool, codec_name: str) -> str:
         return GRPC_CONTENT_TYPE_DEFAULT
 
     return GRPC_CONTENT_TYPE_PREFIX + codec_name
+
+
+def grpc_validate_response_content_type(web: bool, request_codec_name: str, response_content_type: str) -> None:
+    bare, prefix = GRPC_CONTENT_TYPE_DEFAULT, GRPC_CONTENT_TYPE_PREFIX
+    if web:
+        bare, prefix = GRPC_WEB_CONTENT_TYPE_DEFAULT, GRPC_WEB_CONTENT_TYPE_PREFIX
+
+    if response_content_type == prefix + request_codec_name or (
+        request_codec_name == CodecNameType.PROTO and response_content_type == bare
+    ):
+        return
+
+    expected_content_type = bare
+    if request_codec_name != CodecNameType.PROTO:
+        expected_content_type = prefix + request_codec_name
+
+    code = Code.INTERNAL
+    if response_content_type != bare and not response_content_type.startswith(prefix):
+        code = Code.UNKNOWN
+
+    raise ConnectError(f"invalid content-type {response_content_type}, expected {expected_content_type}", code)
+
+
+def grpc_error_from_trailer(trailers: Headers) -> ConnectError | None:
+    code_header = trailers.get(GRPC_HEADER_STATUS)
+    if code_header is None:
+        code = Code.UNKNOWN
+        if len(trailers) == 0:
+            code = Code.INTERNAL
+
+        return ConnectError(
+            f"protocol error: no {GRPC_HEADER_STATUS} header in trailers",
+            code,
+        )
+
+    if code_header == "0":
+        return None
+
+    try:
+        code = Code(int(code_header))
+    except ValueError:
+        return ConnectError(
+            f"protocol error: invalid error code {code_header} in trailers",
+        )
+
+    message = trailers.get(GRPC_HEADER_MESSAGE, None)
+    if message is None:
+        return ConnectError(
+            f"protocol error: invalid error message {code_header} in trailers",
+            code=Code.UNKNOWN,
+        )
+
+    ret_error = ConnectError(
+        message,
+        code,
+        wire_error=True,
+    )
+
+    details_binary_encoded = trailers.get(GRPC_HEADER_DETAILS, None)
+    if details_binary_encoded and len(details_binary_encoded) > 0:
+        try:
+            details_binary = decode_binary_header(details_binary_encoded)
+        except Exception as e:
+            raise ConnectError(
+                f"server returned invalid grpc-status-details-bin trailer: {e}",
+                code=Code.INTERNAL,
+            ) from e
+
+        status = status_pb2.Status()
+        try:
+            status.ParseFromString(details_binary)
+        except DecodeError as e:
+            raise ConnectError(
+                f"server returned invalid protobuf for error details: {e}",
+                code=Code.INTERNAL,
+            ) from e
+
+        for detail in status.details:
+            ret_error.details.append(ErrorDetail(pb_any=detail))
+
+        ret_error.code = Code(status.code)
+        ret_error.raw_message = status.message
+
+    return ret_error
+
+
+def decode_binary_header(data: str) -> bytes:
+    if len(data) % 4:
+        data += "=" * (-len(data) % 4)
+
+    return base64.b64decode(data, validate=True)

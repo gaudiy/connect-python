@@ -1,1 +1,1 @@
-Basic/HTTPVersion:2/Protocol:PROTOCOL_GRPC/Codec:CODEC_PROTO/Compression:COMPRESSION_IDENTITY/TLS:false/client-stream/success
+gRPC Trailers/Compression:COMPRESSION_GZIP/TLS:false/trailers-only/duplicate-metadata

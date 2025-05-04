@@ -429,8 +429,6 @@ if __name__ == "__main__":
         """Read requests from standard input and process them asynchronously."""
         loop = asyncio.get_event_loop()
         while req := await loop.run_in_executor(None, read_request):
-            await asyncio.sleep(0.01)
-
             loop.create_task(run_message(req))
 
     asyncio.run(read_requests())

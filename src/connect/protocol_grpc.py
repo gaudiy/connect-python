@@ -49,7 +49,7 @@ from connect.protocol import (
 from connect.request import Request
 from connect.session import AsyncClientSession
 from connect.streaming_response import StreamingResponse
-from connect.utils import aiterate, map_httpcore_exceptions
+from connect.utils import map_httpcore_exceptions
 from connect.version import __version__
 from connect.writer import ServerResponseWriter
 
@@ -567,7 +567,6 @@ class GRPCClientConn(StreamingClientConn):
         self.compressions = compressions
         self.marshaler = marshaler
         self.unmarshaler = unmarshaler
-        self.response_content = None
         self._response_headers = Headers()
         self._response_trailers = Headers()
         self._request_headers = request_headers
@@ -601,6 +600,7 @@ class GRPCClientConn(StreamingClientConn):
         if self.unmarshaler.bytes_read == 0 and len(self.response_trailers) == 0:
             self.response_trailers.update(self._response_headers)
             del self._response_headers[HEADER_CONTENT_TYPE]
+
             server_error = grpc_error_from_trailer(self.response_trailers)
             if server_error:
                 server_error.metadata = self.response_headers.copy()
@@ -969,7 +969,10 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
         await self.writer.write(
             StreamingResponse(
-                content=aiterate([b""]), headers=self.response_headers, trailers=self.response_trailers, status_code=200
+                content=[],
+                headers=self.response_headers,
+                trailers=self.response_trailers,
+                status_code=200,
             )
         )
 
@@ -1223,7 +1226,6 @@ def grpc_encode_timeout(timeout: float) -> str:
     grpc_timeout_max_value = 10**8
 
     _units = dict(sorted(_UNIT_TO_SECONDS.items(), key=lambda item: item[1]))
-
     for unit, size in _units.items():
         if timeout < size * grpc_timeout_max_value:
             value = int(timeout / size)

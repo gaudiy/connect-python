@@ -628,7 +628,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
         message = await ensure_single(conn.receive(t))
 
         return StreamRequest(
-            messages=AsyncDataStream[T](aiterate([message])),
+            messages=aiterate([message]),
             spec=conn.spec,
             peer=conn.peer,
             headers=conn.request_headers,
@@ -636,7 +636,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
         )
     else:
         return StreamRequest(
-            messages=AsyncDataStream[T](conn.receive(t)),
+            messages=conn.receive(t),
             spec=conn.spec,
             peer=conn.peer,
             headers=conn.request_headers,

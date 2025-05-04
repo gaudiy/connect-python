@@ -318,56 +318,6 @@ class StreamResponse[T](ResponseCommon):
             await aclose()
 
 
-class AsyncContentStream[T](AsyncIterable[T]):
-    """AsyncContentStream is a generic asynchronous stream wrapper for async iterables, providing validation and iteration utilities based on stream type.
-
-    Type Parameters:
-        T: The type of elements yielded by the asynchronous iterable.
-
-        iterable (AsyncIterable[T]): The asynchronous iterable to wrap.
-        stream_type (StreamType): The type of stream (e.g., Unary, ServerStream) that determines validation behavior.
-
-    Attributes:
-        _iterable (AsyncIterable[T]): The underlying asynchronous iterable.
-        stream_type (StreamType): The type of stream this instance represents.
-
-    """
-
-    def __init__(self, iterable: AsyncIterable[T], stream_type: StreamType) -> None:
-        """Initialize a stream wrapper for an async iterable.
-
-        This constructor stores the provided async iterable and its corresponding
-        stream type for later processing.
-
-        Args:
-            iterable: An asynchronous iterable containing elements of type T.
-            stream_type: The type of stream this iterable represents.
-
-        Returns:
-            None
-
-        """
-        self._iterable = iterable
-        self.stream_type = stream_type
-
-    async def __aiter__(self) -> AsyncIterator[T]:
-        """Asynchronously iterates over the underlying iterable.
-
-        If single message validation is required, wraps the iterable with a validation step.
-        Otherwise, yields items directly from the iterable.
-
-        Yields:
-            T: Items from the underlying asynchronous iterable.
-
-        """
-        if self.stream_type == StreamType.Unary or self.stream_type == StreamType.ServerStream:
-            item = await ensure_single(self._iterable)
-            yield item
-        else:
-            async for item in self._iterable:
-                yield item
-
-
 async def ensure_single[T](iterable: AsyncIterable[T], aclose: Callable[[], Awaitable[None]] | None = None) -> T:
     """Asynchronously ensures that the given async iterable yields exactly one item.
 
@@ -442,7 +392,7 @@ class StreamingHandlerConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def receive(self, message: Any) -> AsyncContentStream[Any]:
+    def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and returns an asynchronous content stream.
 
         Args:
@@ -674,15 +624,24 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
                           peer information, request headers, and HTTP method.
 
     """
-    stream = conn.receive(t)
+    if conn.spec.stream_type == StreamType.ServerStream:
+        message = await ensure_single(conn.receive(t))
 
-    return StreamRequest(
-        messages=stream,
-        spec=conn.spec,
-        peer=conn.peer,
-        headers=conn.request_headers,
-        method=HTTPMethod.POST,
-    )
+        return StreamRequest(
+            messages=AsyncDataStream[T](aiterate([message])),
+            spec=conn.spec,
+            peer=conn.peer,
+            headers=conn.request_headers,
+            method=HTTPMethod.POST.value,
+        )
+    else:
+        return StreamRequest(
+            messages=AsyncDataStream[T](conn.receive(t)),
+            spec=conn.spec,
+            peer=conn.peer,
+            headers=conn.request_headers,
+            method=HTTPMethod.POST.value,
+        )
 
 
 async def recieve_unary_response[T](
@@ -707,7 +666,7 @@ async def recieve_unary_response[T](
         Any exceptions raised by `receive_unary_message` or connection errors.
 
     """
-    message = await receive_unary_message(conn, t, abort_event)
+    message = await ensure_single(conn.receive(t, abort_event), conn.aclose)
 
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
@@ -736,31 +695,13 @@ async def recieve_stream_response[T](
         - For other stream types, it directly returns the received stream.
 
     """
-    receive_stream = AsyncDataStream[T](conn.receive(t, abort_event), conn.aclose)
-
     if spec.stream_type == StreamType.ClientStream:
-        single_message = await ensure_single(receive_stream, receive_stream.aclose)
+        single_message = await ensure_single(conn.receive(t, abort_event), conn.aclose)
 
         return StreamResponse(
             AsyncDataStream[T](aiterate([single_message])), conn.response_headers, conn.response_trailers
         )
     else:
-        return StreamResponse(receive_stream, conn.response_headers, conn.response_trailers)
-
-
-async def receive_unary_message[T](conn: StreamingClientConn, t: type[T], abort_event: asyncio.Event | None) -> T:
-    """Receives exactly one unary message of the specified type from a streaming connection.
-
-    Args:
-        conn (StreamingClientConn): The streaming client connection to receive the message from.
-        t (type[T]): The expected type of the message to receive.
-        abort_event (asyncio.Event | None): An optional event to signal abortion of the receive operation.
-
-    Returns:
-        T: The single message received of type `t`.
-
-    Raises:
-        ConnectError: If zero or more than one message is received, or if the receive operation fails.
-
-    """
-    return await ensure_single(conn.receive(t, abort_event), conn.aclose)
+        return StreamResponse(
+            AsyncDataStream[T](conn.receive(t, abort_event), conn.aclose), conn.response_headers, conn.response_trailers
+        )

@@ -26,7 +26,6 @@ from connect.codec import Codec, CodecNameType, StableCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
 from connect.connect import (
     Address,
-    AsyncContentStream,
     Peer,
     Spec,
     StreamingClientConn,
@@ -682,7 +681,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         obj = await self.unmarshaler.unmarshal(message)
         yield obj
 
-    def receive(self, message: Any) -> AsyncContentStream[Any]:
+    def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message, unmarshals it, and returns the resulting object.
 
         Args:
@@ -692,10 +691,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
 
         """
-        return AsyncContentStream(
-            self._receive_messages(message),
-            stream_type=self.spec.stream_type,
-        )
+        return self._receive_messages(message)
 
     @property
     def request_headers(self) -> Headers:
@@ -1337,7 +1333,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         async for obj, _ in self.unmarshaler.unmarshal(message):
             yield obj
 
-    def receive(self, message: Any) -> AsyncContentStream[Any]:
+    def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and returns an asynchronous content stream.
 
         This method processes the incoming message through the receive_message method
@@ -1351,10 +1347,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
                 processed message, configured with the specification's stream type.
 
         """
-        return AsyncContentStream(
-            iterable=self._receive_messages(message),
-            stream_type=self.spec.stream_type,
-        )
+        return self._receive_messages(message)
 
     @property
     def request_headers(self) -> Headers:

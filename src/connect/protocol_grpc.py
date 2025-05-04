@@ -23,7 +23,6 @@ from connect.codec import Codec, CodecNameType
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
 from connect.connect import (
     Address,
-    AsyncContentStream,
     Peer,
     Spec,
     StreamingClientConn,
@@ -868,7 +867,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    def receive(self, message: Any) -> AsyncContentStream[Any]:
+    def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and processes it.
 
         Args:
@@ -879,7 +878,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
                              this will yield exactly one item.
 
         """
-        return AsyncContentStream(self.unmarshaler.unmarshal(message), self.spec.stream_type)
+        return self.unmarshaler.unmarshal(message)
 
     @property
     def request_headers(self) -> Headers:

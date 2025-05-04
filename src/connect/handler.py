@@ -336,6 +336,13 @@ class Handler:
 
         except Exception as e:
             error = e if isinstance(e, ConnectError) else ConnectError("internal error", Code.INTERNAL)
+
+            if isinstance(e, TimeoutError):
+                error = ConnectError("the operation timed out", Code.DEADLINE_EXCEEDED)
+
+            if isinstance(e, NotImplementedError):
+                error = ConnectError("not implemented", Code.UNIMPLEMENTED)
+
             await conn.send_error(error)
 
     async def unary_handle(
@@ -378,6 +385,7 @@ class Handler:
 
             if isinstance(e, NotImplementedError):
                 error = ConnectError("not implemented", Code.UNIMPLEMENTED)
+
             await conn.send_error(error)
 
 

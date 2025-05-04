@@ -5,6 +5,7 @@ import base64
 import contextlib
 import functools
 import re
+import sys
 import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from http import HTTPMethod
@@ -74,14 +75,14 @@ DEFAULT_GRPC_USER_AGENT = f"connect-python/{__version__} (Python/{__version__})"
 
 _RE = re.compile(r"^(\d{1,8})([HMSmun])$")
 _UNIT_TO_SECONDS = {
-    "H": 60 * 60,
-    "M": 60,
-    "S": 1,
-    "m": 1e-3,  # millisecond
-    "u": 1e-6,  # microsecond
     "n": 1e-9,  # nanosecond
+    "u": 1e-6,  # microsecond
+    "m": 1e-3,  # millisecond
+    "S": 1.0,
+    "M": 60.0,
+    "H": 3600.0,
 }
-_MAX_HOURS = (2**63 - 1) // (60 * 60 * 1_000_000_000)
+_MAX_HOURS = sys.maxsize // (60 * 60 * 1_000_000_000)
 
 
 class ProtocolGRPC(Protocol):
@@ -716,7 +717,6 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
         num_str, unit = m.groups()
         num = int(num_str)
-
         if num > 99_999_999:
             raise ConnectError(f"protocol error: timeout {timeout!r} is too long")
 
@@ -1028,16 +1028,9 @@ def grpc_encode_timeout(timeout: float) -> str:
 
     grpc_timeout_max_value = 10**8
 
-    _units = (
-        (1e-9, "n"),
-        (1e-6, "u"),
-        (1e-3, "m"),
-        (1.0, "S"),
-        (60.0, "M"),
-        (3600.0, "H"),
-    )
+    _units = dict(sorted(_UNIT_TO_SECONDS.items(), key=lambda item: item[1]))
 
-    for size, unit in _units:
+    for unit, size in _units.items():
         if timeout < size * grpc_timeout_max_value:
             value = int(timeout / size)
             return f"{value}{unit}"

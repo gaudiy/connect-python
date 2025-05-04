@@ -219,9 +219,9 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
         try:
             options = ClientOptions()
             if msg.protocol == config_pb2.PROTOCOL_GRPC:
-                options.grpc = True
+                options.protocol = "grpc"
             if msg.protocol == config_pb2.PROTOCOL_GRPC_WEB:
-                options.grpc = True
+                options.protocol = "grpc-web"
 
             if msg.compression == config_pb2.COMPRESSION_GZIP:
                 options.request_compression_name = "gzip"

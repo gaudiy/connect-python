@@ -115,9 +115,9 @@ class ClientConfig:
 
         self.url = url
         self.protocol = ProtocolConnect()
-        if options.grpc:
+        if options.protocol == "grpc":
             self.protocol = ProtocolGRPC(web=False)
-        if options.grpc_web:
+        elif options.protocol == "grpc-web":
             self.protocol = ProtocolGRPC(web=True)
         self.procedure = proto_path
         self.codec = ProtoBinaryCodec()

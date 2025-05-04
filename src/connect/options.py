@@ -1,6 +1,6 @@
 """Options for the UniversalHandler class."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -84,11 +84,8 @@ class ClientOptions(BaseModel):
     enable_get: bool = Field(default=False)
     """A boolean indicating whether to enable GET requests."""
 
-    grpc: bool = Field(default=False)
-    """A boolean indicating whether to use gRPC."""
-
-    grpc_web: bool = Field(default=False)
-    """A boolean indicating whether to use gRPC-Web."""
+    protocol: Literal["connect", "grpc", "grpc-web"] = Field(default="connect")
+    """The protocol to use for the request."""
 
     def merge(self, override_options: "ClientOptions | None" = None) -> "ClientOptions":
         """Merge this options object with an override options object.

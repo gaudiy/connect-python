@@ -1,3 +1,5 @@
+"""Asynchronous byte stream utilities for HTTP core response handling."""
+
 from collections.abc import (
     AsyncIterable,
     AsyncIterator,

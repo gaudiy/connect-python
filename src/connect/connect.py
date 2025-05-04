@@ -361,51 +361,25 @@ class AsyncContentStream[T](AsyncIterable[T]):
 
         """
         if self.stream_type == StreamType.Unary or self.stream_type == StreamType.ServerStream:
-            async for item in validate_single_content_stream(self._iterable):
-                yield item
+            item = await ensure_single(self._iterable)
+            yield item
         else:
             async for item in self._iterable:
                 yield item
 
 
-async def validate_single_content_stream[T](iterable: AsyncIterable[T]) -> AsyncIterator[T]:
-    """Validate that an asynchronous iterable yields exactly one item.
-
-    This async generator iterates over the provided `iterable` and ensures that it produces exactly one item.
-    If more than one item is yielded, a `ConnectError` is raised indicating a protocol error.
-    If no items are yielded, a `ConnectError` is also raised.
-
-    Args:
-        iterable (AsyncIterable[T]): The asynchronous iterable to validate.
-
-    Yields:
-        T: The single item from the iterable.
-
-    Raises:
-        ConnectError: If the iterable yields zero or more than one item.
-
-    """
-    count = 0
-    async for item in iterable:
-        if count > 0:
-            raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
-
-        yield item
-        count += 1
-
-    if count == 0:
-        raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
-
-
-async def ensure_single[T](iterable: AsyncIterable[T]) -> T:
+async def ensure_single[T](iterable: AsyncIterable[T], aclose: Callable[[], Awaitable[None]] | None = None) -> T:
     """Asynchronously ensures that the given async iterable yields exactly one item.
 
     Iterates over the provided async iterable (after validating its content stream)
     and returns the single item if present. Raises a ConnectError if the iterable
-    is empty or contains more than one item.
+    is empty or contains more than one item. Optionally closes the iterable by calling
+    the provided aclose function after processing.
 
     Args:
         iterable (AsyncIterable[T]): An asynchronous iterable expected to yield exactly one item.
+        aclose (Callable[[], Awaitable[None]] | None, optional): A callable that asynchronously
+            closes the stream when invoked. If provided, will be called in a finally block.
 
     Returns:
         T: The single item yielded by the iterable.
@@ -414,14 +388,20 @@ async def ensure_single[T](iterable: AsyncIterable[T]) -> T:
         ConnectError: If the iterable yields no items or more than one item.
 
     """
-    message = None
-    async for item in validate_single_content_stream(iterable):
-        message = item
-
-    if message is None:
-        raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED)
-
-    return message
+    try:
+        iterator = iterable.__aiter__()
+        try:
+            first = await iterator.__anext__()
+            try:
+                await iterator.__anext__()
+                raise ConnectError("protocol error: expected only one message, but got multiple", Code.UNIMPLEMENTED)
+            except StopAsyncIteration:
+                return first
+        except StopAsyncIteration:
+            raise ConnectError("protocol error: expected one message, but got none", Code.UNIMPLEMENTED) from None
+    finally:
+        if aclose:
+            await aclose()
 
 
 class StreamingHandlerConn(abc.ABC):
@@ -732,44 +712,6 @@ async def recieve_unary_response[T](
     return UnaryResponse(message, conn.response_headers, conn.response_trailers)
 
 
-async def _receive_exactly_one[T](stream: AsyncIterator[T], aclose: Callable[[], Awaitable[None]]) -> T:
-    """Asynchronously receives exactly one item from an asynchronous iterator.
-
-    This function ensures that the provided asynchronous iterator (`stream`) yields
-    exactly one item. If the iterator yields no items or more than one item, a
-    `ConnectError` is raised. The provided `aclose` callable is always invoked to
-    close the stream, regardless of success or failure.
-
-    Type Parameters:
-        T: The type of the items in the asynchronous iterator.
-
-    Args:
-        stream (AsyncIterator[T]): The asynchronous iterator to consume.
-        aclose (Callable[[], Awaitable[None]]): A callable that closes the stream
-            when invoked.
-
-    Returns:
-        T: The single item yielded by the asynchronous iterator.
-
-    Raises:
-        ConnectError: If the iterator yields no items or more than one item.
-
-    """
-    try:
-        first = await stream.__anext__()
-        try:
-            await stream.__anext__()
-            raise ConnectError(
-                "ClientStream should only receive one message, but received multiple.", Code.UNIMPLEMENTED
-            )
-        except StopAsyncIteration:
-            return first
-    except StopAsyncIteration:
-        raise ConnectError("ClientStream should receive one message, but received none.", Code.UNIMPLEMENTED) from None
-    finally:
-        await aclose()
-
-
 async def recieve_stream_response[T](
     conn: StreamingClientConn, t: type[T], spec: Spec, abort_event: asyncio.Event | None
 ) -> StreamResponse[T]:
@@ -797,7 +739,7 @@ async def recieve_stream_response[T](
     receive_stream = AsyncDataStream[T](conn.receive(t, abort_event), conn.aclose)
 
     if spec.stream_type == StreamType.ClientStream:
-        single_message = await _receive_exactly_one(receive_stream.__aiter__(), receive_stream.aclose)
+        single_message = await ensure_single(receive_stream, receive_stream.aclose)
 
         return StreamResponse(
             AsyncDataStream[T](aiterate([single_message])), conn.response_headers, conn.response_trailers
@@ -818,8 +760,7 @@ async def receive_unary_message[T](conn: StreamingClientConn, t: type[T], abort_
         T: The single message received of type `t`.
 
     Raises:
-        Exception: If zero or more than one message is received, or if the receive operation fails.
+        ConnectError: If zero or more than one message is received, or if the receive operation fails.
 
     """
-    single_message = await _receive_exactly_one(conn.receive(t, abort_event), conn.aclose)
-    return single_message
+    return await ensure_single(conn.receive(t, abort_event), conn.aclose)

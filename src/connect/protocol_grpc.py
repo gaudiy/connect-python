@@ -493,8 +493,9 @@ class GRPCUnmarshaler(EnvelopeReader):
         """
         super().__init__(codec, read_max_bytes, stream, compression)
         self.web = web
+        self._web_trailers = None
 
-    async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
+    async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals a given message and yields each resulting object.
 
         Args:
@@ -522,14 +523,18 @@ class GRPCUnmarshaler(EnvelopeReader):
                 for line in lines:
                     if line == "":
                         continue
+
                     name, value = line.split(":", 1)
                     name = name.strip().lower()
                     value = value.strip()
-                    trailers[name] = value
+                    if name in trailers:
+                        trailers[name] += "," + value
+                    else:
+                        trailers[name] = value
 
                 self._web_trailers = trailers
 
-            yield obj
+            yield obj, end
 
     @property
     def web_trailers(self) -> Headers | None:
@@ -642,9 +647,23 @@ class GRPCClientConn(StreamingClientConn):
 
     async def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
         """Receives a message and processes it."""
-        async for obj in self.unmarshaler.unmarshal(message):
+        trailer_received = False
+        async for obj, end in self.unmarshaler.unmarshal(message):
             if abort_event and abort_event.is_set():
                 raise ConnectError("receive operation aborted", Code.CANCELED)
+
+            if end:
+                if trailer_received:
+                    raise ConnectError("received extra end stream trailer", Code.INVALID_ARGUMENT)
+
+                trailer_received = True
+                if self.unmarshaler.web_trailers is None:
+                    raise ConnectError("trailer not received", Code.INVALID_ARGUMENT)
+
+                continue
+
+            if trailer_received:
+                raise ConnectError("protocol error: received extra message after trailer", Code.INVALID_ARGUMENT)
 
             yield obj
 
@@ -667,11 +686,17 @@ class GRPCClientConn(StreamingClientConn):
             raise server_error
 
     def _receive_trailers(self, response: httpcore.Response) -> None:
-        if "trailing_headers" not in response.extensions:
-            return
+        if self.web:
+            trailers = self.unmarshaler.web_trailers
+            if trailers is not None:
+                self._response_trailers.update(trailers)
 
-        trailers = response.extensions["trailing_headers"]
-        self._response_trailers.update(Headers(trailers))
+        else:
+            if "trailing_headers" not in response.extensions:
+                return
+
+            trailers = response.extensions["trailing_headers"]
+            self._response_trailers.update(Headers(trailers))
 
     @property
     def request_headers(self) -> Headers:
@@ -924,7 +949,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
         """
         return self._peer
 
-    def receive(self, message: Any) -> AsyncIterator[Any]:
+    async def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message and processes it.
 
         Args:
@@ -935,7 +960,8 @@ class GRPCHandlerConn(StreamingHandlerConn):
                              this will yield exactly one item.
 
         """
-        return self.unmarshaler.unmarshal(message)
+        async for obj, _ in self.unmarshaler.unmarshal(message):
+            yield obj
 
     @property
     def request_headers(self) -> Headers:

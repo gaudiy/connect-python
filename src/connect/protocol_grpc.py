@@ -8,6 +8,7 @@ import re
 import sys
 import urllib.parse
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
+from copy import copy
 from http import HTTPMethod
 from typing import Any
 from urllib.parse import unquote
@@ -443,14 +444,20 @@ class GRPCMarshaler(EnvelopeWriter):
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes)
 
     async def marshal_web_trailers(self, trailers: Headers) -> bytes:
+        """Serialize HTTP trailer headers into a gRPC-Web trailer envelope.
+
+        Args:
+            trailers (Headers): A dictionary-like object containing HTTP trailer headers.
+
+        Returns:
+            bytes: The serialized gRPC-Web trailer envelope containing the trailer headers.
+
+        """
         lines = []
         for key, value in trailers.items():
             lines.append(f"{key}: {value}\r\n")
 
-        env = self.write_envelope(
-            "".join(lines).encode(),
-            EnvelopeFlags.trailer,
-        )
+        env = self.write_envelope("".join(lines).encode(), EnvelopeFlags.trailer)
 
         return env.encode()
 
@@ -485,6 +492,7 @@ class GRPCUnmarshaler(EnvelopeReader):
         """Initialize the protocol gRPC handler.
 
         Args:
+            web (bool): Indicates if the connection is for a web environment.
             codec (Codec | None): The codec to use for encoding/decoding messages. Can be None.
             read_max_bytes (int): The maximum number of bytes to read from the stream.
             stream (AsyncIterable[bytes] | None, optional): An asynchronous iterable stream of bytes. Defaults to None.
@@ -510,7 +518,7 @@ class GRPCUnmarshaler(EnvelopeReader):
                 env = self.last
                 if not env:
                     raise ConnectError("protocol error: empty envelope")
-                data = env.data
+                data = copy(env.data)
                 env.data = b""
 
                 if not (self.web and env.is_set(EnvelopeFlags.trailer)):
@@ -648,6 +656,7 @@ class GRPCClientConn(StreamingClientConn):
     async def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
         """Receives a message and processes it."""
         trailer_received = False
+
         async for obj, end in self.unmarshaler.unmarshal(message):
             if abort_event and abort_event.is_set():
                 raise ConnectError("receive operation aborted", Code.CANCELED)
@@ -875,6 +884,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
         """Initialize a new instance of the class.
 
         Args:
+            web (bool): Indicates if the connection is for a web environment.
             writer (ServerResponseWriter): The writer used to send responses to the client.
             spec (Spec): The specification object describing the protocol or service.
             peer (Peer): The peer information for the current connection.
@@ -987,7 +997,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
         if self.web:
             await self.writer.write(
                 StreamingResponse(
-                    content=self.marshal_with_error_handling(messages),
+                    content=self._send_messages(messages),
                     headers=self.response_headers,
                     status_code=200,
                 )
@@ -995,7 +1005,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
         else:
             await self.writer.write(
                 StreamingResponse(
-                    content=self.marshal_with_error_handling(messages),
+                    content=self._send_messages(messages),
                     headers=self.response_headers,
                     trailers=self.response_trailers,
                     status_code=200,
@@ -1025,14 +1035,21 @@ class GRPCHandlerConn(StreamingHandlerConn):
         """
         return self._response_trailers
 
-    async def marshal_with_error_handling(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
-        """Marshal messages to bytes with error handling.
+    async def _send_messages(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
+        """Asynchronously sends marshaled messages and yields them as byte streams.
 
         Args:
-            messages (AsyncIterable[Any]): The messages to marshal
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled and sent.
 
-        Returns:
-            AsyncIterator[bytes]: An async iterator of marshaled bytes
+        Yields:
+            bytes: Marshaled message bytes, and optionally marshaled web trailers if in web mode.
+
+        Raises:
+            ConnectError: If an error occurs during marshaling or sending messages, a ConnectError is set and handled.
+
+        Notes:
+            - Errors encountered during message marshaling are converted to ConnectError and added to response trailers.
+            - If running in web mode (`self.web` is True), marshaled web trailers are yielded at the end.
 
         """
         error: ConnectError | None = None

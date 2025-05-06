@@ -23,6 +23,7 @@ class EnvelopeFlags(Flag):
 
     compressed = 0b00000001
     end_stream = 0b00000010
+    trailer = 0b10000000
 
 
 class Envelope:
@@ -253,7 +254,7 @@ class EnvelopeReader:
     stream: AsyncIterable[bytes] | None
     buffer: bytes
     bytes_read: int
-    last_data: bytes | None
+    last: Envelope | None
 
     def __init__(
         self,
@@ -277,7 +278,7 @@ class EnvelopeReader:
         self.stream = stream
         self.buffer = b""
         self.bytes_read = 0
-        self.last_data = None
+        self.last = None
 
     async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals messages from the stream.
@@ -325,7 +326,7 @@ class EnvelopeReader:
                     env.data = self.compression.decompress(env.data, self.read_max_bytes)
 
                 if env.flags != EnvelopeFlags(0) and env.flags != EnvelopeFlags.compressed:
-                    self.last_data = env.data
+                    self.last = env
                     end = True
                     obj = None
                 else:

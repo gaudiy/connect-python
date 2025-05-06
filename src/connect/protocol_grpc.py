@@ -29,7 +29,7 @@ from connect.connect import (
     StreamingHandlerConn,
     StreamType,
 )
-from connect.envelope import EnvelopeReader, EnvelopeWriter
+from connect.envelope import EnvelopeFlags, EnvelopeReader, EnvelopeWriter
 from connect.error import ConnectError, ErrorDetail
 from connect.headers import Headers, include_request_headers
 from connect.protocol import (
@@ -49,7 +49,7 @@ from connect.protocol import (
 from connect.request import Request
 from connect.session import AsyncClientSession
 from connect.streaming_response import StreamingResponse
-from connect.utils import map_httpcore_exceptions
+from connect.utils import aiterate, map_httpcore_exceptions
 from connect.version import __version__
 from connect.writer import ServerResponseWriter
 
@@ -262,6 +262,7 @@ class GRPCHandler(ProtocolHandler):
         )
 
         conn = GRPCHandlerConn(
+            web=self.web,
             writer=writer,
             spec=self.params.spec,
             peer=peer,
@@ -272,6 +273,7 @@ class GRPCHandler(ProtocolHandler):
                 self.params.send_max_bytes,
             ),
             unmarshaler=GRPCUnmarshaler(
+                self.web,
                 codec,
                 self.params.read_max_bytes,
                 request.stream(),
@@ -395,6 +397,7 @@ class GRPCClient(ProtocolClient):
                 compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
             ),
             unmarshaler=GRPCUnmarshaler(
+                web=self.web,
                 codec=self.params.codec,
                 read_max_bytes=self.params.read_max_bytes,
             ),
@@ -439,6 +442,18 @@ class GRPCMarshaler(EnvelopeWriter):
         """
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes)
 
+    async def marshal_web_trailers(self, trailers: Headers) -> bytes:
+        lines = []
+        for key, value in trailers.items():
+            lines.append(f"{key}: {value}\r\n")
+
+        env = self.write_envelope(
+            "".join(lines).encode(),
+            EnvelopeFlags.trailer,
+        )
+
+        return env.encode()
+
 
 class GRPCUnmarshaler(EnvelopeReader):
     """GRPCUnmarshaler is a specialized EnvelopeReader for handling gRPC message unmarshaling.
@@ -456,8 +471,12 @@ class GRPCUnmarshaler(EnvelopeReader):
 
     """
 
+    web: bool
+    _web_trailers: Headers | None
+
     def __init__(
         self,
+        web: bool,
         codec: Codec | None,
         read_max_bytes: int,
         stream: AsyncIterable[bytes] | None = None,
@@ -473,6 +492,7 @@ class GRPCUnmarshaler(EnvelopeReader):
 
         """
         super().__init__(codec, read_max_bytes, stream, compression)
+        self.web = web
 
     async def unmarshal(self, message: Any) -> AsyncIterator[Any]:
         """Asynchronously unmarshals a given message and yields each resulting object.
@@ -484,8 +504,42 @@ class GRPCUnmarshaler(EnvelopeReader):
             Any: Each object obtained from unmarshaling the message.
 
         """
-        async for obj, _ in super().unmarshal(message):
+        async for obj, end in super().unmarshal(message):
+            if end:
+                env = self.last
+                if not env:
+                    raise ConnectError("protocol error: empty envelope")
+                data = env.data
+                env.data = b""
+
+                if not (self.web and env.is_set(EnvelopeFlags.trailer)):
+                    raise ConnectError(
+                        f"protocol error: invalid envelope flags: {env.flags}",
+                    )
+
+                trailers = Headers()
+                lines = data.decode("utf-8").splitlines()
+                for line in lines:
+                    if line == "":
+                        continue
+                    name, value = line.split(":", 1)
+                    name = name.strip().lower()
+                    value = value.strip()
+                    trailers[name] = value
+
+                self._web_trailers = trailers
+
             yield obj
+
+    @property
+    def web_trailers(self) -> Headers | None:
+        """Return the trailers received in the last envelope.
+
+        Returns:
+            Headers | None: The trailers received in the last envelope, or None if no trailers were received.
+
+        """
+        return self._web_trailers
 
 
 EventHook = Callable[..., Any]
@@ -771,6 +825,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
     """
 
+    web: bool
     _spec: Spec
     _peer: Peer
     writer: ServerResponseWriter
@@ -782,6 +837,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
     def __init__(
         self,
+        web: bool,
         writer: ServerResponseWriter,
         spec: Spec,
         peer: Peer,
@@ -805,6 +861,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
             is_streaming (bool, optional): Indicates if the connection is streaming. Defaults to False.
 
         """
+        self.web = web
         self.writer = writer
         self._spec = spec
         self._peer = peer
@@ -901,14 +958,23 @@ class GRPCHandlerConn(StreamingHandlerConn):
             None
 
         """
-        await self.writer.write(
-            StreamingResponse(
-                content=self.marshal_with_error_handling(messages),
-                headers=self.response_headers,
-                trailers=self.response_trailers,
-                status_code=200,
+        if self.web:
+            await self.writer.write(
+                StreamingResponse(
+                    content=self.marshal_with_error_handling(messages),
+                    headers=self.response_headers,
+                    status_code=200,
+                )
             )
-        )
+        else:
+            await self.writer.write(
+                StreamingResponse(
+                    content=self.marshal_with_error_handling(messages),
+                    headers=self.response_headers,
+                    trailers=self.response_trailers,
+                    status_code=200,
+                )
+            )
 
     @property
     def response_headers(self) -> Headers:
@@ -952,6 +1018,10 @@ class GRPCHandlerConn(StreamingHandlerConn):
         finally:
             grpc_error_to_trailer(self.response_trailers, error)
 
+            if self.web:
+                body = await self.marshaler.marshal_web_trailers(self.response_trailers)
+                yield body
+
     async def send_error(self, error: ConnectError) -> None:
         """Send an error response over gRPC by converting the provided ConnectError into gRPC trailers.
 
@@ -966,15 +1036,25 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
         """
         grpc_error_to_trailer(self.response_trailers, error)
+        if self.web:
+            body = await self.marshaler.marshal_web_trailers(self.response_trailers)
 
-        await self.writer.write(
-            StreamingResponse(
-                content=[],
-                headers=self.response_headers,
-                trailers=self.response_trailers,
-                status_code=200,
+            await self.writer.write(
+                StreamingResponse(
+                    content=aiterate([body]),
+                    headers=self.response_headers,
+                    status_code=200,
+                )
             )
-        )
+        else:
+            await self.writer.write(
+                StreamingResponse(
+                    content=[],
+                    headers=self.response_headers,
+                    trailers=self.response_trailers,
+                    status_code=200,
+                )
+            )
 
 
 def grpc_codec_from_content_type(web: bool, content_type: str) -> str:

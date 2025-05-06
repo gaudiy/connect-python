@@ -123,7 +123,7 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
         list[ProtocolHandler]: A list of initialized protocol handlers.
 
     """
-    protocols = [ProtocolConnect(), ProtocolGRPC(web=False)]
+    protocols = [ProtocolConnect(), ProtocolGRPC(web=False), ProtocolGRPC(web=True)]
 
     codecs = CodecMap(config.codecs)
 

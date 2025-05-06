@@ -1189,8 +1189,8 @@ class ConnectStreamingUnmarshaler(EnvelopeReader):
 
         """
         async for obj, end in super().unmarshal(message):
-            if self.last_data:
-                error, trailers = end_stream_from_bytes(self.last_data)
+            if self.last:
+                error, trailers = end_stream_from_bytes(self.last.data)
                 self._end_stream_error = error
                 self._trailers = trailers
 

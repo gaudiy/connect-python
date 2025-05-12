@@ -1044,8 +1044,8 @@ class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
             self._write_with_get(url)
             return data
 
-        assert self.compression
-        data = self.compression.compress(data)
+        if self.compression:
+            data = self.compression.compress(data)
 
         if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
             raise ConnectError(
@@ -1383,6 +1383,7 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
             bytes: Each marshaled message followed by an end stream message
 
         """
+        error: ConnectError | None = None
         try:
             async for message in self.marshaler.marshal(messages):
                 yield message
@@ -1656,9 +1657,6 @@ class ConnectStreamingClientConn(StreamingClientConn):
             - The response stream is unmarshaled and validated after the request is completed.
 
         """
-        if abort_event and abort_event.is_set():
-            raise ConnectError("request aborted", Code.CANCELED)
-
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
@@ -1720,7 +1718,10 @@ class ConnectStreamingClientConn(StreamingClientConn):
         response_headers = Headers(response.headers)
 
         if response.status != HTTPStatus.OK:
-            await response.aread()
+            try:
+                await response.aread()
+            finally:
+                await response.aclose()
 
             raise ConnectError(
                 f"HTTP {response.status}",
@@ -1931,9 +1932,6 @@ class ConnectUnaryClientConn(StreamingClientConn):
             - Handles cancellation and cleanup if the abort event is triggered during the request.
 
         """
-        if abort_event and abort_event.is_set():
-            raise ConnectError("request aborted", Code.CANCELED)
-
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}
@@ -1943,7 +1941,8 @@ class ConnectUnaryClientConn(StreamingClientConn):
         data = self.marshaler.marshal(message)
 
         if self.marshaler.enable_get:
-            assert self.marshaler.url is not None
+            if self.marshaler.url is None:
+                raise ConnectError("url is not set", Code.INTERNAL)
 
             request = httpcore.Request(
                 method=HTTPMethod.GET,

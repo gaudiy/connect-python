@@ -518,6 +518,7 @@ class GRPCUnmarshaler(EnvelopeReader):
                 env = self.last
                 if not env:
                     raise ConnectError("protocol error: empty envelope")
+
                 data = copy(env.data)
                 env.data = b""
 
@@ -731,9 +732,6 @@ class GRPCClientConn(StreamingClientConn):
             - Validates the HTTP response.
 
         """
-        if abort_event and abort_event.is_set():
-            raise ConnectError("request aborted", Code.CANCELED)
-
         extensions = {}
         if timeout:
             extensions["timeout"] = {"read": timeout}

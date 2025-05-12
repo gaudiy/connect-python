@@ -260,7 +260,6 @@ class Handler:
 
         writer = ServerResponseWriter()
 
-        # Create tasks for handling the request and receiving responses
         main_task = asyncio.create_task(self._handle(request, response_headers, response_trailers, writer))
         writer_task = asyncio.create_task(writer.receive())
 

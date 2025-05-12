@@ -246,7 +246,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 resp = await getattr(client, msg.method)(
                     UnaryRequest(
-                        message=req,
+                        content=req,
                         headers=headers,
                         timeout=msg.timeout_ms / 1000,
                         abort_event=abort_event,
@@ -286,7 +286,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        content=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     async for message in resp.messages:
@@ -310,7 +310,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=reqs, headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        content=reqs, headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     if msg.cancel.HasField("after_close_send_ms"):
@@ -352,7 +352,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
                 async with getattr(client, msg.method)(
                     StreamRequest(
-                        messages=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                        content=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
                     ),
                 ) as resp:
                     if msg.cancel.HasField("before_close_send"):

@@ -876,13 +876,11 @@ class ConnectClient(ProtocolClient):
                 compressions=self.params.compressions,
                 request_headers=headers,
                 marshaler=ConnectUnaryRequestMarshaler(
-                    connect_marshaler=ConnectUnaryMarshaler(
-                        codec=self.params.codec,
-                        compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
-                        compress_min_bytes=self.params.compress_min_bytes,
-                        send_max_bytes=self.params.send_max_bytes,
-                        headers=headers,
-                    )
+                    codec=self.params.codec,
+                    compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                    compress_min_bytes=self.params.compress_min_bytes,
+                    send_max_bytes=self.params.send_max_bytes,
+                    headers=headers,
                 ),
                 unmarshaler=ConnectUnaryUnmarshaler(
                     codec=self.params.codec,
@@ -918,36 +916,53 @@ class ConnectClient(ProtocolClient):
         return conn
 
 
-class ConnectUnaryRequestMarshaler:
-    """A class responsible for marshaling unary requests using a provided ConnectUnaryMarshaler.
+class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
+    """ConnectUnaryRequestMarshaler is responsible for marshaling unary request messages for the Connect protocol, with support for GET requests and stable codecs.
+
+    This class extends ConnectUnaryMarshaler to provide additional functionality for handling GET requests,
+    including marshaling messages using a stable codec, enforcing message size limits, and optionally compressing
+    messages when necessary. It also manages the construction of GET URLs with appropriate query parameters and
+    headers for the Connect protocol.
 
     Attributes:
-        connect_marshaler (ConnectUnaryMarshaler): An instance of ConnectUnaryMarshaler used to marshal messages.
+        enable_get (bool): Flag indicating whether GET requests are enabled.
+        stable_codec (StableCodec | None): The codec used for stable marshaling, if available.
+        url (URL | None): The URL to use for the request.
 
     """
 
-    connect_marshaler: ConnectUnaryMarshaler
     enable_get: bool
     stable_codec: StableCodec | None
     url: URL | None
 
     def __init__(
         self,
-        connect_marshaler: ConnectUnaryMarshaler,
+        codec: Codec | None,
+        compression: Compression | None,
+        compress_min_bytes: int,
+        send_max_bytes: int,
+        headers: Headers,
         enable_get: bool = False,
         stable_codec: StableCodec | None = None,
         url: URL | None = None,
     ) -> None:
-        """Initialize the ProtocolConnect instance.
+        """Initialize the protocol connection with the specified configuration.
 
         Args:
-            connect_marshaler (ConnectUnaryMarshaler): The marshaler used for connecting.
-            enable_get (bool, optional): Flag to enable GET requests. Defaults to False.
-            stable_codec (StableCodec | None, optional): The codec to use for stable connections. Defaults to None.
-            url (URL | None, optional): The URL for the connection. Defaults to None.
+            codec (Codec | None): The codec to use for encoding/decoding messages, or None.
+            compression (Compression | None): The compression algorithm to use, or None.
+            compress_min_bytes (int): Minimum number of bytes before compression is applied.
+            send_max_bytes (int): Maximum number of bytes allowed per send operation.
+            headers (Headers): Headers to include in each request.
+            enable_get (bool, optional): Whether to enable GET requests. Defaults to False.
+            stable_codec (StableCodec | None, optional): An optional stable codec for message encoding/decoding. Defaults to None.
+            url (URL | None, optional): The URL endpoint for the connection. Defaults to None.
+
+        Returns:
+            None
 
         """
-        self.connect_marshaler = connect_marshaler
+        super().__init__(codec, compression, compress_min_bytes, send_max_bytes, headers)
         self.enable_get = enable_get
         self.stable_codec = stable_codec
         self.url = url
@@ -960,7 +975,7 @@ class ConnectUnaryRequestMarshaler:
         Otherwise, if `enable_get` is True and `stable_codec` is not None, marshals
         the message using the `marshal_with_get` method.
 
-        If `enable_get` is False, marshals the message using the `connect_marshaler`.
+        If `enable_get` is False, marshals the message using the `.
 
         Args:
             message (Any): The message to be marshaled.
@@ -973,18 +988,18 @@ class ConnectUnaryRequestMarshaler:
 
         """
         if self.enable_get:
-            if self.connect_marshaler.codec is None:
+            if self.codec is None:
                 raise ConnectError("codec is not set", Code.INTERNAL)
 
             if self.stable_codec is None:
                 raise ConnectError(
-                    f"codec {self.connect_marshaler.codec.name} doesn't support stable marshal; can't use get",
+                    f"codec {self.codec.name} doesn't support stable marshal; can't use get",
                     Code.INTERNAL,
                 )
             else:
                 return self.marshal_with_get(message)
 
-        return self.connect_marshaler.marshal(message)
+        return super().marshal(message)
 
     def marshal_with_get(self, message: Any) -> bytes:
         """Marshals the given message and sends it using a GET request.
@@ -1011,14 +1026,15 @@ class ConnectUnaryRequestMarshaler:
                           limit.
 
         """
-        assert self.stable_codec is not None
+        if self.stable_codec is None:
+            raise ConnectError("stable_codec is not set", Code.INTERNAL)
 
         data = self.stable_codec.marshal_stable(message)
 
-        is_too_big = self.connect_marshaler.send_max_bytes > 0 and len(data) > self.connect_marshaler.send_max_bytes
-        if is_too_big and not self.connect_marshaler.compression:
+        is_too_big = self.send_max_bytes > 0 and len(data) > self.send_max_bytes
+        if is_too_big and not self.compression:
             raise ConnectError(
-                f"message size {len(data)} exceeds sendMaxBytes {self.connect_marshaler.send_max_bytes}: enabling request compression may help",
+                f"message size {len(data)} exceeds sendMaxBytes {self.send_max_bytes}: enabling request compression may help",
                 Code.RESOURCE_EXHAUSTED,
             )
 
@@ -1028,12 +1044,12 @@ class ConnectUnaryRequestMarshaler:
             self._write_with_get(url)
             return data
 
-        assert self.connect_marshaler.compression
-        data = self.connect_marshaler.compression.compress(data)
+        assert self.compression
+        data = self.compression.compress(data)
 
-        if self.connect_marshaler.send_max_bytes > 0 and len(data) > self.connect_marshaler.send_max_bytes:
+        if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
             raise ConnectError(
-                f"compressed message size {len(data)} exceeds send_max_bytes {self.connect_marshaler.send_max_bytes}",
+                f"compressed message size {len(data)} exceeds send_max_bytes {self.send_max_bytes}",
                 Code.RESOURCE_EXHAUSTED,
             )
 
@@ -1043,16 +1059,16 @@ class ConnectUnaryRequestMarshaler:
         return data
 
     def _build_get_url(self, data: bytes, compressed: bool) -> URL:
-        assert self.url is not None
-        assert self.stable_codec is not None
+        if self.url is None or self.stable_codec is None:
+            raise ConnectError("url or stable_codec is not set", Code.INTERNAL)
 
-        if self.connect_marshaler.codec is None:
+        if self.codec is None:
             raise ConnectError("codec is not set", Code.INTERNAL)
 
         url = self.url
         url = url.update_query({
             CONNECT_UNARY_CONNECT_QUERY_PARAMETER: CONNECT_UNARY_CONNECT_QUERY_VALUE,
-            CONNECT_UNARY_ENCODING_QUERY_PARAMETER: self.connect_marshaler.codec.name,
+            CONNECT_UNARY_ENCODING_QUERY_PARAMETER: self.codec.name,
         })
         if self.stable_codec.is_binary() or compressed:
             url = url.update_query({
@@ -1065,22 +1081,22 @@ class ConnectUnaryRequestMarshaler:
             })
 
         if compressed:
-            if not self.connect_marshaler.compression:
+            if not self.compression:
                 raise ConnectError(
                     "compression must be set for compressed message",
                     Code.INTERNAL,
                 )
 
-            url = url.update_query({CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER: self.connect_marshaler.compression.name})
+            url = url.update_query({CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER: self.compression.name})
 
         return url
 
     def _write_with_get(self, url: URL) -> None:
         with contextlib.suppress(Exception):
-            del self.connect_marshaler.headers[CONNECT_HEADER_PROTOCOL_VERSION]
-            del self.connect_marshaler.headers[HEADER_CONTENT_TYPE]
-            del self.connect_marshaler.headers[HEADER_CONTENT_ENCODING]
-            del self.connect_marshaler.headers[HEADER_CONTENT_LENGTH]
+            del self.headers[CONNECT_HEADER_PROTOCOL_VERSION]
+            del self.headers[HEADER_CONTENT_TYPE]
+            del self.headers[HEADER_CONTENT_ENCODING]
+            del self.headers[HEADER_CONTENT_LENGTH]
 
         self.url = url
 
@@ -1367,7 +1383,6 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
             bytes: Each marshaled message followed by an end stream message
 
         """
-        error: ConnectError | None = None
         try:
             async for message in self.marshaler.marshal(messages):
                 yield message
@@ -2031,7 +2046,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
             self._response_trailers[key[len(CONNECT_UNARY_TRAILER_PREFIX) :]] = value
 
         validate_error = connect_validate_unary_response_content_type(
-            self.marshaler.connect_marshaler.codec.name if self.marshaler.connect_marshaler.codec else "",
+            self.marshaler.codec.name if self.marshaler.codec else "",
             response.status,
             self._response_headers.get(HEADER_CONTENT_TYPE, ""),
         )

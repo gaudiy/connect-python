@@ -297,7 +297,6 @@ class AsyncDataStream[T]:
         """
         if self.aclose_func:
             await self.aclose_func()
-            return
 
 
 async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:

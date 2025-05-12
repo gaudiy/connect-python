@@ -152,7 +152,7 @@ class StreamRequest[T](RequestCommon):
 
     def __init__(
         self,
-        messages: AsyncIterable[T] | T,
+        content: AsyncIterable[T] | T,
         spec: Spec | None = None,
         peer: Peer | None = None,
         headers: Headers | None = None,
@@ -163,7 +163,7 @@ class StreamRequest[T](RequestCommon):
         """Initialize a new Request instance.
 
         Args:
-            messages (AsyncIterable[T] | T): The request messages.
+            content (AsyncIterable[T] | T): The request content, which can be an async iterable or a single message.
             spec (Spec): The specification for the request.
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
@@ -176,7 +176,7 @@ class StreamRequest[T](RequestCommon):
 
         """
         super().__init__(spec, peer, headers, method)
-        self._messages = messages if isinstance(messages, AsyncIterable) else aiterate([messages])
+        self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
         self.timeout = timeout
         self.abort_event = abort_event
 
@@ -204,7 +204,7 @@ class UnaryRequest[T](RequestCommon):
 
     def __init__(
         self,
-        message: T,
+        content: T,
         spec: Spec | None = None,
         peer: Peer | None = None,
         headers: Headers | None = None,
@@ -215,7 +215,7 @@ class UnaryRequest[T](RequestCommon):
         """Initialize a new Request instance.
 
         Args:
-            message (Req): The request message.
+            content (T): The request message.
             spec (Spec): The specification for the request.
             peer (Peer): The peer information.
             headers (Mapping[str, str]): The request headers.
@@ -228,7 +228,7 @@ class UnaryRequest[T](RequestCommon):
 
         """
         super().__init__(spec, peer, headers, method)
-        self._message = message
+        self._message = content
         self.timeout = timeout
         self.abort_event = abort_event
 
@@ -277,13 +277,13 @@ class UnaryResponse[T](ResponseCommon):
 
     def __init__(
         self,
-        message: T,
+        content: T,
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
         super().__init__(headers, trailers)
-        self._message = message
+        self._message = content
 
     @property
     def message(self) -> T:
@@ -298,13 +298,13 @@ class StreamResponse[T](ResponseCommon):
 
     def __init__(
         self,
-        messages: AsyncIterable[T] | T,
+        content: AsyncIterable[T] | T,
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
         """Initialize the response with a message."""
         super().__init__(headers, trailers)
-        self._messages = messages if isinstance(messages, AsyncIterable) else aiterate([messages])
+        self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
 
     @property
     def messages(self) -> AsyncIterable[T]:
@@ -604,7 +604,7 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Un
         method = cast(HTTPMethod, get_http_method())
 
     return UnaryRequest(
-        message=message,
+        content=message,
         spec=conn.spec,
         peer=conn.peer,
         headers=conn.request_headers,
@@ -628,7 +628,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
         message = await ensure_single(conn.receive(t))
 
         return StreamRequest(
-            messages=aiterate([message]),
+            content=aiterate([message]),
             spec=conn.spec,
             peer=conn.peer,
             headers=conn.request_headers,
@@ -636,7 +636,7 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
         )
     else:
         return StreamRequest(
-            messages=conn.receive(t),
+            content=conn.receive(t),
             spec=conn.spec,
             peer=conn.peer,
             headers=conn.request_headers,

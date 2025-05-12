@@ -180,7 +180,7 @@ class ConformanceService(ConformanceServiceHandler):
         except Exception:
             raise
 
-        return UnaryResponse(message=service_pb2.UnaryResponse(payload=payload), headers=headers, trailers=trailers)
+        return UnaryResponse(content=service_pb2.UnaryResponse(payload=payload), headers=headers, trailers=trailers)
 
     async def IdempotentUnary(
         self, request: UnaryRequest[service_pb2.IdempotentUnaryRequest]
@@ -262,7 +262,7 @@ class ConformanceService(ConformanceServiceHandler):
             raise
 
         return UnaryResponse(
-            message=service_pb2.IdempotentUnaryResponse(payload=payload), headers=headers, trailers=trailers
+            content=service_pb2.IdempotentUnaryResponse(payload=payload), headers=headers, trailers=trailers
         )
 
     async def ClientStream(
@@ -355,7 +355,7 @@ class ConformanceService(ConformanceServiceHandler):
             raise
 
         return StreamResponse(
-            messages=service_pb2.ClientStreamResponse(payload=payload),
+            content=service_pb2.ClientStreamResponse(payload=payload),
             headers=headers,
             trailers=trailers,
         )
@@ -465,7 +465,7 @@ class ConformanceService(ConformanceServiceHandler):
             raise
 
         return StreamResponse(
-            messages=iterator(),
+            content=iterator(),
             headers=headers,
             trailers=trailers,
         )
@@ -578,7 +578,7 @@ class ConformanceService(ConformanceServiceHandler):
             raise
 
         return StreamResponse(
-            messages=iterator(),
+            content=iterator(),
             headers=headers,
             trailers=trailers,
         )

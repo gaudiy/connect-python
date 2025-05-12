@@ -67,7 +67,7 @@ async def test_server_streaming(hypercorn_server: ServerConfig) -> None:
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -118,7 +118,7 @@ async def test_server_streaming_end_stream_error(hypercorn_server: ServerConfig)
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -181,7 +181,7 @@ async def test_server_streaming_received_message_after_end_stream(hypercorn_serv
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -246,7 +246,7 @@ async def test_server_streaming_received_extra_end_stream(hypercorn_server: Serv
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -297,7 +297,7 @@ async def test_server_streaming_not_received_end_stream(hypercorn_server: Server
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -354,7 +354,7 @@ async def test_server_streaming_response_envelope_message_compression(hypercorn_
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -419,7 +419,7 @@ async def test_server_streaming_request_envelope_message_compression(hypercorn_s
             output=PingResponse,
             options=ClientOptions(request_compression_name="gzip"),
         )
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
             want = ["Hi Bob.", "I'm Eliza."]
@@ -479,7 +479,7 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
             options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
         )
 
-        ping_request = StreamRequest(messages=PingRequest(name="test"))
+        ping_request = StreamRequest(content=PingRequest(name="test"))
 
         async with client.call_server_stream(ping_request):
             assert len(ephemeral_files) == 2
@@ -516,7 +516,7 @@ async def test_server_streaming_not_httpstatus_200(hypercorn_server: ServerConfi
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=PingRequest(name="Bob"))
+        ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         with pytest.raises(ConnectError) as excinfo:
             async with client.call_server_stream(ping_request):
@@ -578,7 +578,7 @@ async def test_client_streaming(hypercorn_server: ServerConfig) -> None:
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = StreamRequest(messages=iterator())
+        ping_request = StreamRequest(content=iterator())
 
         async with client.call_client_stream(ping_request) as response:
             want = ["I'm fine."]
@@ -641,7 +641,7 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
             options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
         )
 
-        ping_request = StreamRequest(messages=iterator())
+        ping_request = StreamRequest(content=iterator())
 
         async with client.call_client_stream(ping_request):
             assert len(ephemeral_files) == 2

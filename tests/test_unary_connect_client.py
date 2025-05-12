@@ -27,7 +27,7 @@ async def test_post_application_proto(hypercorn_server: ServerConfig) -> None:
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         response = await client.call_unary(ping_request)
 
@@ -58,7 +58,7 @@ async def test_post_response_gzip(hypercorn_server: ServerConfig) -> None:
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         await client.call_unary(ping_request)
 
@@ -98,7 +98,7 @@ async def test_post_request_gzip(hypercorn_server: ServerConfig) -> None:
             output=PingResponse,
             options=ClientOptions(request_compression_name="gzip"),
         )
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         await client.call_unary(ping_request)
 
@@ -162,7 +162,7 @@ async def test_get_application_proto(hypercorn_server: ServerConfig) -> None:
             output=PingResponse,
             options=ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True),
         )
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         await client.call_unary(ping_request)
 
@@ -188,7 +188,7 @@ async def test_post_not_found(hypercorn_server: ServerConfig) -> None:
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
             await client.call_unary(ping_request)
@@ -220,7 +220,7 @@ async def test_post_invalid_content_type_prefix(hypercorn_server: ServerConfig) 
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
             await client.call_unary(ping_request)
@@ -270,7 +270,7 @@ async def test_post_error_details(hypercorn_server: ServerConfig) -> None:
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
             await client.call_unary(ping_request)
@@ -330,7 +330,7 @@ async def test_post_compressed_error_details(hypercorn_server: ServerConfig) -> 
 
     async with AsyncClientSession() as session:
         client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
             await client.call_unary(ping_request)
@@ -401,7 +401,7 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
             output=PingResponse,
             options=ClientOptions(interceptors=[FileInterceptor1(), FileInterceptor2()]),
         )
-        ping_request = UnaryRequest(message=PingRequest(name="test"))
+        ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         await client.call_unary(ping_request)
 

@@ -19,7 +19,6 @@ from gen.connectrpc.conformance.v1.conformancev1connect.service_connect import (
     create_ConformanceService_handlers,
 )
 
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("conformance.server")
 
 

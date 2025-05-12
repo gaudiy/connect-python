@@ -6,63 +6,54 @@ from connect.response import Response
 
 
 class ServerResponseWriter:
-    """A class to handle writing and receiving server responses asynchronously.
+    """A writer class for handling server responses asynchronously using an asyncio.Queue.
 
     Attributes:
-        _future (asyncio.Future[Response]): A future object to hold the server response.
+        queue (asyncio.Queue[Response]): The queue used to store a single response.
+        is_closed (bool): Indicates whether the writer has been closed.
 
     """
 
-    _future: asyncio.Future[Response]
+    queue: asyncio.Queue[Response]
+    is_closed: bool = False
 
-    def __init__(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
-        """Initialize the writer instance.
-
-        Args:
-            loop (asyncio.AbstractEventLoop | None, optional): The event loop to use. If None, the default event loop is used.
-
-        Returns:
-            None
-
-        """
-        loop = loop or asyncio.get_event_loop()
-        self._future = loop.create_future()
+    def __init__(self) -> None:
+        """Initialize the instance with an asyncio queue of maximum size 1."""
+        self.queue = asyncio.Queue(maxsize=1)
 
     async def write(self, response: Response) -> None:
-        """Asynchronously writes the given response to the future result if it is not already done.
+        """Asynchronously writes a response to the internal queue.
 
         Args:
             response (Response): The response object to be written.
 
-        Returns:
-            None
+        Raises:
+            RuntimeError: If the response writer is already closed.
 
         """
-        if self._future.cancelled():
-            raise RuntimeError("Cannot write response; the future has already been cancelled.")
+        if self.is_closed:
+            raise RuntimeError("Cannot write to a closed response writer.")
 
-        if self._future.done():
-            raise RuntimeError("Cannot write response; the future is already done.")
-
-        self._future.set_result(response)
+        await self.queue.put(response)
 
     async def receive(self) -> Response:
-        """Asynchronously receives a response.
+        """Asynchronously retrieves a response from the internal queue.
 
-        This method awaits the completion of a future and returns the response.
-
-        Returns:
-            Response: The response object awaited from the future.
-
-        """
-        return await self._future
-
-    async def cancel(self) -> None:
-        """Cancel the future if it is not already done.
+        Raises:
+            RuntimeError: If the response writer is already closed.
 
         Returns:
-            None
+            Response: The next response item from the queue.
+
+        Side Effects:
+            Marks the response writer as closed after receiving a response.
 
         """
-        if not self._future.done():
-            self._future.cancel()
+        if self.is_closed:
+            raise RuntimeError("Cannot receive from a closed response writer.")
+
+        response = await self.queue.get()
+        self.queue.task_done()
+
+        self.is_closed = True
+        return response

@@ -234,13 +234,9 @@ class ConnectHandler(ProtocolHandler):
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
                 message_unquoted = unquote(message)
-                missing_padding = len(message_unquoted) % 4
-                if missing_padding:
-                    message_unquoted += "=" * (4 - missing_padding)
-
-                decoded = base64.urlsafe_b64decode(message_unquoted)
+                decoded = base64.urlsafe_b64decode(message_unquoted + "=" * (-len(message_unquoted) % 4))
             else:
-                decoded = message.encode("utf-8")
+                decoded = message.encode()
 
             request_stream = aiterate([decoded])
             codec_name = encoding
@@ -678,8 +674,7 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
             AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
 
         """
-        obj = await self.unmarshaler.unmarshal(message)
-        yield obj
+        yield await self.unmarshaler.unmarshal(message)
 
     def receive(self, message: Any) -> AsyncIterator[Any]:
         """Receives a message, unmarshals it, and returns the resulting object.
@@ -2459,7 +2454,7 @@ def error_to_json(error: ConnectError) -> dict[str, Any]:
         for detail in error.details:
             wire: dict[str, Any] = {
                 "type": detail.pb_any.TypeName(),
-                "value": base64.b64encode(detail.pb_any.value).decode("utf-8").rstrip("="),
+                "value": base64.b64encode(detail.pb_any.value).decode().rstrip("="),
             }
 
             with contextlib.suppress(Exception):
@@ -2491,7 +2486,6 @@ def error_to_json_bytes(error: ConnectError) -> bytes:
         json_obj = error_to_json(error)
         json_str = json.dumps(json_obj)
 
-        return json_str.encode("utf-8")
+        return json_str.encode()
     except Exception as e:
-        message = str(e)
-        raise ConnectError(f"failed to serialize Connect Error: {message}", Code.INTERNAL) from e
+        raise ConnectError(f"failed to serialize Connect Error: {e}", Code.INTERNAL) from e

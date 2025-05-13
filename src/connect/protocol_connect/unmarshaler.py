@@ -1,3 +1,5 @@
+"""Module providing classes for unmarshaling unary and streaming Connect protocol messages."""
+
 from collections.abc import (
     AsyncIterable,
     AsyncIterator,

@@ -1,3 +1,5 @@
+"""Utilities for handling Connect protocol content types."""
+
 from http import HTTPStatus
 
 from connect.code import Code

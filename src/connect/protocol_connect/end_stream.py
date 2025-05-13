@@ -1,3 +1,5 @@
+"""Module for handling end-of-stream JSON serialization and deserialization for Connect protocol."""
+
 import json
 from typing import Any
 

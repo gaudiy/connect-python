@@ -1,3 +1,5 @@
+"""Provides a ConnectHander class for handling connection protocols."""
+
 import base64
 import json
 from collections.abc import (

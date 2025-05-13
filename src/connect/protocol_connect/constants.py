@@ -1,3 +1,5 @@
+"""Constants used in the Connect protocol implementation for Python."""
+
 from sys import version
 
 from connect.version import __version__

@@ -1,3 +1,5 @@
+"""Module for serializing and deserializing ConnectError objects to and from JSON."""
+
 import base64
 import contextlib
 import json

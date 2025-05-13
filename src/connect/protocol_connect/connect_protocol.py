@@ -1,3 +1,5 @@
+"""Provides the ProtocolConnect class for handling connection protocols."""
+
 from http import HTTPMethod
 
 from connect.connect import (

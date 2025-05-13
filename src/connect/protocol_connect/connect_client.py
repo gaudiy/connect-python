@@ -1,4 +1,4 @@
-"""Provides classes and functions for handling protocol connections."""
+"""Provides a ConnectClient class for handling connections using the Connect protocol."""
 
 import asyncio
 import contextlib

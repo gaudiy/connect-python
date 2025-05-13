@@ -37,7 +37,7 @@ from connect.protocol import (
     sorted_accept_post_value,
     sorted_allow_method_value,
 )
-from connect.protocol_connect import (
+from connect.protocol_connect.connect_protocol import (
     ProtocolConnect,
 )
 from connect.protocol_grpc import ProtocolGRPC

@@ -53,12 +53,11 @@ from connect.protocol_connect.error_json import error_to_json
 from connect.protocol_connect.marshaler import ConnectStreamingMarshaler, ConnectUnaryMarshaler
 from connect.protocol_connect.unmarshaler import ConnectStreamingUnmarshaler, ConnectUnaryUnmarshaler
 from connect.request import Request
-from connect.response import Response
-from connect.streaming_response import StreamingResponse
+from connect.response import Response, StreamingResponse
+from connect.response_writer import ServerResponseWriter
 from connect.utils import (
     aiterate,
 )
-from connect.writer import ServerResponseWriter
 
 
 class ConnectHandler(ProtocolHandler):

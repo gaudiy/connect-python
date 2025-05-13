@@ -20,8 +20,8 @@ from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
+from connect.response_writer import ServerResponseWriter
 from connect.session import AsyncClientSession
-from connect.writer import ServerResponseWriter
 
 PROTOCOL_CONNECT = "connect"
 PROTOCOL_GRPC = "grpc"

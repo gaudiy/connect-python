@@ -35,9 +35,9 @@ from connect.protocol_grpc.error_trailer import grpc_error_to_trailer
 from connect.protocol_grpc.marshaler import GRPCMarshaler
 from connect.protocol_grpc.unmarshaler import GRPCUnmarshaler
 from connect.request import Request
-from connect.streaming_response import StreamingResponse
+from connect.response import StreamingResponse
+from connect.response_writer import ServerResponseWriter
 from connect.utils import aiterate
-from connect.writer import ServerResponseWriter
 
 
 class GRPCHandler(ProtocolHandler):

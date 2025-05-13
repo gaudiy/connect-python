@@ -6,8 +6,8 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from connect.asgi_helpers.utils import get_route_path, request_response
 from connect.handler import Handler
-from connect.utils import get_route_path, request_response
 
 HandleFunc = Callable[[Request], Awaitable[Response]]
 

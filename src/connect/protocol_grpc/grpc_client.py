@@ -10,7 +10,6 @@ from typing import Any
 import httpcore
 from yarl import URL
 
-from connect.byte_stream import HTTPCoreResponseAsyncByteStream
 from connect.code import Code
 from connect.codec import Codec
 from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
@@ -20,6 +19,7 @@ from connect.connect import (
     StreamingClientConn,
     StreamType,
 )
+from connect.content_stream import BoundAsyncStream
 from connect.error import ConnectError
 from connect.headers import Headers, include_request_headers
 from connect.protocol import (
@@ -387,7 +387,7 @@ class GRPCClientConn(StreamingClientConn):
             hook(response)
 
         assert isinstance(response.stream, AsyncIterable)
-        self.unmarshaler.stream = HTTPCoreResponseAsyncByteStream(aiterator=response.stream)
+        self.unmarshaler.stream = BoundAsyncStream(response.stream)
         self.receive_trailers = functools.partial(self._receive_trailers, response)
 
         await self._validate_response(response)

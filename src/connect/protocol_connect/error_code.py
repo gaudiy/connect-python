@@ -1,3 +1,5 @@
+"""Module for mapping Connect error codes to HTTP status codes."""
+
 from connect.code import Code
 
 

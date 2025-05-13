@@ -1,3 +1,5 @@
+"""Provides marshaling utilities for the Connect protocol."""
+
 import base64
 import contextlib
 import json

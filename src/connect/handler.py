@@ -40,7 +40,7 @@ from connect.protocol import (
 from connect.protocol_connect.connect_protocol import (
     ProtocolConnect,
 )
-from connect.protocol_grpc import ProtocolGRPC
+from connect.protocol_grpc.grpc_protocol import ProtocolGRPC
 from connect.request import Request
 from connect.response import Response
 from connect.utils import aiterate

@@ -6,7 +6,7 @@ from http import HTTPMethod, HTTPStatus
 from typing import Any
 
 import anyio
-from starlette.responses import PlainTextResponse
+from starlette.responses import PlainTextResponse, Response
 
 from connect.code import Code
 from connect.codec import Codec, CodecMap, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
@@ -42,9 +42,8 @@ from connect.protocol_connect.connect_protocol import (
 )
 from connect.protocol_grpc.grpc_protocol import ProtocolGRPC
 from connect.request import Request
-from connect.response import Response
+from connect.response_writer import ServerResponseWriter
 from connect.utils import aiterate
-from connect.writer import ServerResponseWriter
 
 type UnaryFunc[T_Request, T_Response] = Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
 type StreamFunc[T_Request, T_Response] = Callable[[StreamRequest[T_Request]], Awaitable[StreamResponse[T_Response]]]

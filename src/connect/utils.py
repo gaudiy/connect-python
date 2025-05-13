@@ -5,16 +5,11 @@ import contextlib
 import functools
 import typing
 from collections.abc import (
-    Awaitable,
-    Callable,
     Iterator,
 )
 
 import anyio.to_thread
 import httpcore
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from connect.code import Code
 from connect.error import ConnectError
@@ -117,188 +112,6 @@ def get_acallable_attribute(obj: object, attr: str) -> typing.Callable[..., typi
         return None
 
 
-def get_route_path(scope: Scope) -> str:
-    """Extract the route path from the given scope.
-
-    Args:
-        scope (Scope): The scope dictionary containing the request information.
-
-    Returns:
-        str: The extracted route path. If a root path is specified in the scope,
-            the function returns the path relative to the root path. If the path
-            does not start with the root path or if the path is equal to the root
-            path, the function returns the original path or an empty string,
-            respectively.
-
-    """
-    path: str = scope["path"]
-    root_path = scope.get("root_path", "")
-    if not root_path:
-        return path
-
-    if not path.startswith(root_path):
-        return path
-
-    if path == root_path:
-        return ""
-
-    if path[len(root_path)] == "/":
-        return path[len(root_path) :]
-
-    return path
-
-
-def request_response(func: Callable[[Request], Awaitable[Response] | Response]) -> ASGIApp:
-    """Convert a request handler function into an ASGI application.
-
-    This decorator takes a function that handles a request and returns a response,
-    and wraps it into an ASGI application callable. The handler function can be either
-    synchronous or asynchronous.
-
-    Args:
-        func (Callable[[Request], Awaitable[Response] | Response]): The request handler function.
-            It can be a synchronous function returning a Response or an asynchronous function
-            returning an Awaitable of Response.
-
-    Returns:
-        ASGIApp: An ASGI application callable that can be used to handle ASGI requests.
-
-    """
-
-    async def async_func(request: Request) -> Response:
-        if is_async_callable(func):
-            return await func(request)
-        else:
-            return typing.cast(Response, await run_in_threadpool(func, request))
-
-    f: Callable[[Request], Awaitable[Response]] = async_func
-
-    async def app(scope: Scope, receive: Receive, send: Send) -> None:
-        request = Request(scope, receive, send)
-        response = await f(request)
-        await response(scope, receive, send)
-
-    return app
-
-
-class AsyncByteStream(typing.AsyncIterable[bytes]):
-    """An abstract base class for asynchronous byte streams.
-
-    This class defines the interface for an asynchronous byte stream, which
-    includes methods for iterating over the stream and closing it.
-
-    """
-
-    async def __aiter__(self) -> typing.AsyncIterator[bytes]:
-        """Asynchronous iterator method.
-
-        This method should be implemented to provide asynchronous iteration
-        over the object. It must return an asynchronous iterator that yields
-        bytes.
-
-        Raises:
-            NotImplementedError: If the method is not implemented.
-
-        """
-        raise NotImplementedError("The '__aiter__' method must be implemented.")  # pragma: no cover
-        yield b""
-
-    async def aclose(self) -> None:
-        """Asynchronously close the byte stream."""
-        pass
-
-
-class StreamConsumedError(Exception):
-    """Exception raised when a stream has already been consumed."""
-
-    def __init__(self) -> None:
-        """Initialize the exception with a default message."""
-        super().__init__("Stream has already been consumed.")
-
-
-class AsyncDataStream[T]:
-    """AsyncDataStream is a generic class that provides an asynchronous iterable interface for streaming data.
-
-    It ensures that the stream is consumed only once and provides a mechanism for resource cleanup.
-    Type Parameters:
-        T: The type of elements in the asynchronous stream.
-
-    Attributes:
-        _stream (typing.AsyncIterable[T]): The asynchronous iterable representing the stream of data.
-        _is_stream_consumed (bool): A flag indicating whether the stream has already been consumed.
-        aclose_func (Callable[..., Awaitable[None]] | None): An optional asynchronous callable for closing resources.
-
-    Methods:
-        __init__(stream: typing.AsyncIterable[T], aclose_func: Callable[..., Awaitable[None]] | None = None) -> None:
-            Initializes the AsyncDataStream instance with the given stream and optional close function.
-        __aiter__() -> typing.AsyncIterator[T]:
-            Asynchronously iterates over the elements of the stream. Ensures the stream is consumed only once
-            and handles cleanup in case of exceptions.
-        aclose() -> None:
-            Asynchronously closes resources if an asynchronous close function is provided.
-
-    """
-
-    _stream: typing.AsyncIterable[T]
-    _is_stream_consumed: bool
-    aclose_func: Callable[..., Awaitable[None]] | None
-
-    def __init__(
-        self, stream: typing.AsyncIterable[T], aclose_func: Callable[..., Awaitable[None]] | None = None
-    ) -> None:
-        """Initialize an instance of the class.
-
-        Args:
-            stream (typing.AsyncIterable[T]): An asynchronous iterable representing the stream of data.
-            aclose_func (Callable[..., Awaitable[None]] | None, optional):
-                A callable function that is awaited to close the stream. Defaults to None.
-
-        """
-        self._stream = stream
-        self._is_stream_consumed = False
-        self.aclose_func = aclose_func
-
-    async def __aiter__(self) -> typing.AsyncIterator[T]:
-        """Asynchronously iterates over the elements of the stream.
-
-        This method allows the object to be used as an asynchronous iterator.
-        It ensures that the stream is not consumed multiple times and properly
-        handles cleanup in case of exceptions.
-
-        Yields:
-            T: The next element in the asynchronous stream.
-
-        Raises:
-            StreamConsumedError: If the stream has already been consumed.
-            BaseException: Propagates any exception raised during iteration
-                           after ensuring the stream is closed.
-
-        """
-        if self._is_stream_consumed:
-            raise StreamConsumedError()
-
-        self._is_stream_consumed = True
-        try:
-            async for part in self._stream:
-                yield part
-        except BaseException as exc:
-            await self.aclose()
-            raise exc
-
-    async def aclose(self) -> None:
-        """Asynchronously closes resources if an asynchronous close function is provided.
-
-        This method checks if an `aclose_func` is defined. If it is, the function
-        is awaited to perform any necessary cleanup or resource deallocation.
-
-        Returns:
-            None
-
-        """
-        if self.aclose_func:
-            await self.aclose_func()
-
-
 async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:
     """Turn a plain iterable into an async iterator.
 
@@ -364,22 +177,3 @@ def map_httpcore_exceptions() -> Iterator[None]:
                 raise ConnectError(str(exc), to_code) from exc
 
         raise exc
-
-
-async def achain[T](*itrs: typing.AsyncIterable[T]) -> typing.AsyncIterator[T]:
-    """Asynchronously chains multiple async iterables into a single async iterator.
-
-    Args:
-        *itrs (typing.AsyncIterable[T]): A variable number of async iterables to be chained.
-
-    Yields:
-        T: Items from the provided async iterables, in the order they are received.
-
-    Example:
-        async for item in achain(async_iterable1, async_iterable2):
-            print(item)
-
-    """
-    for itr in itrs:
-        async for item in itr:
-            yield item

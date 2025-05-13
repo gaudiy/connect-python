@@ -10,10 +10,11 @@ from typing import Any, cast
 from pydantic import BaseModel
 
 from connect.code import Code
+from connect.content_stream import AsyncDataStream
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.utils import AsyncDataStream, aiterate, get_acallable_attribute, get_callable_attribute
+from connect.utils import aiterate, get_acallable_attribute, get_callable_attribute
 
 
 class StreamType(Enum):

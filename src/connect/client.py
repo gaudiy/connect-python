@@ -28,7 +28,7 @@ from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
 from connect.options import ClientOptions
 from connect.protocol import Protocol, ProtocolClient, ProtocolClientParams
-from connect.protocol_connect import ProtocolConnect
+from connect.protocol_connect.connect_protocol import ProtocolConnect
 from connect.protocol_grpc import ProtocolGRPC
 from connect.session import AsyncClientSession
 from connect.utils import aiterate

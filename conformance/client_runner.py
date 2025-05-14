@@ -415,8 +415,6 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
 
 if __name__ == "__main__":
-    if "--debug" in sys.argv:
-        logging.debug("Debug mode enabled")
 
     async def run_message(req: client_compat_pb2.ClientCompatRequest) -> None:
         """Run the message handler for a given request."""
@@ -435,5 +433,6 @@ if __name__ == "__main__":
         loop = asyncio.get_event_loop()
         while req := await loop.run_in_executor(None, read_request):
             loop.create_task(run_message(req))
+            await asyncio.sleep(0)
 
     asyncio.run(read_requests())

@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from connect.connect import UnaryRequest
-from connect.session import AsyncClientSession
+from connect.connection_pool import AsyncConnectionPool
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import SayRequest
 from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceClient
@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     """Interact with the ElizaServiceClient asynchronously."""
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = ElizaServiceClient(
-            session=session,
+            pool=pool,
             base_url="http://localhost:8080/",
         )
         response = await client.Say(UnaryRequest(SayRequest(sentence="I feel happy.")))

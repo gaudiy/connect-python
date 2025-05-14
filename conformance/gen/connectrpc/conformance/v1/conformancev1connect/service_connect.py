@@ -10,7 +10,7 @@ from connect.client import Client
 import connect.connect
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
 from connect.options import ClientOptions, ConnectOptions
-from connect.session import AsyncClientSession
+from connect.connection_pool import AsyncConnectionPool
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 from connect.idempotency_level import IdempotencyLevel
 
@@ -40,26 +40,26 @@ ConformanceServiceIdempotentUnary_method_descriptor: MethodDescriptor = Conforma
 
 
 class ConformanceServiceClient:
-    def __init__(self, base_url: str, session: AsyncClientSession, options: ClientOptions | None = None) -> None:
+    def __init__(self, base_url: str, pool: AsyncConnectionPool, options: ClientOptions | None = None) -> None:
         base_url = base_url.removesuffix("/")
 
         self.Unary = Client[UnaryRequest, UnaryResponse](
-            session, base_url + ConformanceServiceProcedures.Unary.value, UnaryRequest, UnaryResponse, options
+            pool, base_url + ConformanceServiceProcedures.Unary.value, UnaryRequest, UnaryResponse, options
         ).call_unary
         self.ServerStream = Client[ServerStreamRequest, ServerStreamResponse](
-            session, base_url + ConformanceServiceProcedures.ServerStream.value, ServerStreamRequest, ServerStreamResponse, options
+            pool, base_url + ConformanceServiceProcedures.ServerStream.value, ServerStreamRequest, ServerStreamResponse, options
         ).call_server_stream
         self.ClientStream = Client[ClientStreamRequest, ClientStreamResponse](
-            session, base_url + ConformanceServiceProcedures.ClientStream.value, ClientStreamRequest, ClientStreamResponse, options
+            pool, base_url + ConformanceServiceProcedures.ClientStream.value, ClientStreamRequest, ClientStreamResponse, options
         ).call_client_stream
         self.BidiStream = Client[BidiStreamRequest, BidiStreamResponse](
-            session, base_url + ConformanceServiceProcedures.BidiStream.value, BidiStreamRequest, BidiStreamResponse, options
+            pool, base_url + ConformanceServiceProcedures.BidiStream.value, BidiStreamRequest, BidiStreamResponse, options
         ).call_bidi_stream
         self.Unimplemented = Client[UnimplementedRequest, UnimplementedResponse](
-            session, base_url + ConformanceServiceProcedures.Unimplemented.value, UnimplementedRequest, UnimplementedResponse, options
+            pool, base_url + ConformanceServiceProcedures.Unimplemented.value, UnimplementedRequest, UnimplementedResponse, options
         ).call_unary
         self.IdempotentUnary = Client[IdempotentUnaryRequest, IdempotentUnaryResponse](
-            session, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True).merge(options),
+            pool, base_url + ConformanceServiceProcedures.IdempotentUnary.value, IdempotentUnaryRequest, IdempotentUnaryResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True).merge(options),
         ).call_unary
 
 

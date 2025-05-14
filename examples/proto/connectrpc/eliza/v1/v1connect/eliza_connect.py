@@ -8,13 +8,13 @@ from enum import Enum
 
 from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from connect.connection_pool import AsyncConnectionPool
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
 from connect.options import ClientOptions, ConnectOptions
-from connect.session import AsyncClientSession
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2
-from ..eliza_pb2 import SayRequest, SayResponse, ConverseRequest, ConverseResponse, IntroduceRequest, IntroduceResponse
+from ..eliza_pb2 import ConverseRequest, ConverseResponse, IntroduceRequest, IntroduceResponse, SayRequest, SayResponse
 
 
 class ElizaServiceProcedures(Enum):
@@ -35,20 +35,20 @@ ElizaServiceIntroduceClient_method_descriptor: MethodDescriptor = ElizaService_s
 
 
 class ElizaServiceClient:
-    def __init__(self, base_url: str, session: AsyncClientSession, options: ClientOptions | None = None) -> None:
+    def __init__(self, base_url: str, pool: AsyncConnectionPool, options: ClientOptions | None = None) -> None:
         base_url = base_url.removesuffix("/")
 
         self.Say = Client[SayRequest, SayResponse](
-            session, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
+            pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
         ).call_unary
         self.Converse = Client[ConverseRequest, ConverseResponse](
-            session, base_url + ElizaServiceProcedures.Converse.value, ConverseRequest, ConverseResponse, options
+            pool, base_url + ElizaServiceProcedures.Converse.value, ConverseRequest, ConverseResponse, options
         ).call_server_stream
         self.IntroduceServer = Client[IntroduceRequest, IntroduceResponse](
-            session, base_url + ElizaServiceProcedures.IntroduceServer.value, IntroduceRequest, IntroduceResponse, options
+            pool, base_url + ElizaServiceProcedures.IntroduceServer.value, IntroduceRequest, IntroduceResponse, options
         ).call_server_stream
         self.IntroduceClient = Client[IntroduceRequest, IntroduceResponse](
-            session, base_url + ElizaServiceProcedures.IntroduceClient.value, IntroduceRequest, IntroduceResponse, options
+            pool, base_url + ElizaServiceProcedures.IntroduceClient.value, IntroduceRequest, IntroduceResponse, options
         ).call_client_stream
 
 

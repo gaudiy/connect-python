@@ -10,11 +10,11 @@ import pytest
 from connect.client import Client
 from connect.code import Code
 from connect.connect import StreamType, UnaryRequest, UnaryResponse
+from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import Interceptor, UnaryFunc
 from connect.options import ClientOptions
-from connect.session import AsyncClientSession
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
@@ -25,8 +25,8 @@ from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
 async def test_post_application_proto(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         response = await client.call_unary(ping_request)
@@ -56,8 +56,8 @@ async def post_response_gzip(scope: Scope, receive: Receive, send: Send) -> None
 async def test_post_response_gzip(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         await client.call_unary(ping_request)
@@ -90,9 +90,9 @@ async def post_request_gzip(scope: Scope, receive: Receive, send: Send) -> None:
 async def test_post_request_gzip(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = Client(
-            session=session,
+            pool=pool,
             url=url,
             input=PingRequest,
             output=PingResponse,
@@ -154,9 +154,9 @@ async def get_application_proto(scope: Scope, receive: Receive, send: Send) -> N
 async def test_get_application_proto(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = Client(
-            session=session,
+            pool=pool,
             url=url,
             input=PingRequest,
             output=PingResponse,
@@ -186,8 +186,8 @@ async def post_not_found(scope: Scope, receive: Receive, send: Send) -> None:
 async def test_post_not_found(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
@@ -218,8 +218,8 @@ async def post_invalid_content_type_prefix(scope: Scope, receive: Receive, send:
 async def test_post_invalid_content_type_prefix(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
@@ -268,8 +268,8 @@ async def test_post_error_details(hypercorn_server: ServerConfig) -> None:
 
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
@@ -328,8 +328,8 @@ async def test_post_compressed_error_details(hypercorn_server: ServerConfig) -> 
 
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = UnaryRequest(content=PingRequest(name="test"))
 
         with pytest.raises(ConnectError) as excinfo:
@@ -393,9 +393,9 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
 
             return _wrapped
 
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = Client(
-            session=session,
+            pool=pool,
             url=url,
             input=PingRequest,
             output=PingResponse,

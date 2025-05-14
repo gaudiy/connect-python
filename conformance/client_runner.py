@@ -11,10 +11,10 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from connect.connect import StreamRequest, UnaryRequest
+from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.options import ClientOptions
-from connect.session import AsyncClientSession
 from google.protobuf import any_pb2
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 
@@ -182,7 +182,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
         - Captures and returns errors in the response if exceptions occur.
 
     Note:
-        - This function uses an asynchronous HTTP client session (`AsyncClientSession`)
+        - This function uses an asynchronous HTTP client connection pool (`AsyncConnectionPool`)
           for making requests.
         - Compression (e.g., gzip) is applied if specified in the request.
         - Headers and trailers are converted to protobuf-compatible formats.
@@ -215,7 +215,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
     url = f"{proto}://{msg.host}:{msg.port}"
 
-    async with AsyncClientSession(http1=http1, http2=http2, ssl_context=ssl_context) as session:
+    async with AsyncConnectionPool(http1=http1, http2=http2, ssl_context=ssl_context) as pool:
         payloads = []
         try:
             options = ClientOptions()
@@ -231,7 +231,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
             if msg.codec == config_pb2.CODEC_JSON:
                 options.use_binary_format = False
 
-            client = service_connect.ConformanceServiceClient(base_url=url, session=session, options=options)
+            client = service_connect.ConformanceServiceClient(base_url=url, pool=pool, options=options)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:
                 if msg.request_delay_ms > 0:
                     await asyncio.sleep(msg.request_delay_ms / 1000)

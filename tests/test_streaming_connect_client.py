@@ -11,11 +11,11 @@ import pytest
 from connect.client import Client
 from connect.code import Code
 from connect.connect import StreamRequest, StreamResponse, StreamType
+from connect.connection_pool import AsyncConnectionPool
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
 from connect.interceptor import Interceptor, StreamFunc
 from connect.options import ClientOptions
-from connect.session import AsyncClientSession
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures
@@ -65,8 +65,8 @@ async def server_streaming(scope: Scope, receive: Receive, send: Send) -> None:
 async def test_server_streaming(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
@@ -116,8 +116,8 @@ async def server_streaming_end_stream_error(scope: Scope, receive: Receive, send
 async def test_server_streaming_end_stream_error(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
@@ -179,8 +179,8 @@ async def server_streaming_received_message_after_end_stream(scope: Scope, recei
 async def test_server_streaming_received_message_after_end_stream(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
@@ -244,8 +244,8 @@ async def server_streaming_received_extra_end_stream(scope: Scope, receive: Rece
 async def test_server_streaming_received_extra_end_stream(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
@@ -295,8 +295,8 @@ async def server_streaming_not_received_end_stream(scope: Scope, receive: Receiv
 async def test_server_streaming_not_received_end_stream(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
@@ -352,8 +352,8 @@ async def server_streaming_response_envelope_message_compression(scope: Scope, r
 async def test_server_streaming_response_envelope_message_compression(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         async with client.call_server_stream(ping_request) as response:
@@ -411,9 +411,9 @@ async def server_streaming_request_envelope_message_compression(scope: Scope, re
 async def test_server_streaming_request_envelope_message_compression(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = Client(
-            session=session,
+            pool=pool,
             url=url,
             input=PingRequest,
             output=PingResponse,
@@ -470,9 +470,9 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
 
             return _wrapped
 
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = Client(
-            session=session,
+            pool=pool,
             url=url,
             input=PingRequest,
             output=PingResponse,
@@ -514,8 +514,8 @@ async def server_streaming_not_httpstatus_200(scope: Scope, receive: Receive, se
 async def test_server_streaming_not_httpstatus_200(hypercorn_server: ServerConfig) -> None:
     url = hypercorn_server.base_url + PingServiceProcedures.Ping.value + "/proto"
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=PingRequest(name="Bob"))
 
         with pytest.raises(ConnectError) as excinfo:
@@ -576,8 +576,8 @@ async def test_client_streaming(hypercorn_server: ServerConfig) -> None:
         for message in messages:
             yield PingRequest(name=message)
 
-    async with AsyncClientSession() as session:
-        client = Client(session=session, url=url, input=PingRequest, output=PingResponse)
+    async with AsyncConnectionPool() as pool:
+        client = Client(pool=pool, url=url, input=PingRequest, output=PingResponse)
         ping_request = StreamRequest(content=iterator())
 
         async with client.call_client_stream(ping_request) as response:
@@ -632,9 +632,9 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
     async def iterator() -> AsyncIterator[PingRequest]:
         yield PingRequest(name="test")
 
-    async with AsyncClientSession() as session:
+    async with AsyncConnectionPool() as pool:
         client = Client(
-            session=session,
+            pool=pool,
             url=url,
             input=PingRequest,
             output=PingResponse,

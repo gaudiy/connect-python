@@ -19,6 +19,7 @@ from connect.connect import (
     StreamingClientConn,
     StreamType,
 )
+from connect.connection_pool import AsyncConnectionPool
 from connect.content_stream import BoundAsyncStream
 from connect.error import ConnectError
 from connect.headers import Headers, include_request_headers
@@ -41,7 +42,6 @@ from connect.protocol_grpc.content_type import grpc_content_type_from_codec_name
 from connect.protocol_grpc.error_trailer import grpc_error_from_trailer
 from connect.protocol_grpc.marshaler import GRPCMarshaler
 from connect.protocol_grpc.unmarshaler import GRPCUnmarshaler
-from connect.session import AsyncClientSession
 from connect.utils import map_httpcore_exceptions
 
 EventHook = Callable[..., Any]
@@ -51,7 +51,7 @@ class GRPCClient(ProtocolClient):
     """GRPCClient is a protocol client implementation for gRPC communication, supporting both standard and web environments.
 
     Attributes:
-        params (ProtocolClientParams): Configuration parameters for the protocol client, including codec, compression, session, and URL.
+        params (ProtocolClientParams): Configuration parameters for the protocol client, including codec, compression, pool, and URL.
         _peer (Peer): The peer instance associated with this client, representing the remote endpoint.
         web (bool): Indicates whether the client is running in a web environment, affecting header and content-type handling.
 
@@ -133,14 +133,14 @@ class GRPCClient(ProtocolClient):
             StreamingClientConn: An initialized gRPC streaming client connection.
 
         Details:
-            - Configures the connection with parameters such as session, peer, URL, codec, and compression settings.
+            - Configures the connection with parameters such as pool, peer, URL, codec, and compression settings.
             - Initializes GRPCMarshaler and GRPCUnmarshaler with appropriate codecs and limits.
             - Compression is determined using the provided compression name and available compressions.
 
         """
         return GRPCClientConn(
             web=self.web,
-            session=self.params.session,
+            pool=self.params.pool,
             spec=spec,
             peer=self.peer,
             url=self.params.url,
@@ -164,10 +164,10 @@ class GRPCClient(ProtocolClient):
 class GRPCClientConn(StreamingClientConn):
     """GRPCClientConn is a gRPC client connection implementation supporting asynchronous streaming requests and responses over HTTP/2.
 
-    This class manages the lifecycle of a gRPC client connection, including marshaling and unmarshaling messages, handling request and response headers/trailers, managing compression, and supporting event hooks for request/response events. It integrates with an asynchronous HTTP client session and supports cancellation via asyncio events.
+    This class manages the lifecycle of a gRPC client connection, including marshaling and unmarshaling messages, handling request and response headers/trailers, managing compression, and supporting event hooks for request/response events. It integrates with an asynchronous HTTP client connection pool and supports cancellation via asyncio events.
 
     Attributes:
-        session (AsyncClientSession): The asynchronous client session used for HTTP requests.
+        pool (AsyncConnectionPool): The asynchronous connection pool for managing HTTP/2 connections.
         _spec (Spec): The protocol or API specification.
         _peer (Peer): Information about the remote peer.
         url (URL): The endpoint URL for the connection.
@@ -183,7 +183,7 @@ class GRPCClientConn(StreamingClientConn):
     """
 
     web: bool
-    session: AsyncClientSession
+    pool: AsyncConnectionPool
     _spec: Spec
     _peer: Peer
     url: URL
@@ -199,7 +199,7 @@ class GRPCClientConn(StreamingClientConn):
     def __init__(
         self,
         web: bool,
-        session: AsyncClientSession,
+        pool: AsyncConnectionPool,
         spec: Spec,
         peer: Peer,
         url: URL,
@@ -214,7 +214,7 @@ class GRPCClientConn(StreamingClientConn):
 
         Args:
             web (bool): Indicates if the connection is for a web environment.
-            session (AsyncClientSession): The asynchronous client session to use for requests.
+            pool (AsyncConnectionPool): The connection pool for managing HTTP/2 connections.
             spec (Spec): The specification object describing the protocol or API.
             peer (Peer): The peer information for the connection.
             url (URL): The URL endpoint for the connection.
@@ -229,7 +229,7 @@ class GRPCClientConn(StreamingClientConn):
         event_hooks = {} if event_hooks is None else event_hooks
 
         self.web = web
-        self.session = session
+        self.pool = pool
         self._spec = spec
         self._peer = peer
         self.url = url
@@ -363,9 +363,9 @@ class GRPCClientConn(StreamingClientConn):
 
         with map_httpcore_exceptions():
             if not abort_event:
-                response = await self.session.pool.handle_async_request(request)
+                response = await self.pool.handle_async_request(request)
             else:
-                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                request_task = asyncio.create_task(self.pool.handle_async_request(request=request))
                 abort_task = asyncio.create_task(abort_event.wait())
 
                 done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)

@@ -26,6 +26,7 @@ from connect.connect import (
     StreamType,
     ensure_single,
 )
+from connect.connection_pool import AsyncConnectionPool
 from connect.content_stream import BoundAsyncStream
 from connect.error import ConnectError
 from connect.headers import Headers, include_request_headers
@@ -59,7 +60,6 @@ from connect.protocol_connect.content_type import (
 from connect.protocol_connect.error_json import error_from_json
 from connect.protocol_connect.marshaler import ConnectStreamingMarshaler, ConnectUnaryRequestMarshaler
 from connect.protocol_connect.unmarshaler import ConnectStreamingUnmarshaler, ConnectUnaryUnmarshaler
-from connect.session import AsyncClientSession
 from connect.utils import (
     map_httpcore_exceptions,
 )
@@ -147,7 +147,7 @@ class ConnectClient(ProtocolClient):
         conn: StreamingClientConn
         if spec.stream_type == StreamType.Unary:
             conn = ConnectUnaryClientConn(
-                session=self.params.session,
+                pool=self.params.pool,
                 spec=spec,
                 peer=self.peer,
                 url=self.params.url,
@@ -172,7 +172,7 @@ class ConnectClient(ProtocolClient):
                     conn.marshaler.stable_codec = self.params.codec
         else:
             conn = ConnectStreamingClientConn(
-                session=self.params.session,
+                pool=self.params.pool,
                 spec=spec,
                 peer=self.peer,
                 url=self.params.url,
@@ -212,7 +212,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
     """
 
-    session: AsyncClientSession
+    pool: AsyncConnectionPool
     _spec: Spec
     _peer: Peer
     url: URL
@@ -226,7 +226,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
     def __init__(
         self,
-        session: AsyncClientSession,
+        pool: AsyncConnectionPool,
         spec: Spec,
         peer: Peer,
         url: URL,
@@ -239,7 +239,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """Initialize the ConnectProtocol instance.
 
         Args:
-            session (AsyncClientSession): The session for the connection.
+            pool (AsyncConnectionPool): The connection pool for the client.
             spec (Spec): The specification for the connection.
             peer (Peer): The peer information.
             url (URL): The URL for the connection.
@@ -255,7 +255,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
-        self.session = session
+        self.pool = pool
         self._spec = spec
         self._peer = peer
         self.url = url
@@ -412,9 +412,9 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
         with map_httpcore_exceptions():
             if not abort_event:
-                response = await self.session.pool.handle_async_request(request=request)
+                response = await self.pool.handle_async_request(request=request)
             else:
-                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                request_task = asyncio.create_task(self.pool.handle_async_request(request=request))
                 abort_task = asyncio.create_task(abort_event.wait())
 
                 done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
@@ -563,7 +563,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
     def __init__(
         self,
-        session: AsyncClientSession,
+        pool: AsyncConnectionPool,
         spec: Spec,
         peer: Peer,
         url: URL,
@@ -577,7 +577,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """Initialize a new instance of the class.
 
         Args:
-            session (AsyncClientSession): The session object for the connection.
+            pool (AsyncConnectionPool): The connection pool for the client.
             spec (Spec): The specification object.
             peer (Peer): The peer object.
             url (URL): The URL for the connection.
@@ -594,7 +594,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
-        self.session = session
+        self.pool = pool
         self._spec = spec
         self._peer = peer
         self.url = url
@@ -771,9 +771,9 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
         with map_httpcore_exceptions():
             if not abort_event:
-                response = await self.session.pool.handle_async_request(request)
+                response = await self.pool.handle_async_request(request)
             else:
-                request_task = asyncio.create_task(self.session.pool.handle_async_request(request=request))
+                request_task = asyncio.create_task(self.pool.handle_async_request(request=request))
                 abort_task = asyncio.create_task(abort_event.wait())
 
                 done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)

@@ -180,7 +180,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		p.P(`from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse`)
 		p.P(`from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler`)
 		p.P(`from connect.options import ClientOptions, ConnectOptions`)
-		p.P(`from connect.session import AsyncClientSession`)
+		p.P(`from connect.connection_pool import AsyncConnectionPool`)
 		p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
 		p.P()
 
@@ -238,13 +238,13 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		p.P()
 		p.P()
 		p.P(`class `, upperSvcName, `Client:`)
-		p.P(`    def __init__(self, base_url: str, session: AsyncClientSession, options: ClientOptions | None = None) -> None:`)
+		p.P(`    def __init__(self, base_url: str, pool: AsyncConnectionPool, options: ClientOptions | None = None) -> None:`)
 		p.P(`        base_url = base_url.removesuffix("/")`)
 		p.P()
 		for _, meth := range sortedMap(p.services) {
 			svc := p.services[meth]
 			p.P(`        `, `self.`, meth.Method, ` = `, `Client[`, svc.input.method, `, `, svc.output.method, `](`)
-			p.P(`            `, `session, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, options`)
+			p.P(`            `, `pool, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, options`)
 			switch meth.RPCType {
 			case Unary:
 				p.P(`        `, `).call_unary`)

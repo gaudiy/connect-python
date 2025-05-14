@@ -16,12 +16,12 @@ from connect.connect import (
     StreamingHandlerConn,
     StreamType,
 )
+from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.request import Request
 from connect.response_writer import ServerResponseWriter
-from connect.session import AsyncClientSession
 
 PROTOCOL_CONNECT = "connect"
 PROTOCOL_GRPC = "grpc"
@@ -70,7 +70,7 @@ class ProtocolClientParams(BaseModel):
         arbitrary_types_allowed=True,
     )
 
-    session: AsyncClientSession
+    pool: AsyncConnectionPool
     codec: Codec
     url: URL
     compression_name: str | None = Field(default=None)

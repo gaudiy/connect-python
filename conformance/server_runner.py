@@ -21,15 +21,13 @@ from gen.connectrpc.conformance.v1 import config_pb2
 from gen.connectrpc.conformance.v1.server_compat_pb2 import ServerCompatRequest, ServerCompatResponse
 from server import app
 
-logger = logging.getLogger("conformance.runner")
-
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.FileHandler("conformance_server.log"), logging.StreamHandler()],
 )
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger("conformance.runner")
 
 
 def find_free_port() -> int:

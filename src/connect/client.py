@@ -23,6 +23,7 @@ from connect.connect import (
     recieve_stream_response,
     recieve_unary_response,
 )
+from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
 from connect.interceptor import apply_interceptors
@@ -30,7 +31,6 @@ from connect.options import ClientOptions
 from connect.protocol import Protocol, ProtocolClient, ProtocolClientParams
 from connect.protocol_connect.connect_protocol import ProtocolConnect
 from connect.protocol_grpc.grpc_protocol import ProtocolGRPC
-from connect.session import AsyncClientSession
 from connect.utils import aiterate
 
 
@@ -186,7 +186,7 @@ class Client[T_Request, T_Response]:
 
     def __init__(
         self,
-        session: AsyncClientSession,
+        pool: AsyncConnectionPool,
         url: str,
         input: type[T_Request],
         output: type[T_Response],
@@ -195,7 +195,7 @@ class Client[T_Request, T_Response]:
         """Initialize the client with the given URL, request and response types, and optional client options.
 
         Args:
-            session (AsyncClientSession): The client session to use for the connection.
+            pool (AsyncConnectionPool): The connection pool to use for making requests.
             url (str): The URL of the server to connect to.
             input (type[T_Request]): The type of the request object.
             output (type[T_Response]): The type of the response object.
@@ -212,7 +212,7 @@ class Client[T_Request, T_Response]:
 
         protocol_client = config.protocol.client(
             ProtocolClientParams(
-                session=session,
+                pool=pool,
                 codec=config.codec,
                 url=config.url,
                 compression_name=config.request_compression_name,

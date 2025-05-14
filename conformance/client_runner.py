@@ -310,6 +310,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
         payloads = []
         try:
             options = ClientOptions()
+
             if msg.protocol == config_pb2.PROTOCOL_GRPC:
                 options.protocol = "grpc"
             if msg.protocol == config_pb2.PROTOCOL_GRPC_WEB:
@@ -317,6 +318,9 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
 
             if msg.compression == config_pb2.COMPRESSION_GZIP:
                 options.request_compression_name = "gzip"
+
+            if msg.codec == config_pb2.CODEC_JSON:
+                options.use_binary_format = False
 
             client = service_connect.ConformanceServiceClient(base_url=url, session=session, options=options)
             if msg.stream_type == config_pb2.STREAM_TYPE_UNARY:

@@ -11,7 +11,7 @@ import httpcore
 from yarl import URL
 
 from connect.code import Code
-from connect.codec import Codec, ProtoBinaryCodec
+from connect.codec import Codec, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
 from connect.connect import (
     Spec,
@@ -120,7 +120,12 @@ class ClientConfig:
         elif options.protocol == "grpc-web":
             self.protocol = ProtocolGRPC(web=True)
         self.procedure = proto_path
-        self.codec = ProtoBinaryCodec()
+
+        if options.use_binary_format:
+            self.codec = ProtoBinaryCodec()
+        else:
+            self.codec = ProtoJSONCodec(CodecNameType.JSON)
+
         self.request_compression_name = options.request_compression_name
         self.compressions = [GZipCompression()]
         if self.request_compression_name and self.request_compression_name != COMPRESSION_IDENTITY:

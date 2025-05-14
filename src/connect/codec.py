@@ -249,7 +249,7 @@ class ProtoJSONCodec(StableCodec):
 
         json_str = json_format.MessageToJson(message)
 
-        return json_str.encode("utf-8")
+        return json_str.encode()
 
     def unmarshal(self, data: bytes, message: Any) -> Any:
         """Unmarshal the given byte data into a protobuf message.
@@ -269,7 +269,7 @@ class ProtoJSONCodec(StableCodec):
         if not isinstance(obj, google.protobuf.message.Message):
             raise ValueError("Data is not a protobuf message")
 
-        return json_format.Parse(data.decode("utf-8"), obj, ignore_unknown_fields=True)
+        return json_format.Parse(data.decode(), obj, ignore_unknown_fields=True)
 
     def marshal_stable(self, message: Any) -> bytes:
         """Serialize a protobuf message to a JSON string encoded as UTF-8 bytes in a deterministic way.
@@ -298,7 +298,7 @@ class ProtoJSONCodec(StableCodec):
         parsed = json.loads(json_str)
         compacted_json = json.dumps(parsed, separators=(",", ":"))
 
-        return compacted_json.encode("utf-8")
+        return compacted_json.encode()
 
     def is_binary(self) -> bool:
         """Determine if the codec is binary.

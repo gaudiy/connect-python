@@ -87,6 +87,9 @@ class ClientOptions(BaseModel):
     protocol: Literal["connect", "grpc", "grpc-web"] = Field(default="connect")
     """The protocol to use for the request."""
 
+    use_binary_format: bool = Field(default=True)
+    """A boolean indicating whether to use binary format for the request."""
+
     def merge(self, override_options: "ClientOptions | None" = None) -> "ClientOptions":
         """Merge this options object with an override options object.
 

@@ -4,10 +4,11 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeGuard, overload
 
+from connect.call_options import CallOptions
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 
-UnaryFunc = Callable[[UnaryRequest[Any]], Awaitable[UnaryResponse[Any]]]
-StreamFunc = Callable[[StreamRequest[Any]], Awaitable[StreamResponse[Any]]]
+UnaryFunc = Callable[[UnaryRequest[Any], CallOptions], Awaitable[UnaryResponse[Any]]]
+StreamFunc = Callable[[StreamRequest[Any], CallOptions], Awaitable[StreamResponse[Any]]]
 
 
 class Interceptor:

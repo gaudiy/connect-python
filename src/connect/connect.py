@@ -148,8 +148,8 @@ class StreamRequest[T](RequestCommon):
     """
 
     _messages: AsyncIterable[T]
-    timeout: float | None
-    abort_event: asyncio.Event | None = None
+    # timeout: float | None
+    # abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -158,8 +158,8 @@ class StreamRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
-        timeout: float | None = None,
-        abort_event: asyncio.Event | None = None,
+        # timeout: float | None = None,
+        # abort_event: asyncio.Event | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -178,8 +178,8 @@ class StreamRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
-        self.timeout = timeout
-        self.abort_event = abort_event
+        # self.timeout = timeout
+        # self.abort_event = abort_event
 
     @property
     def messages(self) -> AsyncIterable[T]:
@@ -200,8 +200,8 @@ class UnaryRequest[T](RequestCommon):
     """
 
     _message: T
-    timeout: float | None
-    abort_event: asyncio.Event | None = None
+    # timeout: float | None
+    # abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -210,8 +210,8 @@ class UnaryRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
-        timeout: float | None = None,
-        abort_event: asyncio.Event | None = None,
+        # timeout: float | None = None,
+        # abort_event: asyncio.Event | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -230,8 +230,8 @@ class UnaryRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._message = content
-        self.timeout = timeout
-        self.abort_event = abort_event
+        # self.timeout = timeout
+        # self.abort_event = abort_event
 
     @property
     def message(self) -> T:

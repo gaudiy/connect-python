@@ -10,6 +10,7 @@ from typing import Any
 import httpcore
 from yarl import URL
 
+from connect.call_options import CallOptions
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
@@ -181,8 +182,10 @@ class Client[T_Request, T_Response]:
 
     config: ClientConfig
     protocol_client: ProtocolClient
-    _call_unary: Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
-    _call_stream: Callable[[StreamType, StreamRequest[T_Request]], Awaitable[StreamResponse[T_Response]]]
+    _call_unary: Callable[[UnaryRequest[T_Request], CallOptions | None], Awaitable[UnaryResponse[T_Response]]]
+    _call_stream: Callable[
+        [StreamType, StreamRequest[T_Request], CallOptions | None], Awaitable[StreamResponse[T_Response]]
+    ]
 
     def __init__(
         self,
@@ -227,7 +230,7 @@ class Client[T_Request, T_Response]:
 
         unary_spec = config.spec(StreamType.Unary)
 
-        async def _unary_func(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
+        async def _unary_func(request: UnaryRequest[T_Request], call_options: CallOptions) -> UnaryResponse[T_Response]:
             conn = protocol_client.conn(unary_spec, request.headers)
 
             def on_request_send(r: httpcore.Request) -> None:
@@ -239,17 +242,21 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(aiterate([request.message]), request.timeout, abort_event=request.abort_event)
+            await conn.send(aiterate([request.message]), call_options.timeout, abort_event=call_options.abort_event)
 
-            response = await recieve_unary_response(conn=conn, t=output, abort_event=request.abort_event)
+            response = await recieve_unary_response(conn=conn, t=output, abort_event=call_options.abort_event)
             return response
 
         unary_func = apply_interceptors(_unary_func, options.interceptors)
 
-        async def call_unary(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
+        async def call_unary(
+            request: UnaryRequest[T_Request], call_options: CallOptions | None
+        ) -> UnaryResponse[T_Response]:
             request.spec = unary_spec
             request.peer = protocol_client.peer
             protocol_client.write_request_headers(StreamType.Unary, request.headers)
+
+            call_options = call_options or CallOptions()
 
             if not isinstance(request.message, input):
                 raise ConnectError(
@@ -257,7 +264,7 @@ class Client[T_Request, T_Response]:
                     Code.INTERNAL,
                 )
 
-            response = await unary_func(request)
+            response = await unary_func(request, call_options)
 
             if not isinstance(response.message, output):
                 raise ConnectError(
@@ -267,7 +274,9 @@ class Client[T_Request, T_Response]:
 
             return response
 
-        async def _stream_func(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
+        async def _stream_func(
+            request: StreamRequest[T_Request], call_options: CallOptions
+        ) -> StreamResponse[T_Response]:
             conn = protocol_client.conn(request.spec, request.headers)
 
             def on_request_send(r: httpcore.Request) -> None:
@@ -279,27 +288,30 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.messages, request.timeout, request.abort_event)
+            await conn.send(request.messages, call_options.timeout, call_options.abort_event)
 
-            response = await recieve_stream_response(conn, output, request.spec, request.abort_event)
+            response = await recieve_stream_response(conn, output, request.spec, call_options.abort_event)
             return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)
 
         async def call_stream(
-            stream_type: StreamType,
-            request: StreamRequest[T_Request],
+            stream_type: StreamType, request: StreamRequest[T_Request], call_options: CallOptions | None
         ) -> StreamResponse[T_Response]:
             request.spec = config.spec(stream_type)
             request.peer = protocol_client.peer
             protocol_client.write_request_headers(stream_type, request.headers)
 
-            return await stream_func(request)
+            call_options = call_options or CallOptions()
+
+            return await stream_func(request, call_options)
 
         self._call_unary = call_unary
         self._call_stream = call_stream
 
-    async def call_unary(self, request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
+    async def call_unary(
+        self, request: UnaryRequest[T_Request], call_options: CallOptions | None
+    ) -> UnaryResponse[T_Response]:
         """Asynchronously calls a unary RPC (Remote Procedure Call) with the given request.
 
         Args:
@@ -309,10 +321,12 @@ class Client[T_Request, T_Response]:
             UnaryResponse[T_Response]: The response object containing the data received from the server.
 
         """
-        return await self._call_unary(request)
+        return await self._call_unary(request, call_options)
 
     @contextlib.asynccontextmanager
-    async def call_server_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
+    async def call_server_stream(
+        self, request: StreamRequest[T_Request], call_options: CallOptions | None = None
+    ) -> AsyncGenerator[StreamResponse[T_Response]]:
         """Initiate a server-streaming RPC call and returns an asynchronous generator that yields responses from the server.
 
         Args:
@@ -332,14 +346,16 @@ class Client[T_Request, T_Response]:
               request and response types, respectively.
 
         """
-        response = await self._call_stream(StreamType.ServerStream, request)
+        response = await self._call_stream(StreamType.ServerStream, request, call_options)
         try:
             yield response
         finally:
             await response.aclose()
 
     @contextlib.asynccontextmanager
-    async def call_client_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
+    async def call_client_stream(
+        self, request: StreamRequest[T_Request], call_options: CallOptions | None = None
+    ) -> AsyncGenerator[StreamResponse[T_Response]]:
         """Initiate a client-streaming RPC call and returns an asynchronous generator for streaming responses from the server.
 
         Args:
@@ -358,14 +374,16 @@ class Client[T_Request, T_Response]:
               ensure proper cleanup of the response stream.
 
         """
-        response = await self._call_stream(StreamType.ClientStream, request)
+        response = await self._call_stream(StreamType.ClientStream, request, call_options)
         try:
             yield response
         finally:
             await response.aclose()
 
     @contextlib.asynccontextmanager
-    async def call_bidi_stream(self, request: StreamRequest[T_Request]) -> AsyncGenerator[StreamResponse[T_Response]]:
+    async def call_bidi_stream(
+        self, request: StreamRequest[T_Request], call_options: CallOptions | None = None
+    ) -> AsyncGenerator[StreamResponse[T_Response]]:
         """Initiate a bidirectional streaming call with the server.
 
         This method sends a stream request to the server and returns an asynchronous
@@ -387,7 +405,7 @@ class Client[T_Request, T_Response]:
             connection is closed in the `finally` block.
 
         """
-        response = await self._call_stream(StreamType.BiDiStream, request)
+        response = await self._call_stream(StreamType.BiDiStream, request, call_options)
         try:
             yield response
         finally:

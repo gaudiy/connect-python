@@ -10,6 +10,7 @@ import traceback
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from connect.call_options import CallOptions
 from connect.connect import StreamRequest, UnaryRequest
 from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
@@ -253,6 +254,8 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                     UnaryRequest(
                         content=req,
                         headers=headers,
+                    ),
+                    CallOptions(
                         timeout=msg.timeout_ms / 1000,
                         abort_event=abort_event,
                     ),
@@ -290,8 +293,10 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         asyncio.create_task(delayed_abort())
 
                 async with getattr(client, msg.method)(
-                    StreamRequest(
-                        content=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    StreamRequest(content=_reqs(), headers=headers),
+                    CallOptions(
+                        timeout=msg.timeout_ms / 1000,
+                        abort_event=abort_event,
                     ),
                 ) as resp:
                     async for message in resp.messages:
@@ -314,8 +319,10 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 headers = to_connect_headers(msg.request_headers)
 
                 async with getattr(client, msg.method)(
-                    StreamRequest(
-                        content=reqs, headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    StreamRequest(content=reqs, headers=headers),
+                    CallOptions(
+                        timeout=msg.timeout_ms / 1000,
+                        abort_event=abort_event,
                     ),
                 ) as resp:
                     if msg.cancel.HasField("after_close_send_ms"):
@@ -356,8 +363,10 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 headers = to_connect_headers(msg.request_headers)
 
                 async with getattr(client, msg.method)(
-                    StreamRequest(
-                        content=_reqs(), headers=headers, timeout=msg.timeout_ms / 1000, abort_event=abort_event
+                    StreamRequest(content=_reqs(), headers=headers),
+                    CallOptions(
+                        timeout=msg.timeout_ms / 1000,
+                        abort_event=abort_event,
                     ),
                 ) as resp:
                     if msg.cancel.HasField("before_close_send"):

@@ -7,6 +7,7 @@ from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
+from connect.handler_context import HandlerContext
 from connect.options import ConnectOptions
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -34,11 +35,11 @@ PingService_PingClientStream_method_descriptor: MethodDescriptor = PingService_s
 class PingServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the ping service."""
 
-    async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]: ...
+    async def Ping(self, request: UnaryRequest[PingRequest], context: HandlerContext) -> UnaryResponse[PingResponse]: ...
 
-    async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]: ...
+    async def PingServerStream(self, request: StreamRequest[PingRequest], context: HandlerContext) -> StreamResponse[PingResponse]: ...
 
-    async def PingClientStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]: ...
+    async def PingClientStream(self, request: StreamRequest[PingRequest], context: HandlerContext) -> StreamResponse[PingResponse]: ...
 
 
 def create_PingService_handlers(service: PingServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:

@@ -9,8 +9,9 @@ from connect.code import Code
 from connect.connect import StreamRequest, StreamResponse, StreamType
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
+from connect.handler_context import HandlerContext
+from connect.handler_interceptor import HandlerInterceptor, StreamFunc
 from connect.headers import Headers
-from connect.interceptor import Interceptor, StreamFunc
 from connect.options import ConnectOptions
 from tests.conftest import AsyncClient
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -24,7 +25,9 @@ CHUNK_SIZE = 65_536
 @pytest.mark.asyncio()
 async def test_server_streaming() -> None:
     class PingService(PingServiceHandler):
-        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingServerStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += " " + data.name
@@ -76,7 +79,9 @@ async def test_server_streaming() -> None:
 @pytest.mark.asyncio()
 async def test_server_streaming_end_stream_error() -> None:
     class PingService(PingServiceHandler):
-        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingServerStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += " " + data.name
@@ -131,7 +136,9 @@ async def test_server_streaming_end_stream_error() -> None:
 @pytest.mark.asyncio()
 async def test_server_streaming_response_envelope_message_compression() -> None:
     class PingService(PingServiceHandler):
-        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingServerStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += " " + data.name
@@ -190,7 +197,9 @@ async def test_server_streaming_response_envelope_message_compression() -> None:
 @pytest.mark.asyncio()
 async def test_server_streaming_request_envelope_message_compression() -> None:
     class PingService(PingServiceHandler):
-        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingServerStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += " " + data.name
@@ -254,7 +263,9 @@ async def test_server_streaming_request_envelope_message_compression() -> None:
 @pytest.mark.asyncio()
 async def test_server_streaming_invalid_request_envelope_message_compression() -> None:
     class PingService(PingServiceHandler):
-        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingServerStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += " " + data.name
@@ -322,7 +333,9 @@ async def test_server_streaming_interceptor() -> None:
     import tempfile
 
     class PingService(PingServiceHandler):
-        async def PingServerStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingServerStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             async def iterator() -> AsyncIterator[PingResponse]:
                 for i in range(3):
                     yield PingResponse(name=f"Hello {i}!")
@@ -335,9 +348,9 @@ async def test_server_streaming_interceptor() -> None:
 
     ephemeral_files: list[io.BufferedRandom] = []
 
-    class FileInterceptor1(Interceptor):
+    class FileInterceptor1(HandlerInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], context: HandlerContext) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -347,13 +360,13 @@ async def test_server_streaming_interceptor() -> None:
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
-                return await next(request)
+                return await next(request, context)
 
             return _wrapped
 
-    class FileInterceptor2(Interceptor):
+    class FileInterceptor2(HandlerInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], context: HandlerContext) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -363,7 +376,7 @@ async def test_server_streaming_interceptor() -> None:
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")
 
-                return await next(request)
+                return await next(request, context)
 
             return _wrapped
 
@@ -395,7 +408,9 @@ async def test_server_streaming_interceptor() -> None:
 @pytest.mark.asyncio()
 async def test_client_streaming() -> None:
     class PingService(PingServiceHandler):
-        async def PingClientStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingClientStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += data.name
@@ -450,7 +465,9 @@ async def test_client_streaming_interceptor() -> None:
     import tempfile
 
     class PingService(PingServiceHandler):
-        async def PingClientStream(self, request: StreamRequest[PingRequest]) -> StreamResponse[PingResponse]:
+        async def PingClientStream(
+            self, request: StreamRequest[PingRequest], context: HandlerContext
+        ) -> StreamResponse[PingResponse]:
             messages = ""
             async for data in request.messages:
                 messages += data.name
@@ -467,9 +484,9 @@ async def test_client_streaming_interceptor() -> None:
 
     ephemeral_files: list[io.BufferedRandom] = []
 
-    class FileInterceptor1(Interceptor):
+    class FileInterceptor1(HandlerInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], context: HandlerContext) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -479,13 +496,13 @@ async def test_client_streaming_interceptor() -> None:
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
-                return await next(request)
+                return await next(request, context)
 
             return _wrapped
 
-    class FileInterceptor2(Interceptor):
+    class FileInterceptor2(HandlerInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], context: HandlerContext) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -495,7 +512,7 @@ async def test_client_streaming_interceptor() -> None:
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")
 
-                return await next(request)
+                return await next(request, context)
 
             return _wrapped
 

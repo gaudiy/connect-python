@@ -23,9 +23,10 @@ from connect.connect import (
     receive_unary_request,
 )
 from connect.error import ConnectError
+from connect.handler_context import HandlerContext
+from connect.handler_interceptor import apply_interceptors
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.interceptor import apply_interceptors
 from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
@@ -45,8 +46,12 @@ from connect.request import Request
 from connect.response_writer import ServerResponseWriter
 from connect.utils import aiterate
 
-type UnaryFunc[T_Request, T_Response] = Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]
-type StreamFunc[T_Request, T_Response] = Callable[[StreamRequest[T_Request]], Awaitable[StreamResponse[T_Response]]]
+type UnaryFunc[T_Request, T_Response] = Callable[
+    [UnaryRequest[T_Request], HandlerContext], Awaitable[UnaryResponse[T_Response]]
+]
+type StreamFunc[T_Request, T_Response] = Callable[
+    [StreamRequest[T_Request], HandlerContext], Awaitable[StreamResponse[T_Response]]
+]
 
 
 class HandlerConfig:
@@ -328,9 +333,8 @@ class Handler:
         try:
             timeout = conn.parse_timeout()
             if timeout:
-                timeout_ms = int(timeout * 1000)
                 with anyio.fail_after(delay=timeout):
-                    await self.implementation(conn, timeout_ms)
+                    await self.implementation(conn, timeout)
             else:
                 await self.implementation(conn, None)
 
@@ -386,8 +390,8 @@ class UnaryHandler[T_Request, T_Response](Handler):
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
-        async def _call(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
-            response = await unary(request)
+        async def _call(request: UnaryRequest[T_Request], context: HandlerContext) -> UnaryResponse[T_Response]:
+            response = await unary(request, context)
 
             return response
 
@@ -421,10 +425,8 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
         """
         request = await receive_unary_request(conn, self.input)
-        if timeout:
-            request.timeout = timeout
-
-        response = await self.call(request)
+        context = HandlerContext(timeout=timeout)
+        response = await self.call(request, context)
 
         conn.response_headers.update(exclude_protocol_headers(response.headers))
         conn.response_trailers.update(exclude_protocol_headers(response.trailers))
@@ -476,8 +478,8 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ServerStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
-        async def _call(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-            response = await stream(request)
+        async def _call(request: StreamRequest[T_Request], context: HandlerContext) -> StreamResponse[T_Response]:
+            response = await stream(request, context)
             return response
 
         call = apply_interceptors(_call, options.interceptors)
@@ -512,10 +514,8 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
 
         """
         request = await receive_stream_request(conn, self.input)
-        if timeout:
-            request.timeout = timeout
-
-        response = await self.call(request)
+        context = HandlerContext(timeout=timeout)
+        response = await self.call(request, context)
 
         conn.response_headers.update(response.headers)
         conn.response_trailers.update(response.trailers)
@@ -569,8 +569,8 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ClientStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
-        async def _call(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-            response = await stream(request)
+        async def _call(request: StreamRequest[T_Request], context: HandlerContext) -> StreamResponse[T_Response]:
+            response = await stream(request, context)
             return response
 
         call = apply_interceptors(_call, options.interceptors)
@@ -605,10 +605,9 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
 
         """
         request = await receive_stream_request(conn, self.input)
-        if timeout:
-            request.timeout = timeout
+        context = HandlerContext(timeout=timeout)
 
-        response = await self.call(request)
+        response = await self.call(request, context)
 
         conn.response_headers.update(response.headers)
         conn.response_trailers.update(response.trailers)
@@ -663,8 +662,8 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.BiDiStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
-        async def _call(request: StreamRequest[T_Request]) -> StreamResponse[T_Response]:
-            response = await stream(request)
+        async def _call(request: StreamRequest[T_Request], context: HandlerContext) -> StreamResponse[T_Response]:
+            response = await stream(request, context)
             return response
 
         call = apply_interceptors(_call, options.interceptors)
@@ -699,10 +698,8 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
 
         """
         request = await receive_stream_request(conn, self.input)
-        if timeout:
-            request.timeout = timeout
-
-        response = await self.call(request)
+        context = HandlerContext(timeout=timeout)
+        response = await self.call(request, context)
 
         conn.response_headers.update(response.headers)
         conn.response_trailers.update(response.trailers)

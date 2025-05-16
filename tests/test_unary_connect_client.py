@@ -7,13 +7,14 @@ from typing import Any
 
 import pytest
 
+from connect.call_options import CallOptions
 from connect.client import Client
+from connect.client_interceptor import ClientInterceptor, UnaryFunc
 from connect.code import Code
 from connect.connect import StreamType, UnaryRequest, UnaryResponse
 from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
-from connect.interceptor import Interceptor, UnaryFunc
 from connect.options import ClientOptions
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -357,11 +358,11 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
 
     ephemeral_files: list[io.BufferedRandom] = []
 
-    class FileInterceptor1(Interceptor):
+    class FileInterceptor1(ClientInterceptor):
         def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
             """Wrap a unary function with the interceptor."""
 
-            async def _wrapped(request: UnaryRequest[Any]) -> UnaryResponse[Any]:
+            async def _wrapped(request: UnaryRequest[Any], call_options: CallOptions) -> UnaryResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -371,15 +372,15 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
-                return await next(request)
+                return await next(request, call_options)
 
             return _wrapped
 
-    class FileInterceptor2(Interceptor):
+    class FileInterceptor2(ClientInterceptor):
         def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
             """Wrap a unary function with the interceptor."""
 
-            async def _wrapped(request: UnaryRequest[Any]) -> UnaryResponse[Any]:
+            async def _wrapped(request: UnaryRequest[Any], call_options: CallOptions) -> UnaryResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -389,7 +390,7 @@ async def test_post_interceptor(hypercorn_server: ServerConfig) -> None:
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")
 
-                return await next(request)
+                return await next(request, call_options)
 
             return _wrapped
 

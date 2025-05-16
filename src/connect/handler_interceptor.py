@@ -4,14 +4,14 @@ import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeGuard, overload
 
-from connect.call_options import CallOptions
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from connect.handler_context import HandlerContext
 
-UnaryFunc = Callable[[UnaryRequest[Any], CallOptions], Awaitable[UnaryResponse[Any]]]
-StreamFunc = Callable[[StreamRequest[Any], CallOptions], Awaitable[StreamResponse[Any]]]
+UnaryFunc = Callable[[UnaryRequest[Any], HandlerContext], Awaitable[UnaryResponse[Any]]]
+StreamFunc = Callable[[StreamRequest[Any], HandlerContext], Awaitable[StreamResponse[Any]]]
 
 
-class Interceptor:
+class HandlerInterceptor:
     """Abstract base class for interceptors that can wrap unary functions."""
 
     wrap_unary: Callable[[UnaryFunc], UnaryFunc] | None = None
@@ -35,7 +35,7 @@ def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
     parameters = list(signature.parameters.values())
     return bool(
         callable(next)
-        and len(parameters) == 1
+        and len(parameters) == 2
         and getattr(parameters[0].annotation, "__origin__", None) is UnaryRequest
     )
 
@@ -57,20 +57,22 @@ def is_stream_func(next: UnaryFunc | StreamFunc) -> TypeGuard[StreamFunc]:
     parameters = list(signature.parameters.values())
     return bool(
         callable(next)
-        and len(parameters) == 1
+        and len(parameters) == 2
         and getattr(parameters[0].annotation, "__origin__", None) is StreamRequest
     )
 
 
 @overload
-def apply_interceptors(next: UnaryFunc, interceptors: list[Interceptor] | None) -> UnaryFunc: ...
+def apply_interceptors(next: UnaryFunc, interceptors: list[HandlerInterceptor] | None) -> UnaryFunc: ...
 
 
 @overload
-def apply_interceptors(next: StreamFunc, interceptors: list[Interceptor] | None) -> StreamFunc: ...
+def apply_interceptors(next: StreamFunc, interceptors: list[HandlerInterceptor] | None) -> StreamFunc: ...
 
 
-def apply_interceptors(next: UnaryFunc | StreamFunc, interceptors: list[Interceptor] | None) -> UnaryFunc | StreamFunc:
+def apply_interceptors(
+    next: UnaryFunc | StreamFunc, interceptors: list[HandlerInterceptor] | None
+) -> UnaryFunc | StreamFunc:
     """Apply a list of interceptors to a given function.
 
     Args:

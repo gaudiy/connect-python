@@ -24,9 +24,9 @@ from connect.connect import (
 )
 from connect.error import ConnectError
 from connect.handler_context import HandlerContext
+from connect.handler_interceptor import apply_interceptors
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.interceptor import apply_interceptors
 from connect.options import ConnectOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
@@ -333,9 +333,8 @@ class Handler:
         try:
             timeout = conn.parse_timeout()
             if timeout:
-                timeout_ms = int(timeout * 1000)
                 with anyio.fail_after(delay=timeout):
-                    await self.implementation(conn, timeout_ms)
+                    await self.implementation(conn, timeout)
             else:
                 await self.implementation(conn, None)
 

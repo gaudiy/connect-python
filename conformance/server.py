@@ -8,6 +8,7 @@ import google.protobuf.any_pb2 as any_pb2
 from connect.code import Code
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.error import ConnectError, ErrorDetail
+from connect.handler_context import HandlerContext
 from connect.headers import Headers
 from connect.middleware import ConnectMiddleware
 from starlette.applications import Starlette
@@ -95,7 +96,9 @@ def code_from_pb_code(code: config_pb2.Code) -> Code:
 class ConformanceService(ConformanceServiceHandler):
     """ConformanceService is a service handler that implements various gRPC methods for testing conformance."""
 
-    async def Unary(self, request: UnaryRequest[service_pb2.UnaryRequest]) -> UnaryResponse[service_pb2.UnaryResponse]:
+    async def Unary(
+        self, request: UnaryRequest[service_pb2.UnaryRequest], context: HandlerContext
+    ) -> UnaryResponse[service_pb2.UnaryResponse]:
         """Handle a unary gRPC request and generates a response based on the provided request definition.
 
         Args:
@@ -128,10 +131,12 @@ class ConformanceService(ConformanceServiceHandler):
         request_any = any_pb2.Any()
         request_any.Pack(request.message)
 
+        timeout_sec = context.timeout_remaining()
+
         request_info = service_pb2.ConformancePayload.RequestInfo(
             request_headers=pb_headers_from_headers(request.headers),
             requests=[request_any],
-            timeout_ms=int(request.timeout) if request.timeout else None,
+            timeout_ms=int(timeout_sec * 1000) if timeout_sec else None,
             connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
                 query_params=pb_query_params_from_peer_query(request.peer.query),
             ),
@@ -175,7 +180,7 @@ class ConformanceService(ConformanceServiceHandler):
         return UnaryResponse(content=service_pb2.UnaryResponse(payload=payload), headers=headers, trailers=trailers)
 
     async def IdempotentUnary(
-        self, request: UnaryRequest[service_pb2.IdempotentUnaryRequest]
+        self, request: UnaryRequest[service_pb2.IdempotentUnaryRequest], context: HandlerContext
     ) -> UnaryResponse[service_pb2.IdempotentUnaryResponse]:
         """Handle the IdempotentUnary RPC call.
 
@@ -202,10 +207,11 @@ class ConformanceService(ConformanceServiceHandler):
         request_any = any_pb2.Any()
         request_any.Pack(request.message)
 
+        timeout_sec = context.timeout_remaining()
         request_info = service_pb2.ConformancePayload.RequestInfo(
             request_headers=pb_headers_from_headers(request.headers),
             requests=[request_any],
-            timeout_ms=int(request.timeout) if request.timeout else None,
+            timeout_ms=int(timeout_sec * 1000) if timeout_sec else None,
             connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
                 query_params=pb_query_params_from_peer_query(request.peer.query),
             ),
@@ -251,7 +257,7 @@ class ConformanceService(ConformanceServiceHandler):
         )
 
     async def ClientStream(
-        self, request: StreamRequest[service_pb2.ClientStreamRequest]
+        self, request: StreamRequest[service_pb2.ClientStreamRequest], context: HandlerContext
     ) -> StreamResponse[service_pb2.ClientStreamResponse]:
         """Handle a bidirectional streaming RPC where the client sends a stream of `ClientStreamRequest` messages and receives a single `ClientStreamResponse` message.
 
@@ -287,10 +293,11 @@ class ConformanceService(ConformanceServiceHandler):
             message_any.Pack(message)
             messages.append(message_any)
 
+        timeout_sec = context.timeout_remaining()
         request_info = service_pb2.ConformancePayload.RequestInfo(
             request_headers=pb_headers_from_headers(request.headers),
             requests=messages,
-            timeout_ms=int(request.timeout) if request.timeout else None,
+            timeout_ms=int(timeout_sec * 1000) if timeout_sec else None,
             connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
                 query_params=pb_query_params_from_peer_query(request.peer.query),
             ),
@@ -339,7 +346,7 @@ class ConformanceService(ConformanceServiceHandler):
         )
 
     async def ServerStream(
-        self, request: StreamRequest[service_pb2.ServerStreamRequest]
+        self, request: StreamRequest[service_pb2.ServerStreamRequest], context: HandlerContext
     ) -> StreamResponse[service_pb2.ServerStreamResponse]:
         """Handle a server-side streaming RPC call.
 
@@ -379,10 +386,11 @@ class ConformanceService(ConformanceServiceHandler):
             headers = headers_from_pb_headers(response_definition.response_headers)
             trailers = headers_from_pb_headers(response_definition.response_trailers)
 
+        timeout_sec = context.timeout_remaining()
         request_info = service_pb2.ConformancePayload.RequestInfo(
             request_headers=pb_headers_from_headers(request.headers),
             requests=messages,
-            timeout_ms=int(request.timeout) if request.timeout else None,
+            timeout_ms=int(timeout_sec * 1000) if timeout_sec else None,
             connect_get_info=service_pb2.ConformancePayload.ConnectGetInfo(
                 query_params=pb_query_params_from_peer_query(request.peer.query),
             ),
@@ -442,7 +450,7 @@ class ConformanceService(ConformanceServiceHandler):
         )
 
     async def BidiStream(
-        self, request: StreamRequest[service_pb2.BidiStreamRequest]
+        self, request: StreamRequest[service_pb2.BidiStreamRequest], context: HandlerContext
     ) -> StreamResponse[service_pb2.BidiStreamResponse]:
         """Handle a bidirectional streaming RPC.
 
@@ -488,6 +496,8 @@ class ConformanceService(ConformanceServiceHandler):
                     headers = headers_from_pb_headers(response_definition.response_headers)
                     trailers = headers_from_pb_headers(response_definition.response_trailers)
 
+        timeout_sec = context.timeout_remaining()
+
         async def iterator() -> typing.AsyncIterator[service_pb2.BidiStreamResponse]:
             nonlocal response_index
 
@@ -496,7 +506,7 @@ class ConformanceService(ConformanceServiceHandler):
                     request_info = service_pb2.ConformancePayload.RequestInfo(
                         request_headers=pb_headers_from_headers(request.headers),
                         requests=messages,
-                        timeout_ms=int(request.timeout) if request.timeout else None,
+                        timeout_ms=int(timeout_sec * 1000) if timeout_sec else None,
                     )
                 else:
                     request_info = None
@@ -525,7 +535,7 @@ class ConformanceService(ConformanceServiceHandler):
                     request_info = service_pb2.ConformancePayload.RequestInfo(
                         request_headers=pb_headers_from_headers(request.headers),
                         requests=messages,
-                        timeout_ms=int(request.timeout) if request.timeout else None,
+                        timeout_ms=int(timeout_sec * 1000) if timeout_sec else None,
                     )
 
                     detail = any_pb2.Any()

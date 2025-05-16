@@ -4,8 +4,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from connect.client_interceptor import ClientInterceptor
+from connect.handler_interceptor import HandlerInterceptor
 from connect.idempotency_level import IdempotencyLevel
-from connect.interceptor import Interceptor
 
 
 class ConnectOptions(BaseModel):
@@ -13,7 +14,7 @@ class ConnectOptions(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    interceptors: list[Interceptor] = Field(default=[])
+    interceptors: list[HandlerInterceptor] = Field(default=[])
     """A list of interceptors to apply to the handler."""
 
     descriptor: Any = Field(default="")
@@ -60,7 +61,7 @@ class ClientOptions(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    interceptors: list[Interceptor] = Field(default=[])
+    interceptors: list[ClientInterceptor] = Field(default=[])
     """A list of interceptors to apply to the handler."""
 
     descriptor: Any = Field(default="")

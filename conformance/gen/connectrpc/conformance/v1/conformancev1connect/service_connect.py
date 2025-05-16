@@ -9,6 +9,7 @@ from enum import Enum
 from connect.client import Client
 import connect.connect
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
+from connect.handler_context import HandlerContext
 from connect.options import ClientOptions, ConnectOptions
 from connect.connection_pool import AsyncConnectionPool
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -66,22 +67,22 @@ class ConformanceServiceClient:
 class ConformanceServiceHandler:
     """Handler for the conformanceService service."""
 
-    async def Unary(self, request: connect.connect.UnaryRequest[UnaryRequest]) -> connect.connect.UnaryResponse[UnaryResponse]:
+    async def Unary(self, request: connect.connect.UnaryRequest[UnaryRequest], context: HandlerContext) -> connect.connect.UnaryResponse[UnaryResponse]:
         raise NotImplementedError()
 
-    async def ServerStream(self, request: connect.connect.StreamRequest[ServerStreamRequest]) -> connect.connect.StreamResponse[ServerStreamResponse]:
+    async def ServerStream(self, request: connect.connect.StreamRequest[ServerStreamRequest], context: HandlerContext) -> connect.connect.StreamResponse[ServerStreamResponse]:
         raise NotImplementedError()
 
-    async def ClientStream(self, request: connect.connect.StreamRequest[ClientStreamRequest]) -> connect.connect.StreamResponse[ClientStreamResponse]:
+    async def ClientStream(self, request: connect.connect.StreamRequest[ClientStreamRequest], context: HandlerContext) -> connect.connect.StreamResponse[ClientStreamResponse]:
         raise NotImplementedError()
 
-    async def BidiStream(self, request: connect.connect.StreamRequest[BidiStreamRequest]) -> connect.connect.StreamResponse[BidiStreamResponse]:
+    async def BidiStream(self, request: connect.connect.StreamRequest[BidiStreamRequest], context: HandlerContext) -> connect.connect.StreamResponse[BidiStreamResponse]:
         raise NotImplementedError()
 
-    async def Unimplemented(self, request: connect.connect.UnaryRequest[UnimplementedRequest]) -> connect.connect.UnaryResponse[UnimplementedResponse]:
+    async def Unimplemented(self, request: connect.connect.UnaryRequest[UnimplementedRequest], context: HandlerContext) -> connect.connect.UnaryResponse[UnimplementedResponse]:
         raise NotImplementedError()
 
-    async def IdempotentUnary(self, request: connect.connect.UnaryRequest[IdempotentUnaryRequest]) -> connect.connect.UnaryResponse[IdempotentUnaryResponse]:
+    async def IdempotentUnary(self, request: connect.connect.UnaryRequest[IdempotentUnaryRequest], context: HandlerContext) -> connect.connect.UnaryResponse[IdempotentUnaryResponse]:
         raise NotImplementedError()
 
 

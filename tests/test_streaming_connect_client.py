@@ -8,13 +8,14 @@ from typing import Any
 
 import pytest
 
+from connect.call_options import CallOptions
 from connect.client import Client
+from connect.client_interceptor import ClientInterceptor, StreamFunc
 from connect.code import Code
 from connect.connect import StreamRequest, StreamResponse, StreamType
 from connect.connection_pool import AsyncConnectionPool
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.error import ConnectError
-from connect.interceptor import Interceptor, StreamFunc
 from connect.options import ClientOptions
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
@@ -438,9 +439,9 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
 
     ephemeral_files: list[io.BufferedRandom] = []
 
-    class FileInterceptor1(Interceptor):
+    class FileInterceptor1(ClientInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], call_options: CallOptions) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -450,13 +451,13 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
-                return await next(request)
+                return await next(request, call_options)
 
             return _wrapped
 
-    class FileInterceptor2(Interceptor):
+    class FileInterceptor2(ClientInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], call_options: CallOptions) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -466,7 +467,7 @@ async def test_server_streaming_interceptor(hypercorn_server: ServerConfig) -> N
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")
 
-                return await next(request)
+                return await next(request, call_options)
 
             return _wrapped
 
@@ -597,9 +598,9 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
 
     ephemeral_files: list[io.BufferedRandom] = []
 
-    class FileInterceptor1(Interceptor):
+    class FileInterceptor1(ClientInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], call_options: CallOptions) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -609,13 +610,13 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 1")
 
-                return await next(request)
+                return await next(request, call_options)
 
             return _wrapped
 
-    class FileInterceptor2(Interceptor):
+    class FileInterceptor2(ClientInterceptor):
         def wrap_stream(self, next: StreamFunc) -> StreamFunc:
-            async def _wrapped(request: StreamRequest[Any]) -> StreamResponse[Any]:
+            async def _wrapped(request: StreamRequest[Any], call_options: CallOptions) -> StreamResponse[Any]:
                 nonlocal ephemeral_files
                 fp = tempfile.TemporaryFile()  # noqa: SIM115
 
@@ -625,7 +626,7 @@ async def test_client_streaming_interceptor(hypercorn_server: ServerConfig) -> N
                 ephemeral_files.append(fp)
                 fp.write(b"interceptor: 2")
 
-                return await next(request)
+                return await next(request, call_options)
 
             return _wrapped
 

@@ -8,6 +8,7 @@ import zlib
 import pytest
 
 from connect.connect import UnaryRequest, UnaryResponse
+from connect.handler_context import HandlerContext
 from connect.idempotency_level import IdempotencyLevel
 from connect.options import ConnectOptions
 from tests.conftest import AsyncClient
@@ -20,7 +21,9 @@ async def test_post_application_proto() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 
@@ -45,7 +48,9 @@ async def test_post_application_json() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 
@@ -67,7 +72,9 @@ async def test_post_gzip_compression() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 
@@ -95,7 +102,9 @@ async def test_post_only_accept_encoding_gzip() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 
@@ -121,7 +130,9 @@ async def test_get() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 
@@ -150,7 +161,9 @@ async def test_get_base64() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 
@@ -180,7 +193,9 @@ async def test_unsupported_raw_deflate_compression() -> None:
     class PingService(PingServiceHandler):
         """Ping service implementation."""
 
-        async def Ping(self, request: UnaryRequest[PingRequest]) -> UnaryResponse[PingResponse]:
+        async def Ping(
+            self, request: UnaryRequest[PingRequest], context: HandlerContext
+        ) -> UnaryResponse[PingResponse]:
             """Return a ping response."""
             data = request.message
 

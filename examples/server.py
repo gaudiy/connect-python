@@ -5,7 +5,8 @@ from typing import Any
 
 import hypercorn.asyncio
 from connect.connect import UnaryRequest, UnaryResponse
-from connect.interceptor import Interceptor, UnaryFunc
+from connect.handler_context import HandlerContext
+from connect.handler_interceptor import HandlerInterceptor, UnaryFunc
 from connect.middleware import ConnectMiddleware
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
@@ -23,13 +24,13 @@ class ElizaService(ElizaServiceHandler):
         return UnaryResponse(SayResponse(sentence=data.sentence))
 
 
-class IPRestrictionInterceptor(Interceptor):
+class IPRestrictionInterceptor(HandlerInterceptor):
     """IP restriction interceptor."""
 
     def wrap_unary(self, next: UnaryFunc) -> UnaryFunc:
         """Wrap a unary function with the interceptor."""
 
-        async def _wrapped(request: UnaryRequest[Any]) -> UnaryResponse[Any]:
+        async def _wrapped(request: UnaryRequest[Any], context: HandlerContext) -> UnaryResponse[Any]:
             ip_allow_list = os.environ.get("IP_ALLOW_LIST", "").split(",")
             if not ip_allow_list:
                 raise Exception("White list not found")
@@ -45,7 +46,7 @@ class IPRestrictionInterceptor(Interceptor):
             if ip not in ip_allow_list:
                 raise Exception("IP not allowed")
 
-            return await next(request)
+            return await next(request, context)
 
         return _wrapped
 

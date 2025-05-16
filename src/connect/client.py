@@ -11,6 +11,7 @@ import httpcore
 from yarl import URL
 
 from connect.call_options import CallOptions
+from connect.client_interceptor import apply_interceptors
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
 from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
@@ -27,7 +28,6 @@ from connect.connect import (
 from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
 from connect.idempotency_level import IdempotencyLevel
-from connect.interceptor import apply_interceptors
 from connect.options import ClientOptions
 from connect.protocol import Protocol, ProtocolClient, ProtocolClientParams
 from connect.protocol_connect.connect_protocol import ProtocolConnect
@@ -310,7 +310,7 @@ class Client[T_Request, T_Response]:
         self._call_stream = call_stream
 
     async def call_unary(
-        self, request: UnaryRequest[T_Request], call_options: CallOptions | None
+        self, request: UnaryRequest[T_Request], call_options: CallOptions | None = None
     ) -> UnaryResponse[T_Response]:
         """Asynchronously calls a unary RPC (Remote Procedure Call) with the given request.
 

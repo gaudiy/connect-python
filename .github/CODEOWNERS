@@ -1,0 +1,6 @@
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# KEEP THIS FILE SORTED. Order is important. Last match takes precedence.
+
+* @tsubakiky @zchee
+
+cmd/protoc-gen-connect-python @zchee

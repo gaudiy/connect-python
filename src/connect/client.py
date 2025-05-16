@@ -316,6 +316,7 @@ class Client[T_Request, T_Response]:
 
         Args:
             request (UnaryRequest[T_Request]): The request object containing the data to be sent to the server.
+            call_options (CallOptions | None, optional): Optional call options for the request. Defaults to None.
 
         Returns:
             UnaryResponse[T_Response]: The response object containing the data received from the server.
@@ -332,6 +333,7 @@ class Client[T_Request, T_Response]:
         Args:
             request (StreamRequest[T_Request]): The request object containing the
                 data to be sent to the server.
+            call_options (CallOptions | None, optional): Optional call options for the request. Defaults to None.
 
         Yields:
             StreamResponse[T_Response]: The response objects received from the server.
@@ -361,6 +363,7 @@ class Client[T_Request, T_Response]:
         Args:
             request (StreamRequest[T_Request]): The request object containing the
                 client-streaming data to be sent to the server.
+            call_options (CallOptions | None, optional): Optional call options for the request. Defaults to None.
 
         Yields:
             StreamResponse[T_Response]: An asynchronous generator that yields
@@ -393,6 +396,7 @@ class Client[T_Request, T_Response]:
         Args:
             request (StreamRequest[T_Request]): The stream request object containing
                 the data to be sent to the server.
+            call_options (CallOptions | None, optional): Optional call options for
 
         Yields:
             StreamResponse[T_Response]: The stream response object received from the server.

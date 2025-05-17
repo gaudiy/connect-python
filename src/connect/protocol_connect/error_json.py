@@ -88,6 +88,7 @@ def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError
 
         if type_name is None:
             raise fallback
+
         if value is None:
             raise fallback
 

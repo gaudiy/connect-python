@@ -702,7 +702,8 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 if error:
                     for key, value in self.response_headers.items():
                         error.metadata[key] = value
-                        error.metadata.update(self.unmarshaler.trailers.copy())
+
+                    error.metadata.update(self.unmarshaler.trailers.copy())
                     raise error
 
                 for key, value in self.unmarshaler.trailers.items():

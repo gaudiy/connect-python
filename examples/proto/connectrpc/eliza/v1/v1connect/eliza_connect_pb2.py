@@ -11,6 +11,7 @@ from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.connection_pool import AsyncConnectionPool
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
+from connect.handler_context import HandlerContext
 from connect.options import ClientOptions, ConnectOptions
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
@@ -63,11 +64,14 @@ class ElizaServiceClient:
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
-    async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
+    async def Say(self, request: UnaryRequest[SayRequest], context: HandlerContext) -> UnaryResponse[SayResponse]:
+        raise NotImplementedError()
 
-    async def IntroduceServer(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
+    async def IntroduceServer(self, request: StreamRequest[IntroduceRequest], context: HandlerContext) -> StreamResponse[IntroduceResponse]:
+        raise NotImplementedError()
 
-    async def IntroduceClient(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
+    async def IntroduceClient(self, request: StreamRequest[IntroduceRequest], context: HandlerContext) -> StreamResponse[IntroduceResponse]:
+        raise NotImplementedError()
 
 
 def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:

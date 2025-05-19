@@ -128,3 +128,33 @@ class IntroduceResponse(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
 
 global___IntroduceResponse = IntroduceResponse
+
+@typing.final
+class ReflectRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SENTENCE_FIELD_NUMBER: builtins.int
+    sentence: builtins.str
+    def __init__(
+        self,
+        *,
+        sentence: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
+
+global___ReflectRequest = ReflectRequest
+
+@typing.final
+class ReflectResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SENTENCE_FIELD_NUMBER: builtins.int
+    sentence: builtins.str
+    def __init__(
+        self,
+        *,
+        sentence: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["sentence", b"sentence"]) -> None: ...
+
+global___ReflectResponse = ReflectResponse

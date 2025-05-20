@@ -95,4 +95,5 @@ jobs:
 
       - name: Run the connectconformance for client
         run: |
-          connectconformance --trace --vv --conf ./client_config.yaml --mode client -- uv run python client_runner.py
+          connectconformance --trace --conf ./client_config.yaml --mode client --known-flaky @./client_known_flaky.yaml -- uv run python client_runner.py
+

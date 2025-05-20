@@ -1,0 +1,99 @@
+name: Conformance
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+    working-directory: ./conformance
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    runs-on: ubuntu-2404-4-cores
+
+    steps:
+      # https://github.com/actions/checkout
+      - uses: actions/checkout@v4
+
+      # https://github.com/actions/setup-python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      # https://github.com/astral-sh/setup-uv
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-suffix: "server"
+          cache-dependency-glob: "./conformance/uv.lock"
+
+      - name: Install the project
+        run: uv sync --frozen --all-extras
+
+      # https://github.com/actions/setup-go
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          check-latest: true
+          cache: true
+
+      - name: Install the connectconformance bianry
+        run: |
+          go install -v connectrpc.com/conformance/cmd/connectconformance@latest
+
+      - name: Run the connectconformance for server
+        run: |
+          connectconformance --trace --vv --conf ./server_config.yaml --mode server -- uv run python server_runner.py
+
+  client:
+    runs-on: ubuntu-2404-4-cores
+
+    steps:
+      # https://github.com/actions/checkout
+      - uses: actions/checkout@v4
+
+      # https://github.com/actions/setup-python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      # https://github.com/astral-sh/setup-uv
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+          cache-suffix: "client"
+          cache-dependency-glob: "./conformance/uv.lock"
+
+      - name: Install the project
+        run: uv sync --frozen --all-extras
+
+      # https://github.com/actions/setup-go
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          check-latest: true
+          cache: true
+
+      - name: Install the connectconformance bianry
+        run: |
+          go install -v connectrpc.com/conformance/cmd/connectconformance@latest
+
+      - name: Run the connectconformance for client
+        run: |
+          connectconformance --trace --conf ./client_config.yaml --mode client --known-flaky @./client_known_flaky.yaml -- uv run python client_runner.py
+

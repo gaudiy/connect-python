@@ -23,16 +23,14 @@ class ElizaServiceProcedures(Enum):
     """Procedures for the eliza service."""
 
     Say = "/connectrpc.eliza.v1.ElizaService/Say"
-    IntroduceServer = "/connectrpc.eliza.v1.ElizaService/IntroduceServer"
+    Introduce = "/connectrpc.eliza.v1.ElizaService/Introduce"
     IntroduceClient = "/connectrpc.eliza.v1.ElizaService/IntroduceClient"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]
 
 ElizaService_Say_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
-ElizaService_IntroduceServer_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
-    "IntroduceServer"
-]
+ElizaService_Introduce_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Introduce"]
 ElizaService_IntroduceClient_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
     "IntroduceClient"
 ]
@@ -45,9 +43,9 @@ class ElizaServiceClient:
         self.Say = Client[SayRequest, SayResponse](
             pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
         ).call_unary
-        self.IntroduceServer = Client[IntroduceRequest, IntroduceResponse](
+        self.Introduce = Client[IntroduceRequest, IntroduceResponse](
             pool,
-            base_url + ElizaServiceProcedures.IntroduceServer.value,
+            base_url + ElizaServiceProcedures.Introduce.value,
             IntroduceRequest,
             IntroduceResponse,
             options,
@@ -67,7 +65,10 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
     async def Say(self, request: UnaryRequest[SayRequest], context: HandlerContext) -> UnaryResponse[SayResponse]:
         raise NotImplementedError()
 
-    async def IntroduceServer(self, request: StreamRequest[IntroduceRequest], context: HandlerContext) -> StreamResponse[IntroduceResponse]:
+    async def Converse(self, request: StreamRequest[eliza_pb2.ConverseRequest], context: HandlerContext) -> StreamResponse[eliza_pb2.ConverseResponse]:
+        raise NotImplementedError()
+
+    async def Introduce(self, request: StreamRequest[IntroduceRequest], context: HandlerContext) -> StreamResponse[IntroduceResponse]:
         raise NotImplementedError()
 
     async def IntroduceClient(self, request: StreamRequest[IntroduceRequest], context: HandlerContext) -> StreamResponse[IntroduceResponse]:
@@ -84,8 +85,8 @@ def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectO
             options=options,
         ),
         ServerStreamHandler(
-            procedure=ElizaServiceProcedures.IntroduceServer.value,
-            stream=service.IntroduceServer,
+            procedure=ElizaServiceProcedures.Introduce.value,
+            stream=service.Introduce,
             input=IntroduceRequest,
             output=IntroduceResponse,
             options=options,

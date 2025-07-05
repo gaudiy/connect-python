@@ -37,7 +37,7 @@ def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
         trailer[GRPC_HEADER_STATUS] = "0"
         return
 
-    if not ConnectError.wire_error:
+    if not error.wire_error:
         trailer.update(exclude_protocol_headers(error.metadata))
 
     status = status_pb2.Status(
@@ -151,9 +151,6 @@ def decode_binary_header(data: str) -> bytes:
 
     Returns:
         bytes: The decoded binary data.
-
-    Raises:
-        binascii.Error: If the input is not correctly base64-encoded.
 
     """
     if len(data) % 4:

@@ -26,6 +26,7 @@ from connect.protocol_grpc.constants import (
     GRPC_HEADER_ACCEPT_COMPRESSION,
     GRPC_HEADER_COMPRESSION,
     GRPC_HEADER_TIMEOUT,
+    GRPC_TIMEOUT_MAX_DURATION,
     MAX_HOURS,
     RE_TIMEOUT,
     UNIT_TO_SECONDS,
@@ -145,7 +146,7 @@ class GRPCHandler(ProtocolHandler):
         protocol_name = PROTOCOL_GRPC if not self.web else PROTOCOL_GRPC + "-web"
 
         peer = Peer(
-            address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
+            address=Address(host=request.client.host, port=request.client.port) if request.client else None,
             protocol=protocol_name,
             query=request.query_params,
         )
@@ -267,7 +268,7 @@ class GRPCHandlerConn(StreamingHandlerConn):
 
         num_str, unit = m.groups()
         num = int(num_str)
-        if num > 99_999_999:
+        if num > GRPC_TIMEOUT_MAX_DURATION:
             raise ConnectError(f"protocol error: timeout {timeout!r} is too long")
 
         if unit == "H" and num > MAX_HOURS:

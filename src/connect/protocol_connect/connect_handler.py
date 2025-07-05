@@ -207,7 +207,7 @@ class ConnectHandler(ProtocolHandler):
             )
 
         peer = Peer(
-            address=Address(host=request.client.host, port=request.client.port) if request.client else request.client,
+            address=Address(host=request.client.host, port=request.client.port) if request.client else None,
             protocol=PROTOCOL_CONNECT,
             query=request.query_params,
         )

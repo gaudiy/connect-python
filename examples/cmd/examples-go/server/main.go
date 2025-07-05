@@ -83,7 +83,7 @@ func (e *elizaServer) Converse(
 	}
 }
 
-func (e *elizaServer) IntroduceServer(
+func (e *elizaServer) Introduce(
 	ctx context.Context,
 	req *connect.Request[elizav1.IntroduceRequest],
 	stream *connect.ServerStream[elizav1.IntroduceResponse],
@@ -113,16 +113,16 @@ func (e *elizaServer) IntroduceServer(
 	return nil
 }
 
-func (e *elizaServer) IntroduceClient(ctx context.Context, stream *connect.ClientStream[elizav1.IntroduceRequest]) (*connect.Response[elizav1.IntroduceResponse], error) {
-	var messages string
+func (e *elizaServer) Reflect(ctx context.Context, stream *connect.ClientStream[elizav1.ReflectRequest]) (*connect.Response[elizav1.ReflectResponse], error) {
+	var sentences string
 	for stream.Receive() {
-		messages += " " + stream.Msg().GetName()
+		sentences += stream.Msg().GetSentence()
 	}
 	if stream.Err() != nil {
 		return nil, stream.Err()
 	}
-	return connect.NewResponse(&elizav1.IntroduceResponse{
-		Sentence: messages,
+	return connect.NewResponse(&elizav1.ReflectResponse{
+		Sentence: sentences,
 	}), nil
 }
 

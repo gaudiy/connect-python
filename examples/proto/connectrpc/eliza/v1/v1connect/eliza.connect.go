@@ -62,11 +62,11 @@ const (
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	elizaServiceServiceDescriptor        = v1.File_examples_proto_connectrpc_eliza_v1_eliza_proto.Services().ByName("ElizaService")
-	elizaServiceSayMethodDescriptor      = elizaServiceServiceDescriptor.Methods().ByName("Say")
-	elizaServiceConverseMethodDescriptor = elizaServiceServiceDescriptor.Methods().ByName("Converse")
+	elizaServiceServiceDescriptor         = v1.File_examples_proto_connectrpc_eliza_v1_eliza_proto.Services().ByName("ElizaService")
+	elizaServiceSayMethodDescriptor       = elizaServiceServiceDescriptor.Methods().ByName("Say")
+	elizaServiceConverseMethodDescriptor  = elizaServiceServiceDescriptor.Methods().ByName("Converse")
 	elizaServiceIntroduceMethodDescriptor = elizaServiceServiceDescriptor.Methods().ByName("Introduce")
-	elizaServiceReflectMethodDescriptor  = elizaServiceServiceDescriptor.Methods().ByName("Reflect")
+	elizaServiceReflectMethodDescriptor   = elizaServiceServiceDescriptor.Methods().ByName("Reflect")
 )
 
 // ElizaServiceClient is a client for the connectrpc.eliza.v1.ElizaService service.
@@ -76,7 +76,7 @@ type ElizaServiceClient interface {
 	// Converse is a server streaming RPC. The caller may exchange multiple
 	// back-and-forth messages with Eliza over a long-lived connection. Eliza
 	// responds to each ConverseRequest with a ConverseResponse.
-	Converse(context.Context, *connect.Request[v1.ConverseRequest]) (*connect.ServerStreamForClient[v1.ConverseResponse], error)
+	Converse(context.Context) *connect.BidiStreamForClient[v1.ConverseRequest, v1.ConverseResponse]
 	// Introduce is a server streaming RPC. Given the caller's name, Eliza
 	// returns a stream of sentences to introduce itself.
 	Introduce(context.Context, *connect.Request[v1.IntroduceRequest]) (*connect.ServerStreamForClient[v1.IntroduceResponse], error)
@@ -137,8 +137,8 @@ func (c *elizaServiceClient) Say(ctx context.Context, req *connect.Request[v1.Sa
 }
 
 // Converse calls connectrpc.eliza.v1.ElizaService.Converse.
-func (c *elizaServiceClient) Converse(ctx context.Context, req *connect.Request[v1.ConverseRequest]) (*connect.ServerStreamForClient[v1.ConverseResponse], error) {
-	return c.converse.CallServerStream(ctx, req)
+func (c *elizaServiceClient) Converse(ctx context.Context) *connect.BidiStreamForClient[v1.ConverseRequest, v1.ConverseResponse] {
+	return c.converse.CallBidiStream(ctx)
 }
 
 // Introduce calls connectrpc.eliza.v1.ElizaService.Introduce.
@@ -155,15 +155,14 @@ func (c *elizaServiceClient) Reflect(ctx context.Context) *connect.ClientStreamF
 type ElizaServiceHandler interface {
 	// Say is a unary RPC. Eliza responds to the prompt with a single sentence.
 	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)
-	// Converse is a server streaming RPC. The caller may exchange multiple
+	// Converse is a bidirectional RPC. The caller may exchange multiple
 	// back-and-forth messages with Eliza over a long-lived connection. Eliza
 	// responds to each ConverseRequest with a ConverseResponse.
-	Converse(context.Context, *connect.Request[v1.ConverseRequest], *connect.ServerStream[v1.ConverseResponse]) error
+	Converse(context.Context, *connect.BidiStream[v1.ConverseRequest, v1.ConverseResponse]) error
 	// Introduce is a server streaming RPC. Given the caller's name, Eliza
 	// returns a stream of sentences to introduce itself.
 	Introduce(context.Context, *connect.Request[v1.IntroduceRequest], *connect.ServerStream[v1.IntroduceResponse]) error
 	// Reflect is a client streaming RPC. Given the caller's name, Eliza
-	// returns a stream of sentences to introduce itself.
 	Reflect(context.Context, *connect.ClientStream[v1.ReflectRequest]) (*connect.Response[v1.ReflectResponse], error)
 }
 
@@ -180,7 +179,7 @@ func NewElizaServiceHandler(svc ElizaServiceHandler, opts ...connect.HandlerOpti
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
-	elizaServiceConverseHandler := connect.NewServerStreamHandler(
+	elizaServiceConverseHandler := connect.NewBidiStreamHandler(
 		ElizaServiceConverseProcedure,
 		svc.Converse,
 		connect.WithSchema(elizaServiceConverseMethodDescriptor),
@@ -221,7 +220,7 @@ func (UnimplementedElizaServiceHandler) Say(context.Context, *connect.Request[v1
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("connectrpc.eliza.v1.ElizaService.Say is not implemented"))
 }
 
-func (UnimplementedElizaServiceHandler) Converse(context.Context, *connect.Request[v1.ConverseRequest], *connect.ServerStream[v1.ConverseResponse]) error {
+func (UnimplementedElizaServiceHandler) Converse(context.Context, *connect.BidiStream[v1.ConverseRequest, v1.ConverseResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("connectrpc.eliza.v1.ElizaService.Converse is not implemented"))
 }
 

@@ -50,15 +50,15 @@ class ElizaServiceStub(object):
                 request_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ConverseRequest.SerializeToString,
                 response_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ConverseResponse.FromString,
                 _registered_method=True)
-        self.IntroduceServer = channel.unary_stream(
-                '/connectrpc.eliza.v1.ElizaService/IntroduceServer',
+        self.Introduce = channel.unary_stream(
+                '/connectrpc.eliza.v1.ElizaService/Introduce',
                 request_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceRequest.SerializeToString,
                 response_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceResponse.FromString,
                 _registered_method=True)
-        self.IntroduceClient = channel.stream_unary(
-                '/connectrpc.eliza.v1.ElizaService/IntroduceClient',
-                request_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceRequest.SerializeToString,
-                response_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceResponse.FromString,
+        self.Reflect = channel.stream_unary(
+                '/connectrpc.eliza.v1.ElizaService/Reflect',
+                request_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ReflectRequest.SerializeToString,
+                response_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ReflectResponse.FromString,
                 _registered_method=True)
 
 
@@ -87,17 +87,17 @@ class ElizaServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def IntroduceServer(self, request, context):
-        """IntroduceServer is a server streaming RPC. Given the caller's name, Eliza
+    def Introduce(self, request, context):
+        """Introduce is a server streaming RPC. Given the caller's name, Eliza
         returns a stream of sentences to introduce itself.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def IntroduceClient(self, request_iterator, context):
-        """IntroduceClient is a client streaming RPC. Given the caller's name, Eliza
-        returns a stream of sentences to introduce itself.
+    def Reflect(self, request_iterator, context):
+        """Reflect is a client streaming RPC. Given a stream of sentences, Eliza
+        returns a single sentence that reflects the input back to the caller.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -116,15 +116,15 @@ def add_ElizaServiceServicer_to_server(servicer, server):
                     request_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ConverseRequest.FromString,
                     response_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ConverseResponse.SerializeToString,
             ),
-            'IntroduceServer': grpc.unary_stream_rpc_method_handler(
-                    servicer.IntroduceServer,
+            'Introduce': grpc.unary_stream_rpc_method_handler(
+                    servicer.Introduce,
                     request_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceRequest.FromString,
                     response_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceResponse.SerializeToString,
             ),
-            'IntroduceClient': grpc.stream_unary_rpc_method_handler(
-                    servicer.IntroduceClient,
-                    request_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceRequest.FromString,
-                    response_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceResponse.SerializeToString,
+            'Reflect': grpc.stream_unary_rpc_method_handler(
+                    servicer.Reflect,
+                    request_deserializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ReflectRequest.FromString,
+                    response_serializer=examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ReflectResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -198,7 +198,7 @@ class ElizaService(object):
             _registered_method=True)
 
     @staticmethod
-    def IntroduceServer(request,
+    def Introduce(request,
             target,
             options=(),
             channel_credentials=None,
@@ -211,7 +211,7 @@ class ElizaService(object):
         return grpc.experimental.unary_stream(
             request,
             target,
-            '/connectrpc.eliza.v1.ElizaService/IntroduceServer',
+            '/connectrpc.eliza.v1.ElizaService/Introduce',
             examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceRequest.SerializeToString,
             examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceResponse.FromString,
             options,
@@ -225,7 +225,7 @@ class ElizaService(object):
             _registered_method=True)
 
     @staticmethod
-    def IntroduceClient(request_iterator,
+    def Reflect(request_iterator,
             target,
             options=(),
             channel_credentials=None,
@@ -238,9 +238,9 @@ class ElizaService(object):
         return grpc.experimental.stream_unary(
             request_iterator,
             target,
-            '/connectrpc.eliza.v1.ElizaService/IntroduceClient',
-            examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceRequest.SerializeToString,
-            examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.IntroduceResponse.FromString,
+            '/connectrpc.eliza.v1.ElizaService/Reflect',
+            examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ReflectRequest.SerializeToString,
+            examples_dot_proto_dot_connectrpc_dot_eliza_dot_v1_dot_eliza__pb2.ReflectResponse.FromString,
             options,
             channel_credentials,
             insecure,

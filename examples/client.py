@@ -1,30 +1,85 @@
 """Main module for the tests."""
 
+import argparse
 import asyncio
-import logging
+from collections.abc import AsyncGenerator
 
-from connect.connect import UnaryRequest
+from connect.connect import StreamRequest, UnaryRequest, ensure_single
 from connect.connection_pool import AsyncConnectionPool
 
-from proto.connectrpc.eliza.v1.eliza_pb2 import SayRequest
+from proto.connectrpc.eliza.v1.eliza_pb2 import IntroduceRequest, ReflectRequest, SayRequest
 from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceClient
 
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
+
+async def run_unary(client: ElizaServiceClient) -> None:
+    """Run unary RPC (Say)."""
+    request = UnaryRequest(SayRequest(sentence="Hi"))
+    response = await client.Say(request)
+
+    print(f"Response: {response.message.sentence}")
+
+
+async def run_server_streaming(client: ElizaServiceClient) -> None:
+    """Run server streaming RPC (Introduce)."""
+
+    async def request_generator() -> AsyncGenerator[IntroduceRequest]:
+        yield IntroduceRequest(name="Alice")
+
+    request = StreamRequest(request_generator())
+
+    message_count = 1
+    async with client.Introduce(request) as response:
+        async for message in response.messages:
+            print(f"Received message {message_count}: {message.sentence}")
+            message_count += 1
+
+
+async def run_client_streaming(client: ElizaServiceClient) -> None:
+    """Run client streaming RPC (Reflect)."""
+
+    async def request_generator() -> AsyncGenerator[ReflectRequest]:
+        for i in range(5):
+            yield ReflectRequest(sentence=f"Alice is thinking... {i}")
+
+    request = StreamRequest(request_generator())
+    async with client.Reflect(request) as response:
+        message = await ensure_single(response.messages)
+
+        print(f"Final response: {message.sentence}")
 
 
 async def main() -> None:
     """Interact with the ElizaServiceClient asynchronously."""
+    parser = argparse.ArgumentParser(description="Eliza client with different RPC types")
+    parser.add_argument("-u", "--unary", action="store_true", help="Send unary RPC")
+    parser.add_argument("-ss", "--server-streaming", action="store_true", help="Send server streaming RPC")
+    parser.add_argument("-cs", "--client-streaming", action="store_true", help="Send client streaming RPC")
+
+    args = parser.parse_args()
+
+    if not any([args.unary, args.server_streaming, args.client_streaming]):
+        print("Please specify an RPC type: -u, -ss, or -cs")
+        return
+
+    if sum([args.unary, args.server_streaming, args.client_streaming]) > 1:
+        print("Please specify only one RPC type")
+        return
+
     async with AsyncConnectionPool() as pool:
         client = ElizaServiceClient(
             pool=pool,
             base_url="http://localhost:8080/",
         )
-        response = await client.Say(UnaryRequest(SayRequest(sentence="I feel happy.")))
 
-        logger.debug(response.message.sentence)
-        for k, v in response.headers.items():
-            logger.debug(f"{k}: {v}")
+        try:
+            if args.unary:
+                await run_unary(client)
+            elif args.server_streaming:
+                await run_server_streaming(client)
+            elif args.client_streaming:
+                await run_client_streaming(client)
+        except Exception as e:
+            print(f"Error: {e}")
 
 
 if __name__ == "__main__":

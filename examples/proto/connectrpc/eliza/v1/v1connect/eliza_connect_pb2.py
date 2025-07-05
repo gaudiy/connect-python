@@ -10,31 +10,39 @@ from enum import Enum
 from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.connection_pool import AsyncConnectionPool
-from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
+from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
+from connect.handler_context import HandlerContext
 from connect.options import ClientOptions, ConnectOptions
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2
-from ..eliza_pb2 import IntroduceRequest, IntroduceResponse, SayRequest, SayResponse
+from ..eliza_pb2 import (
+    ConverseRequest,
+    ConverseResponse,
+    IntroduceRequest,
+    IntroduceResponse,
+    ReflectRequest,
+    ReflectResponse,
+    SayRequest,
+    SayResponse,
+)
 
 
 class ElizaServiceProcedures(Enum):
-    """Procedures for the eliza service."""
+    """Procedures for the ElizaService service."""
 
     Say = "/connectrpc.eliza.v1.ElizaService/Say"
-    IntroduceServer = "/connectrpc.eliza.v1.ElizaService/IntroduceServer"
-    IntroduceClient = "/connectrpc.eliza.v1.ElizaService/IntroduceClient"
+    Converse = "/connectrpc.eliza.v1.ElizaService/Converse"
+    Introduce = "/connectrpc.eliza.v1.ElizaService/Introduce"
+    Reflect = "/connectrpc.eliza.v1.ElizaService/Reflect"
 
 
 ElizaService_service_descriptor: ServiceDescriptor = eliza_pb2.DESCRIPTOR.services_by_name["ElizaService"]
 
-ElizaService_Say_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
-ElizaService_IntroduceServer_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
-    "IntroduceServer"
-]
-ElizaService_IntroduceClient_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name[
-    "IntroduceClient"
-]
+ElizaServiceSay_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Say"]
+ElizaServiceConverse_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Converse"]
+ElizaServiceIntroduce_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Introduce"]
+ElizaServiceReflect_method_descriptor: MethodDescriptor = ElizaService_service_descriptor.methods_by_name["Reflect"]
 
 
 class ElizaServiceClient:
@@ -44,34 +52,41 @@ class ElizaServiceClient:
         self.Say = Client[SayRequest, SayResponse](
             pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
         ).call_unary
-        self.IntroduceServer = Client[IntroduceRequest, IntroduceResponse](
-            pool,
-            base_url + ElizaServiceProcedures.IntroduceServer.value,
-            IntroduceRequest,
-            IntroduceResponse,
-            options,
+        self.Converse = Client[ConverseRequest, ConverseResponse](
+            pool, base_url + ElizaServiceProcedures.Converse.value, ConverseRequest, ConverseResponse, options
         ).call_server_stream
-        self.IntroduceClient = Client[IntroduceRequest, IntroduceResponse](
-            pool,
-            base_url + ElizaServiceProcedures.IntroduceClient.value,
-            IntroduceRequest,
-            IntroduceResponse,
-            options,
+        self.Introduce = Client[IntroduceRequest, IntroduceResponse](
+            pool, base_url + ElizaServiceProcedures.Introduce.value, IntroduceRequest, IntroduceResponse, options
+        ).call_bidi_stream
+        self.Reflect = Client[ReflectRequest, ReflectResponse](
+            pool, base_url + ElizaServiceProcedures.Reflect.value, ReflectRequest, ReflectResponse, options
         ).call_client_stream
 
 
 class ElizaServiceHandler(metaclass=abc.ABCMeta):
     """Handler for the eliza service."""
 
-    async def Say(self, request: UnaryRequest[SayRequest]) -> UnaryResponse[SayResponse]: ...
+    async def Say(self, request: UnaryRequest[SayRequest], context: HandlerContext) -> UnaryResponse[SayResponse]:
+        raise NotImplementedError()
 
-    async def IntroduceServer(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
+    async def Converse(
+        self, request: StreamRequest[eliza_pb2.ConverseRequest], context: HandlerContext
+    ) -> StreamResponse[eliza_pb2.ConverseResponse]:
+        raise NotImplementedError()
 
-    async def IntroduceClient(self, request: StreamRequest[IntroduceRequest]) -> StreamResponse[IntroduceResponse]: ...
+    async def Introduce(
+        self, request: StreamRequest[IntroduceRequest], context: HandlerContext
+    ) -> StreamResponse[IntroduceResponse]:
+        raise NotImplementedError()
+
+    async def Reflect(
+        self, request: StreamRequest[ReflectRequest], context: HandlerContext
+    ) -> StreamResponse[ReflectResponse]:
+        raise NotImplementedError()
 
 
 def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
-    handlers: list[Handler] = [
+    handlers = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
             unary=service.Say,
@@ -79,18 +94,25 @@ def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectO
             output=SayResponse,
             options=options,
         ),
+        BidiStreamHandler(
+            procedure=ElizaServiceProcedures.Converse.value,
+            stream=service.Converse,
+            input=ConverseRequest,
+            output=ConverseResponse,
+            options=options,
+        ),
         ServerStreamHandler(
-            procedure=ElizaServiceProcedures.IntroduceServer.value,
-            stream=service.IntroduceServer,
+            procedure=ElizaServiceProcedures.Introduce.value,
+            stream=service.Introduce,
             input=IntroduceRequest,
             output=IntroduceResponse,
             options=options,
         ),
         ClientStreamHandler(
-            procedure=ElizaServiceProcedures.IntroduceClient.value,
-            stream=service.IntroduceClient,
-            input=IntroduceRequest,
-            output=IntroduceResponse,
+            procedure=ElizaServiceProcedures.Reflect.value,
+            stream=service.Reflect,
+            input=ReflectRequest,
+            output=ReflectResponse,
             options=options,
         ),
     ]

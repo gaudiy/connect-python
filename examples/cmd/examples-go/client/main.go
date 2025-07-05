@@ -16,13 +16,6 @@ import (
 	"golang.org/x/net/http2"
 )
 
-type mode int
-
-const (
-	modeClient mode = iota + 1
-	// for future use?
-	modeServer
-)
 
 type rpc int
 
@@ -34,36 +27,17 @@ const (
 )
 
 var (
-	runMode mode
 	rpcType rpc
 )
 
 func init() {
-	// mode
-	clientMode := flag.Bool("c", false, "run client mode")
-	serverMode := flag.Bool("s", false, "run server mode")
 	// rpc
 	unaryRPC := flag.Bool("u", false, "send unary RPC")
-	serverStreamingRPC := flag.Bool("ss", false, "send unary RPC")
-	clientStreamingRPC := flag.Bool("cs", false, "send unary RPC")
-	bidiRPC := flag.Bool("bidi", false, "send unary RPC")
+	serverStreamingRPC := flag.Bool("ss", false, "send server streaming RPC")
+	clientStreamingRPC := flag.Bool("cs", false, "send client streaming RPC")
+	bidiRPC := flag.Bool("bidi", false, "send bidirectional streaming RPC")
 
 	flag.Parse()
-
-	switch {
-	case *clientMode:
-		runMode = modeClient
-	case *serverMode:
-		runMode = modeServer
-	default: // throw
-		if !*clientMode && !*serverMode {
-			log.Fatal("either clientMode or serverMode must be enabled. [-c, -s]")
-		}
-		if *clientMode && *serverMode {
-			log.Fatal("neither clientMode nor serverMode can't be enabled")
-		}
-		panic("unreachable")
-	}
 
 	switch {
 	case *unaryRPC:
@@ -86,13 +60,8 @@ func asError(err error) (*connect.Error, bool) {
 }
 
 func main() {
-	switch runMode {
-	case modeClient:
-		if err := runClient(); err != nil {
-			log.Fatal(err)
-		}
-	case modeServer:
-		// TODO(tsubakiky): not implemented yet
+	if err := runClient(); err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -129,10 +98,10 @@ func runClient() error {
 		fmt.Printf("res.Header(): %v\n", res.Header())
 
 	case clientStreaming:
-		stream := client.IntroduceClient(ctx)
+		stream := client.Reflect(ctx)
 		for range 5 {
-			err := stream.Send(&elizav1.IntroduceRequest{
-				Name: "Alice",
+			err := stream.Send(&elizav1.ReflectRequest{
+				Sentence: "Alice is thinking...",
 			})
 			if err != nil {
 				return err
@@ -154,7 +123,7 @@ func runClient() error {
 		request := connect.NewRequest(&elizav1.IntroduceRequest{
 			Name: "Alice",
 		})
-		stream, err := client.IntroduceServer(ctx, request)
+		stream, err := client.Introduce(ctx, request)
 		if err != nil {
 			return err
 		}

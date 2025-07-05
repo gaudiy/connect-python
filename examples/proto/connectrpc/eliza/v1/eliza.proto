@@ -33,12 +33,12 @@ service ElizaService {
   // back-and-forth messages with Eliza over a long-lived connection. Eliza
   // responds to each ConverseRequest with a ConverseResponse.
   rpc Converse(stream ConverseRequest) returns (stream ConverseResponse) {}
-  // IntroduceServer is a server streaming RPC. Given the caller's name, Eliza
+  // Introduce is a server streaming RPC. Given the caller's name, Eliza
   // returns a stream of sentences to introduce itself.
-  rpc IntroduceServer(IntroduceRequest) returns (stream IntroduceResponse) {}
-  // IntroduceClient is a client streaming RPC. Given the caller's name, Eliza
-  // returns a stream of sentences to introduce itself.
-  rpc IntroduceClient(stream IntroduceRequest) returns (IntroduceResponse) {}
+  rpc Introduce(IntroduceRequest) returns (stream IntroduceResponse) {}
+  // Reflect is a client streaming RPC. Given a stream of sentences, Eliza
+  // returns a single sentence that reflects the input back to the caller.
+  rpc Reflect(stream ReflectRequest) returns (ReflectResponse) {}
 }
 
 // SayRequest is a single-sentence request.
@@ -70,5 +70,13 @@ message IntroduceRequest {
 
 // IntroduceResponse is one sentence of Eliza's introductory monologue.
 message IntroduceResponse {
+  string sentence = 1;
+}
+
+message ReflectRequest {
+  string sentence = 1;
+}
+
+message ReflectResponse {
   string sentence = 1;
 }

@@ -273,13 +273,14 @@ class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
             CONNECT_UNARY_ENCODING_QUERY_PARAMETER: self.codec.name,
         })
         if self.stable_codec.is_binary() or compressed:
+            encoded_data = base64.urlsafe_b64encode(data).decode().rstrip("=")
             url = url.update_query({
-                CONNECT_UNARY_MESSAGE_QUERY_PARAMETER: base64.urlsafe_b64encode(data).rstrip(b"=").decode("utf-8"),
+                CONNECT_UNARY_MESSAGE_QUERY_PARAMETER: encoded_data,
                 CONNECT_UNARY_BASE64_QUERY_PARAMETER: "1",
             })
         else:
             url = url.update_query({
-                CONNECT_UNARY_MESSAGE_QUERY_PARAMETER: data.decode("utf-8"),
+                CONNECT_UNARY_MESSAGE_QUERY_PARAMETER: data.decode(),
             })
 
         if compressed:

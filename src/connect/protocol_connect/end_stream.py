@@ -58,20 +58,21 @@ def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
 
     metadata = Headers()
     if "metadata" in obj:
-        if not isinstance(obj["metadata"], dict) or not all(
-            isinstance(k, str) and isinstance(v, list) for k, v in obj["metadata"].items()
+        metadata_obj = obj["metadata"]
+        if not isinstance(metadata_obj, dict) or not all(
+            isinstance(k, str) and isinstance(v, list) for k, v in metadata_obj.items()
         ):
             raise ConnectError(
                 "invalid end stream",
                 Code.UNKNOWN,
             )
 
-        for key, values in obj["metadata"].items():
-            value = ", ".join(values)
-            metadata[key] = value
+        for key, values in metadata_obj.items():
+            metadata[key] = ", ".join(values)
 
-    if "error" in obj and obj["error"] is not None:
-        error = error_from_json(obj["error"], parse_error)
+    error_obj = obj.get("error")
+    if error_obj is not None:
+        error = error_from_json(error_obj, parse_error)
         return error, metadata
-    else:
-        return None, metadata
+
+    return None, metadata

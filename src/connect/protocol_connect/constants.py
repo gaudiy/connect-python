@@ -1,6 +1,6 @@
 """Constants used in the Connect protocol implementation for Python."""
 
-from sys import version
+import sys
 
 from connect.version import __version__
 
@@ -24,4 +24,5 @@ CONNECT_UNARY_COMPRESSION_QUERY_PARAMETER = "compression"
 CONNECT_UNARY_CONNECT_QUERY_PARAMETER = "connect"
 CONNECT_UNARY_CONNECT_QUERY_VALUE = "v" + CONNECT_PROTOCOL_VERSION
 
-DEFAULT_CONNECT_USER_AGENT = f"connect-python/{__version__} (Python/{version})"
+_python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+DEFAULT_CONNECT_USER_AGENT = f"connect-python/{__version__} (Python/{_python_version})"

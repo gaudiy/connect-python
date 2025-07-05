@@ -10,7 +10,7 @@ from enum import Enum
 from connect.client import Client
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.connection_pool import AsyncConnectionPool
-from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
+from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
 from connect.handler_context import HandlerContext
 from connect.options import ClientOptions, ConnectOptions
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
@@ -57,7 +57,7 @@ class ElizaServiceClient:
         ).call_server_stream
         self.Introduce = Client[IntroduceRequest, IntroduceResponse](
             pool, base_url + ElizaServiceProcedures.Introduce.value, IntroduceRequest, IntroduceResponse, options
-        ).call_server_stream
+        ).call_bidi_stream
         self.Reflect = Client[ReflectRequest, ReflectResponse](
             pool, base_url + ElizaServiceProcedures.Reflect.value, ReflectRequest, ReflectResponse, options
         ).call_client_stream
@@ -94,7 +94,7 @@ def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectO
             output=SayResponse,
             options=options,
         ),
-        ServerStreamHandler(
+        BidiStreamHandler(
             procedure=ElizaServiceProcedures.Converse.value,
             stream=service.Converse,
             input=ConverseRequest,

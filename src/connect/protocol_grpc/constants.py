@@ -21,8 +21,8 @@ GRPC_WEB_CONTENT_TYPE_PREFIX = GRPC_WEB_CONTENT_TYPE_DEFAULT + "+"
 HEADER_X_USER_AGENT = "X-User-Agent"
 
 GRPC_ALLOWED_METHODS = [HTTPMethod.POST]
-
-DEFAULT_GRPC_USER_AGENT = f"connect-python/{__version__} (Python/{__version__})"
+_python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+DEFAULT_GRPC_USER_AGENT = f"connect-python/{__version__} (Python/{_python_version})"
 
 RE_TIMEOUT = re.compile(r"^(\d{1,8})([HMSmun])$")
 
@@ -35,4 +35,6 @@ UNIT_TO_SECONDS = {
     "H": 3600.0,
 }
 
+GRPC_TIMEOUT_MAX_VALUE = 10**8
+GRPC_TIMEOUT_MAX_DURATION = 99_999_999
 MAX_HOURS = sys.maxsize // (60 * 60 * 1_000_000_000)

@@ -35,6 +35,7 @@ from connect.protocol_grpc.constants import (
     GRPC_HEADER_ACCEPT_COMPRESSION,
     GRPC_HEADER_COMPRESSION,
     GRPC_HEADER_TIMEOUT,
+    GRPC_TIMEOUT_MAX_VALUE,
     HEADER_X_USER_AGENT,
     UNIT_TO_SECONDS,
 )
@@ -254,7 +255,7 @@ class GRPCClientConn(StreamingClientConn):
     @property
     def peer(self) -> Peer:
         """Return the peer information."""
-        raise NotImplementedError()
+        return self._peer
 
     async def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
         """Receives a message and processes it."""
@@ -284,7 +285,8 @@ class GRPCClientConn(StreamingClientConn):
 
         if self.unmarshaler.bytes_read == 0 and len(self.response_trailers) == 0:
             self.response_trailers.update(self._response_headers)
-            del self._response_headers[HEADER_CONTENT_TYPE]
+            if HEADER_CONTENT_TYPE in self._response_headers:
+                del self._response_headers[HEADER_CONTENT_TYPE]
 
             server_error = grpc_error_from_trailer(self.response_trailers)
             if server_error:
@@ -294,7 +296,7 @@ class GRPCClientConn(StreamingClientConn):
         server_error = grpc_error_from_trailer(self.response_trailers)
         if server_error:
             server_error.metadata = self.response_headers.copy()
-            server_error.metadata.update(self.response_trailers)
+            server_error.metadata.update(self.response_trailers.copy())
             raise server_error
 
     def _receive_trailers(self, response: httpcore.Response) -> None:
@@ -368,20 +370,25 @@ class GRPCClientConn(StreamingClientConn):
                 request_task = asyncio.create_task(self.pool.handle_async_request(request=request))
                 abort_task = asyncio.create_task(abort_event.wait())
 
-                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
 
-                if abort_task in done:
-                    request_task.cancel()
+                    if abort_task in done:
+                        request_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await request_task
+
+                        raise ConnectError("request aborted", Code.CANCELED)
+
+                    abort_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
-                        await request_task
+                        await abort_task
 
-                    raise ConnectError("request aborted", Code.CANCELED)
-
-                abort_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await abort_task
-
-                response = await request_task
+                    response = await request_task
+                finally:
+                    for task in [request_task, abort_task]:
+                        if not task.done():
+                            task.cancel()
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -466,7 +473,7 @@ def grpc_encode_timeout(timeout: float) -> str:
     if timeout <= 0:
         return "0n"
 
-    grpc_timeout_max_value = 10**8
+    grpc_timeout_max_value = GRPC_TIMEOUT_MAX_VALUE
 
     _units = dict(sorted(UNIT_TO_SECONDS.items(), key=lambda item: item[1]))
     for unit, size in _units.items():

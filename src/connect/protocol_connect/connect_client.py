@@ -17,7 +17,7 @@ from yarl import URL
 
 from connect.code import Code
 from connect.codec import Codec, StableCodec
-from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
+from connect.compression import COMPRESSION_IDENTITY, Compression, get_compression_from_name
 from connect.connect import (
     Address,
     Peer,
@@ -155,7 +155,7 @@ class ConnectClient(ProtocolClient):
                 request_headers=headers,
                 marshaler=ConnectUnaryRequestMarshaler(
                     codec=self.params.codec,
-                    compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                    compression=get_compression_from_name(self.params.compression_name, self.params.compressions),
                     compress_min_bytes=self.params.compress_min_bytes,
                     send_max_bytes=self.params.send_max_bytes,
                     headers=headers,
@@ -183,7 +183,7 @@ class ConnectClient(ProtocolClient):
                     codec=self.params.codec,
                     compress_min_bytes=self.params.compress_min_bytes,
                     send_max_bytes=self.params.send_max_bytes,
-                    compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                    compression=get_compression_from_name(self.params.compression_name, self.params.compressions),
                 ),
                 unmarshaler=ConnectStreamingUnmarshaler(
                     codec=self.params.codec,
@@ -489,7 +489,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
                 Code.INTERNAL,
             )
 
-        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+        self.unmarshaler.compression = get_compression_from_name(compression, self.compressions)
 
         if validate_error:
 
@@ -839,7 +839,7 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 Code.INTERNAL,
             )
 
-        self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+        self.unmarshaler.compression = get_compression_from_name(compression, self.compressions)
         self._response_headers.update(response_headers)
 
     async def aclose(self) -> None:

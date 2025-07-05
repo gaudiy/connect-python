@@ -12,7 +12,7 @@ from yarl import URL
 
 from connect.code import Code
 from connect.codec import Codec
-from connect.compression import COMPRESSION_IDENTITY, Compression, get_compresion_from_name
+from connect.compression import COMPRESSION_IDENTITY, Compression, get_compression_from_name
 from connect.connect import (
     Peer,
     Spec,
@@ -150,7 +150,7 @@ class GRPCClient(ProtocolClient):
                 codec=self.params.codec,
                 compress_min_bytes=self.params.compress_min_bytes,
                 send_max_bytes=self.params.send_max_bytes,
-                compression=get_compresion_from_name(self.params.compression_name, self.params.compressions),
+                compression=get_compression_from_name(self.params.compression_name, self.params.compressions),
             ),
             unmarshaler=GRPCUnmarshaler(
                 web=self.web,
@@ -408,7 +408,7 @@ class GRPCClientConn(StreamingClientConn):
 
         compression = response_headers.get(GRPC_HEADER_COMPRESSION, None)
         if compression and compression != COMPRESSION_IDENTITY:
-            self.unmarshaler.compression = get_compresion_from_name(compression, self.compressions)
+            self.unmarshaler.compression = get_compression_from_name(compression, self.compressions)
 
         self._response_headers.update(response_headers)
 

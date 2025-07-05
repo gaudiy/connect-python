@@ -29,7 +29,7 @@ class Compression(abc.ABC):
 
     @abc.abstractmethod
     def compress(self, data: bytes) -> bytes:
-        """Compresse the given data using a specified compression algorithm.
+        """Compress the given data using a specified compression algorithm.
 
         Args:
             data (bytes): The data to be compressed.
@@ -42,7 +42,7 @@ class Compression(abc.ABC):
 
     @abc.abstractmethod
     def decompress(self, data: bytes, read_max_bytes: int) -> bytes:
-        """Decompresse the given data.
+        """Decompress the given data.
 
         Args:
             data (bytes): The compressed data to be decompressed.
@@ -75,7 +75,7 @@ class GZipCompression(Compression):
         return self._name
 
     def compress(self, data: bytes) -> bytes:
-        """Compresse the given data using gzip compression.
+        """Compress the given data using gzip compression.
 
         Args:
             data (bytes): The data to be compressed.
@@ -91,7 +91,7 @@ class GZipCompression(Compression):
         return buf.getvalue()
 
     def decompress(self, data: bytes, read_max_bytes: int) -> bytes:
-        """Decompresse the given gzip-compressed data.
+        """Decompress the given gzip-compressed data.
 
         Args:
             data (bytes): The gzip-compressed data to decompress.
@@ -111,7 +111,7 @@ class GZipCompression(Compression):
         return data
 
 
-def get_compresion_from_name(name: str | None, compressions: list[Compression]) -> Compression | None:
+def get_compression_from_name(name: str | None, compressions: list[Compression]) -> Compression | None:
     """Retrieve a Compression object from a list of compressions by its name.
 
     Args:
@@ -122,7 +122,7 @@ def get_compresion_from_name(name: str | None, compressions: list[Compression]) 
         Compression | None: The Compression object with the matching name, or None if not found.
 
     """
-    compresoin = (
+    compression = (
         next(
             (compression for compression in compressions if compression.name == name),
             None,
@@ -130,4 +130,4 @@ def get_compresion_from_name(name: str | None, compressions: list[Compression]) 
         if name
         else None
     )
-    return compresoin
+    return compression

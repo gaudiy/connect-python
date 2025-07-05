@@ -148,7 +148,7 @@ class AsyncDataStream[T]:
         if self._closed:
             return
 
-        self.closed = True
+        self._closed = True
         if self._aclose_func:
             await self._aclose_func()
 

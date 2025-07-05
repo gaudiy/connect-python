@@ -14,7 +14,7 @@ from connect.call_options import CallOptions
 from connect.client_interceptor import apply_interceptors
 from connect.code import Code
 from connect.codec import Codec, CodecNameType, ProtoBinaryCodec, ProtoJSONCodec
-from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compresion_from_name
+from connect.compression import COMPRESSION_IDENTITY, Compression, GZipCompression, get_compression_from_name
 from connect.connect import (
     Spec,
     StreamRequest,
@@ -130,7 +130,7 @@ class ClientConfig:
         self.request_compression_name = options.request_compression_name
         self.compressions = [GZipCompression()]
         if self.request_compression_name and self.request_compression_name != COMPRESSION_IDENTITY:
-            compression = get_compresion_from_name(self.request_compression_name, self.compressions)
+            compression = get_compression_from_name(self.request_compression_name, self.compressions)
             if not compression:
                 raise ConnectError(
                     f"unknown compression: {self.request_compression_name}",

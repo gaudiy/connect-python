@@ -129,10 +129,10 @@ func runClient() error {
 		fmt.Printf("res.Header(): %v\n", res.Header())
 
 	case clientStreaming:
-		stream := client.IntroduceClient(ctx)
+		stream := client.Reflect(ctx)
 		for range 5 {
-			err := stream.Send(&elizav1.IntroduceRequest{
-				Name: "Alice",
+			err := stream.Send(&elizav1.ReflectRequest{
+				Sentence: "Alice is thinking...",
 			})
 			if err != nil {
 				return err
@@ -154,7 +154,7 @@ func runClient() error {
 		request := connect.NewRequest(&elizav1.IntroduceRequest{
 			Name: "Alice",
 		})
-		stream, err := client.IntroduceServer(ctx, request)
+		stream, err := client.Introduce(ctx, request)
 		if err != nil {
 			return err
 		}

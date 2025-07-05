@@ -56,10 +56,8 @@ class ElizaService(ElizaServiceHandler):
         async for message in request.messages:
             sentences += message.sentence
 
-        reply = eliza._reflect(sentences)
-
         return StreamResponse(
-            ReflectResponse(sentence=reply),
+            ReflectResponse(sentence=sentences),
         )
 
 

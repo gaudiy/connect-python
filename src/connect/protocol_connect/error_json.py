@@ -1,8 +1,8 @@
 """Module for serializing and deserializing ConnectError objects to and from JSON."""
 
-import base64
 import contextlib
 import json
+import threading
 from typing import Any
 
 import google.protobuf.any_pb2 as any_pb2
@@ -10,8 +10,10 @@ from google.protobuf import json_format
 
 from connect.code import Code
 from connect.error import DEFAULT_ANY_RESOLVER_PREFIX, ConnectError, ErrorDetail
+from connect.protocol_connect.base64_utils import decode_base64_with_padding, encode_base64_without_padding
 
 _string_to_code: dict[str, Code] | None = None
+_code_mapping_lock = threading.Lock()
 
 
 def code_to_string(value: Code) -> str:
@@ -41,6 +43,8 @@ def code_from_string(value: str) -> Code | None:
     If the cache is not initialized, it populates the cache by iterating over all Code enum values
     and mapping their string representations to the corresponding Code enum.
 
+    This function is thread-safe and ensures the global cache is initialized only once.
+
     Args:
         value (str): The string representation of the code.
 
@@ -50,10 +54,15 @@ def code_from_string(value: str) -> Code | None:
     """
     global _string_to_code
 
+    # Double-checked locking pattern for thread safety
     if _string_to_code is None:
-        _string_to_code = {}
-        for code in Code:
-            _string_to_code[code_to_string(code)] = code
+        with _code_mapping_lock:
+            # Check again after acquiring the lock
+            if _string_to_code is None:
+                temp_mapping = {}
+                for code in Code:
+                    temp_mapping[code_to_string(code)] = code
+                _string_to_code = temp_mapping
 
     return _string_to_code.get(value)
 
@@ -94,7 +103,7 @@ def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError
 
         type_name = type_name if "/" in type_name else DEFAULT_ANY_RESOLVER_PREFIX + type_name
         try:
-            decoded = base64.b64decode(value.encode() + b"=" * (4 - len(value) % 4))
+            decoded = decode_base64_with_padding(value)
         except Exception as e:
             raise fallback from e
 
@@ -132,7 +141,7 @@ def error_to_json(error: ConnectError) -> dict[str, Any]:
         for detail in error.details:
             wire: dict[str, Any] = {
                 "type": detail.pb_any.TypeName(),
-                "value": base64.b64encode(detail.pb_any.value).decode().rstrip("="),
+                "value": encode_base64_without_padding(detail.pb_any.value),
             }
 
             with contextlib.suppress(Exception):

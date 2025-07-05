@@ -417,20 +417,25 @@ class ConnectUnaryClientConn(StreamingClientConn):
                 request_task = asyncio.create_task(self.pool.handle_async_request(request=request))
                 abort_task = asyncio.create_task(abort_event.wait())
 
-                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
 
-                if abort_task in done:
-                    request_task.cancel()
+                    if abort_task in done:
+                        request_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await request_task
+
+                        raise ConnectError("request aborted", Code.CANCELED)
+
+                    abort_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
-                        await request_task
+                        await abort_task
 
-                    raise ConnectError("request aborted", Code.CANCELED)
-
-                abort_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await abort_task
-
-                response = await request_task
+                    response = await request_task
+                finally:
+                    for task in [request_task, abort_task]:
+                        if not task.done():
+                            task.cancel()
 
         for hook in self._event_hooks["response"]:
             hook(response)
@@ -777,20 +782,25 @@ class ConnectStreamingClientConn(StreamingClientConn):
                 request_task = asyncio.create_task(self.pool.handle_async_request(request=request))
                 abort_task = asyncio.create_task(abort_event.wait())
 
-                done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    done, _ = await asyncio.wait({request_task, abort_task}, return_when=asyncio.FIRST_COMPLETED)
 
-                if abort_task in done:
-                    request_task.cancel()
+                    if abort_task in done:
+                        request_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await request_task
+
+                        raise ConnectError("request aborted", Code.CANCELED)
+
+                    abort_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
-                        await request_task
+                        await abort_task
 
-                    raise ConnectError("request aborted", Code.CANCELED)
-
-                abort_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await abort_task
-
-                response = await request_task
+                    response = await request_task
+                finally:
+                    for task in [request_task, abort_task]:
+                        if not task.done():
+                            task.cancel()
 
         for hook in self._event_hooks["response"]:
             hook(response)

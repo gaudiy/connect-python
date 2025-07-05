@@ -1,6 +1,5 @@
-"""Provides a ConnectHander class for handling connection protocols."""
+"""Provides a ConnectHandler class for handling connection protocols."""
 
-import base64
 import json
 from collections.abc import (
     AsyncIterable,
@@ -30,6 +29,7 @@ from connect.protocol import (
     exclude_protocol_headers,
     negotiate_compression,
 )
+from connect.protocol_connect.base64_utils import decode_urlsafe_base64_with_padding
 from connect.protocol_connect.constants import (
     CONNECT_HEADER_PROTOCOL_VERSION,
     CONNECT_HEADER_TIMEOUT,
@@ -173,7 +173,7 @@ class ConnectHandler(ProtocolHandler):
 
             if query_params.get(CONNECT_UNARY_BASE64_QUERY_PARAMETER) == "1":
                 message_unquoted = unquote(message)
-                decoded = base64.urlsafe_b64decode(message_unquoted + "=" * (-len(message_unquoted) % 4))
+                decoded = decode_urlsafe_base64_with_padding(message_unquoted)
             else:
                 decoded = message.encode()
 

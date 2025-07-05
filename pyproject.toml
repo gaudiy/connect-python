@@ -31,8 +31,8 @@ packages = ["src/connect"]
 [tool.hatch.version]
 path = "src/connect/version.py"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
   "mypy>=1.13.0",
   "pyright>=1.1.390",
   "pytest>=8.3.4",

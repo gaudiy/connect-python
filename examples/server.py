@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 
 import hypercorn
 import hypercorn.asyncio
-from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse, ensure_single
+from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.handler_context import HandlerContext
 from connect.middleware import ConnectMiddleware
 from starlette.applications import Starlette
@@ -36,7 +36,7 @@ class ElizaService(ElizaServiceHandler):
         self, request: StreamRequest[IntroduceRequest], _context: HandlerContext
     ) -> StreamResponse[IntroduceResponse]:
         """Introduce the Eliza service."""
-        message = await ensure_single(request.messages)
+        message = await request.single()
         name = message.name
         intros = eliza.get_intro_responses(name)
 

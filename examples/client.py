@@ -4,7 +4,7 @@ import argparse
 import asyncio
 from collections.abc import AsyncGenerator
 
-from connect.connect import StreamRequest, UnaryRequest, ensure_single
+from connect.connect import StreamRequest, UnaryRequest
 from connect.connection_pool import AsyncConnectionPool
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import IntroduceRequest, ReflectRequest, SayRequest
@@ -21,11 +21,7 @@ async def run_unary(client: ElizaServiceClient) -> None:
 
 async def run_server_streaming(client: ElizaServiceClient) -> None:
     """Run server streaming RPC (Introduce)."""
-
-    async def request_generator() -> AsyncGenerator[IntroduceRequest]:
-        yield IntroduceRequest(name="Alice")
-
-    request = StreamRequest(request_generator())
+    request = StreamRequest(IntroduceRequest(name="Alice"))
 
     message_count = 1
     async with client.Introduce(request) as response:
@@ -43,7 +39,7 @@ async def run_client_streaming(client: ElizaServiceClient) -> None:
 
     request = StreamRequest(request_generator())
     async with client.Reflect(request) as response:
-        message = await ensure_single(response.messages)
+        message = await response.single()
 
         print(f"Final response: {message.sentence}")
 

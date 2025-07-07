@@ -138,18 +138,12 @@ class RequestCommon:
 class StreamRequest[T](RequestCommon):
     """StreamRequest class represents a request that can handle streaming messages.
 
-    Attributes:
-        messages (AsyncIterable[T]): An asynchronous iterable of messages.
-        _spec (Spec): The specification for the request.
-        _peer (Peer): The peer information.
-        _headers (Headers): The request headers.
-        _method (str): The HTTP method used for the request.
-
+    This class provides a unified interface for handling both single and multiple
+    messages in streaming requests. It automatically determines the appropriate
+    method based on the stream type and usage context.
     """
 
     _messages: AsyncIterable[T]
-    # timeout: float | None
-    # abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -158,33 +152,42 @@ class StreamRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
-        # timeout: float | None = None,
-        # abort_event: asyncio.Event | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
         Args:
-            content (AsyncIterable[T] | T): The request content, which can be an async iterable or a single message.
-            spec (Spec): The specification for the request.
-            peer (Peer): The peer information.
-            headers (Mapping[str, str]): The request headers.
-            method (str): The HTTP method used for the request.
-            timeout (float): The timeout for the request.
-            abort_event (asyncio.Event): An event to signal request abortion.
-
-        Returns:
-            None
-
+            content: Either a single message or an async iterable of messages
+            spec: The specification for the request
+            peer: The peer information
+            headers: The request headers
+            method: The HTTP method used for the request
         """
         super().__init__(spec, peer, headers, method)
         self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
-        # self.timeout = timeout
-        # self.abort_event = abort_event
 
     @property
     def messages(self) -> AsyncIterable[T]:
-        """Return the request message."""
+        """Return the request messages as an async iterable.
+
+        Use this when you expect multiple messages (client streaming, bidi streaming).
+
+        Example:
+            async for message in request.messages:
+                process(message)
+        """
         return self._messages
+
+    async def single(self) -> T:
+        """Return a single message from the request.
+
+        Use this when you expect exactly one message (server-side handlers for client streaming).
+        Raises ConnectError if there are zero or multiple messages.
+
+        Example:
+            message = await request.single()
+            process(message)
+        """
+        return await ensure_single(self._messages, None)
 
 
 class UnaryRequest[T](RequestCommon):
@@ -200,8 +203,6 @@ class UnaryRequest[T](RequestCommon):
     """
 
     _message: T
-    # timeout: float | None
-    # abort_event: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -210,8 +211,6 @@ class UnaryRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
-        # timeout: float | None = None,
-        # abort_event: asyncio.Event | None = None,
     ) -> None:
         """Initialize a new Request instance.
 
@@ -230,8 +229,6 @@ class UnaryRequest[T](RequestCommon):
         """
         super().__init__(spec, peer, headers, method)
         self._message = content
-        # self.timeout = timeout
-        # self.abort_event = abort_event
 
     @property
     def message(self) -> T:
@@ -293,7 +290,12 @@ class UnaryResponse[T](ResponseCommon):
 
 
 class StreamResponse[T](ResponseCommon):
-    """Response class for handling responses."""
+    """Response class for handling streaming responses.
+
+    This class provides a unified interface for handling both single and multiple
+    messages from streaming responses. It automatically determines the appropriate
+    method based on the stream type and usage context.
+    """
 
     _messages: AsyncIterable[T]
 
@@ -303,18 +305,47 @@ class StreamResponse[T](ResponseCommon):
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
-        """Initialize the response with a message."""
+        """Initialize the response with content.
+
+        Args:
+            content: Either a single message or an async iterable of messages
+            headers: Optional response headers
+            trailers: Optional response trailers
+        """
         super().__init__(headers, trailers)
         self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
 
     @property
     def messages(self) -> AsyncIterable[T]:
-        """Return the response message."""
+        """Return the response messages as an async iterable.
+
+        Use this when you expect multiple messages (server streaming, bidi streaming).
+
+        Example:
+            async for message in response.messages:
+                print(message)
+        """
         return self._messages
+
+    async def single(self) -> T:
+        """Return a single message from the response.
+
+        Use this when you expect exactly one message (client streaming results).
+        Raises ConnectError if there are zero or multiple messages.
+
+        Example:
+            message = await response.single()
+            print(message)
+        """
+        return await ensure_single(self._messages, self._get_aclose_func())
+
+    def _get_aclose_func(self) -> Callable[[], Awaitable[None]] | None:
+        """Get the async close function for the messages stream."""
+        return get_acallable_attribute(self._messages, "aclose")
 
     async def aclose(self) -> None:
         """Asynchronously close the response stream."""
-        aclose = get_acallable_attribute(self._messages, "aclose")
+        aclose = self._get_aclose_func()
         if aclose:
             await aclose()
 

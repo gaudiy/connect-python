@@ -7,12 +7,20 @@
 import abc
 from enum import Enum
 
-from connect.client import Client
-from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from connect import (
+    Client,
+    ClientOptions,
+    ConnectOptions,
+    Handler,
+    HandlerContext,
+    IdempotencyLevel,
+    StreamRequest,
+    StreamResponse,
+    UnaryRequest,
+    UnaryResponse,
+)
 from connect.connection_pool import AsyncConnectionPool
-from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
-from connect.handler_context import HandlerContext
-from connect.options import ClientOptions, ConnectOptions
+from connect.handler import BidiStreamHandler, ClientStreamHandler, ServerStreamHandler, UnaryHandler
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2
@@ -92,7 +100,7 @@ def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectO
             unary=service.Say,
             input=SayRequest,
             output=SayResponse,
-            options=options,
+            options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
         ),
         BidiStreamHandler(
             procedure=ElizaServiceProcedures.Converse.value,

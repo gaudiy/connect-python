@@ -22,8 +22,8 @@ from connect.connect import (
     StreamType,
     UnaryRequest,
     UnaryResponse,
-    recieve_stream_response,
-    recieve_unary_response,
+    receive_stream_response,
+    receive_unary_response,
 )
 from connect.connection_pool import AsyncConnectionPool
 from connect.error import ConnectError
@@ -244,7 +244,7 @@ class Client[T_Request, T_Response]:
 
             await conn.send(aiterate([request.message]), call_options.timeout, abort_event=call_options.abort_event)
 
-            response = await recieve_unary_response(conn=conn, t=output, abort_event=call_options.abort_event)
+            response = await receive_unary_response(conn=conn, t=output, abort_event=call_options.abort_event)
             return response
 
         unary_func = apply_interceptors(_unary_func, options.interceptors)
@@ -290,7 +290,7 @@ class Client[T_Request, T_Response]:
 
             await conn.send(request.messages, call_options.timeout, call_options.abort_event)
 
-            response = await recieve_stream_response(conn, output, request.spec, call_options.abort_event)
+            response = await receive_stream_response(conn, output, request.spec, call_options.abort_event)
             return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)

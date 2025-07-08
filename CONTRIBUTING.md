@@ -9,7 +9,7 @@ Thank you for contributing to connect-py! Please read the [Contributor License A
 
 **Setup:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/connect-py.git
+git clone https://github.com/YOUR_USERNAME/connect-python.git
 cd connect-py
 uv sync
 

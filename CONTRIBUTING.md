@@ -1,6 +1,6 @@
 # Contributing to Connect Python
 
-Thank you for contributing to connect-python! Please read the [Contributor License Agreement (CLA)](https://site.gaudiy.com/contributor-license-agreement) before submitting any contributions.
+Thank you for contributing to connect-py! Please read the [Contributor License Agreement (CLA)](https://site.gaudiy.com/contributor-license-agreement) before submitting any contributions.
 
 ## Development Setup
 
@@ -9,8 +9,8 @@ Thank you for contributing to connect-python! Please read the [Contributor Licen
 
 **Setup:**
 ```bash
-git clone https://github.com/YOUR_USERNAME/connect-python.git
-cd connect-python
+git clone https://github.com/YOUR_USERNAME/connect-py.git
+cd connect-py
 uv sync
 
 go build -o ./bin/protoc-gen-connect-python -v -x ./cmd/protoc-gen-connect-python

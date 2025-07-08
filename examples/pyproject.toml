@@ -1,18 +1,18 @@
 [project]
-name = "connect-python-examples"
+name = "connect-py-examples"
 description = "The Python implementation of Connect: Protobuf RPC that works."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 authors = [{ name = "tsubakiky", email = "salovers1205@gmail.com" }]
 requires-python = ">=3.13"
 version = "0.1.0"
-dependencies = ["connect-python", "hypercorn"]
+dependencies = ["connect-py", "hypercorn"]
 
 [tool.uv]
 dev-dependencies = ["mypy>=1.13.0", "pyright>=1.1.390", "ruff>=0.8.2"]
 
 [tool.uv.sources]
-connect-python = { path = "../" }
+connect-py = { path = "../" }
 hypercorn = { git = "https://github.com/tsubakiky/hypercorn" }
 
 [tool.ruff]

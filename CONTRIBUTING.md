@@ -13,7 +13,6 @@ git clone https://github.com/YOUR_USERNAME/connect-python.git
 cd connect-python
 uv sync
 
-pip install git+https://github.com/tsubakiky/hypercorn.git
 go build -o ./bin/protoc-gen-connect-python -v -x ./cmd/protoc-gen-connect-python
 ```
 
@@ -52,16 +51,3 @@ go build -o ./bin/protoc-gen-connect-python -v -x ./cmd/protoc-gen-connect-pytho
 - Write tests and update docs
 - Keep changes focused (one feature per PR)
 - Ensure CI passes
-
-## Important Notes
-
-> [!IMPORTANT]
-> Uses forked `httpcore` (auto-configured) and `hypercorn` (manual install) for gRPC trailer support.
-
-**Protocol Support:** Ensure compatibility with Connect, gRPC, and gRPC-Web protocols.
-
-**Streaming:** Currently supports half-duplex bidirectional streaming only.
-
-## Contributor License Agreement
-
-By submitting contributions, you agree to the [CLA](https://site.gaudiy.com/contributor-license-agreement) terms and conditions.

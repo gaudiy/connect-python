@@ -1,7 +1,5 @@
 # Connect Python
 
-> The Python implementation of Connect: Protobuf RPC that works.
-
 Connect is a simple, reliable, and interoperable RPC framework that combines the best of gRPC and REST. This Python implementation provides a clean, efficient way to build type-safe APIs with Protocol Buffers while maintaining excellent compatibility with existing HTTP infrastructure.
 
 ## Key Features
@@ -193,9 +191,9 @@ For most use cases, half-duplex streaming is sufficient. If you need full-duplex
 ## Multi-Protocol Support
 
 One server handles all client types:
+- **Connect**: HTTP-friendly with standard tooling
 - **gRPC**: Full compatibility with existing implementations
 - **gRPC-Web**: Direct browser support, no proxy needed
-- **Connect**: HTTP-friendly with standard tooling
 - **Plain HTTP**: POST for RPCs, GET for read-only calls
 
 ## Examples

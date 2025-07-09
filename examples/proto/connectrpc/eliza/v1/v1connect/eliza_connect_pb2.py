@@ -58,7 +58,7 @@ class ElizaServiceClient:
         base_url = base_url.removesuffix("/")
 
         self.Say = Client[SayRequest, SayResponse](
-            pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
+            pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True).merge(options)
         ).call_unary
         self.Converse = Client[ConverseRequest, ConverseResponse](
             pool, base_url + ElizaServiceProcedures.Converse.value, ConverseRequest, ConverseResponse, options

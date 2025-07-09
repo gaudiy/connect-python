@@ -23,7 +23,7 @@ from connect.handler_context import HandlerContext
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
 from connect.middleware import ConnectMiddleware
-from connect.options import ClientOptions, ConnectOptions
+from connect.options import ClientOptions, HandlerOptions
 from connect.protocol import Protocol
 from connect.request import Request
 from connect.response import Response as HTTPResponse
@@ -43,7 +43,7 @@ __all__ = [
     "Compression",
     "ConnectError",
     "ConnectMiddleware",
-    "ConnectOptions",
+    "HandlerOptions",
     "GZipCompression",
     "Handler",
     "HandlerContext",

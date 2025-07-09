@@ -10,7 +10,7 @@ from connect.client import Client
 import connect.connect
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler, BidiStreamHandler
 from connect.handler_context import HandlerContext
-from connect.options import ClientOptions, ConnectOptions
+from connect.options import ClientOptions, HandlerOptions
 from connect.connection_pool import AsyncConnectionPool
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 from connect.idempotency_level import IdempotencyLevel
@@ -86,7 +86,7 @@ class ConformanceServiceHandler:
         raise NotImplementedError()
 
 
-def create_ConformanceService_handlers(service: ConformanceServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+def create_ConformanceService_handlers(service: ConformanceServiceHandler, options: HandlerOptions | None = None) -> list[Handler]:
     handlers = [
         UnaryHandler(
             procedure=ConformanceServiceProcedures.Unary.value,
@@ -128,7 +128,7 @@ def create_ConformanceService_handlers(service: ConformanceServiceHandler, optio
             unary=service.IdempotentUnary,
             input=IdempotentUnaryRequest,
             output=IdempotentUnaryResponse,
-            options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
+            options=HandlerOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
         ),
     ]
     return handlers

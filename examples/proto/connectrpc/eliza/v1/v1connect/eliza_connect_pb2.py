@@ -10,9 +10,9 @@ from enum import Enum
 from connect import (
     Client,
     ClientOptions,
-    ConnectOptions,
     Handler,
     HandlerContext,
+    HandlerOptions,
     IdempotencyLevel,
     StreamRequest,
     StreamResponse,
@@ -93,14 +93,14 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
         raise NotImplementedError()
 
 
-def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+def create_ElizaService_handlers(service: ElizaServiceHandler, options: HandlerOptions | None = None) -> list[Handler]:
     handlers = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
             unary=service.Say,
             input=SayRequest,
             output=SayResponse,
-            options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
+            options=HandlerOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
         ),
         BidiStreamHandler(
             procedure=ElizaServiceProcedures.Converse.value,

@@ -9,22 +9,25 @@ from connect.handler_interceptor import HandlerInterceptor
 from connect.idempotency_level import IdempotencyLevel
 
 
-class ConnectOptions(BaseModel):
-    """Configuration options for a Connect RPC client or handler.
+class HandlerOptions(BaseModel):
+    """Configuration options for a handler.
 
-    This class encapsulates various settings that control the behavior of Connect
-    protocol operations. It is used to configure interceptors, RPC-specific details,
-    and data handling limits.
+    This class encapsulates various settings that control the behavior of a handler
+    in the Connect protocol implementation. It allows for customization of interceptors,
+    protocol requirements, and data handling limits.
 
     Attributes:
         interceptors (list[HandlerInterceptor]): A list of interceptors to apply to the handler.
         descriptor (Any): The descriptor for the RPC method.
         idempotency_level (IdempotencyLevel): The idempotency level of the RPC method.
         require_connect_protocol_header (bool): A boolean indicating whether requests
-            using the Connect protocol should include the header.
-        compress_min_bytes (int): The minimum number of bytes to compress.
-        read_max_bytes (int): The maximum number of bytes to read.
-        send_max_bytes (int): The maximum number of bytes to send.
+            using the Connect protocol should include the protocol version header.
+        compress_min_bytes (int): The minimum number of bytes for a response to be
+            eligible for compression. A value of -1 disables compression.
+        read_max_bytes (int): The maximum number of bytes to read from a request body.
+            A value of -1 indicates no limit.
+        send_max_bytes (int): The maximum number of bytes to send in a response body.
+            A value of -1 indicates no limit.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -50,26 +53,19 @@ class ConnectOptions(BaseModel):
     send_max_bytes: int = Field(default=-1)
     """The maximum number of bytes to send."""
 
-    def merge(self, override_options: "ConnectOptions | None" = None) -> "ConnectOptions":
-        """Merges the current options with override options to create a new instance.
+    def merge(self, override_options: "HandlerOptions | None" = None) -> "HandlerOptions":
+        """Merges this HandlerOptions instance with another, creating a new instance.
 
-        This method combines the settings from the current `ConnectOptions` object
-        with another `ConnectOptions` object provided as an override. The values
-        from the `override_options` will take precedence over the values in the
-        current object. Only the fields that were explicitly set in the
-        `override_options` object are used for merging.
-
-        If `override_options` is None, the method returns the current instance
-        without any changes.
+        The values from the `override_options` will take precedence over the
+        values in the current instance. Only the fields that are explicitly set
+        in `override_options` are used for the merge.
 
         Args:
-            override_options (ConnectOptions | None, optional):
-                The options object whose explicitly set values will override the
-                current options. Defaults to None.
+            override_options: An optional HandlerOptions object to merge with.
 
         Returns:
-            ConnectOptions: A new `ConnectOptions` instance containing the merged
-                options, or the original instance if `override_options` is None.
+            A new HandlerOptions instance with the merged options. If
+            `override_options` is None, the original instance is returned.
         """
         if override_options is None:
             return self
@@ -78,11 +74,11 @@ class ConnectOptions(BaseModel):
         explicit_overrides = override_options.model_dump(exclude_unset=True)
         merged_data.update(explicit_overrides)
 
-        return ConnectOptions(**merged_data)
+        return HandlerOptions(**merged_data)
 
 
 class ClientOptions(BaseModel):
-    """Configuration options for a Connect client.
+    """Configuration options for a client.
 
     This class holds settings that control the behavior of client-side RPC calls,
     such as interceptors, compression, and protocol-specific details.

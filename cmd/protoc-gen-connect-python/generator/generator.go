@@ -180,7 +180,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		p.P(`from connect import (`)
 		p.P(`    Client,`)
 		p.P(`    ClientOptions,`)
-		p.P(`    ConnectOptions,`)
+		p.P(`    HandlerOptions,`)
 		p.P(`    Handler,`)
 		p.P(`    HandlerContext,`)
 		p.P(`    IdempotencyLevel,`)
@@ -307,7 +307,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		}
 		p.P()
 		p.P()
-		p.P(`def create_`, upperSvcName, `_handlers`, `(`, `service: `, handler, `, options: ConnectOptions | None = None`, `) -> list[Handler]:`)
+		p.P(`def create_`, upperSvcName, `_handlers`, `(`, `service: `, handler, `, options: HandlerOptions | None = None`, `) -> list[Handler]:`)
 		p.P(`    handlers = [`)
 		for _, meth := range sortedMap(p.services) {
 			svc := p.services[meth]
@@ -339,7 +339,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 				p.P(`            output=`, svc.output.method, `,`)
 				if options := meth.Options; options != nil {
 					if desc, ok := options.(*descriptorpb.MethodOptions); ok && desc.GetIdempotencyLevel() != descriptorpb.MethodOptions_IDEMPOTENCY_UNKNOWN {
-						p.P(`            options=ConnectOptions(idempotency_level=IdempotencyLevel.`, desc.GetIdempotencyLevel().String(), `).merge(options),`)
+						p.P(`            options=HandlerOptions(idempotency_level=IdempotencyLevel.`, desc.GetIdempotencyLevel().String(), `).merge(options),`)
 					} else {
 						p.P(`            options=options,`)
 					}

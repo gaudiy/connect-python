@@ -20,7 +20,7 @@ from yarl import URL
 
 from connect.envelope import Envelope, EnvelopeFlags
 from connect.middleware import ConnectMiddleware
-from connect.options import ConnectOptions
+from connect.options import HandlerOptions
 from tests.testdata.ping.v1.ping_pb2 import PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import (
     PingService_service_descriptor,
@@ -240,14 +240,14 @@ class AsyncClient:
     service: PingServiceHandler
     client: AsyncTestClient
 
-    def __init__(self, service: PingServiceHandler, options: ConnectOptions | None = None) -> None:
+    def __init__(self, service: PingServiceHandler, options: HandlerOptions | None = None) -> None:
         self.service = service
         self.options = options
 
     async def __aenter__(self) -> AsyncTestClient:
         assert isinstance(self.service, PingServiceHandler)
 
-        options = self.options or ConnectOptions()
+        options = self.options or HandlerOptions()
         options.descriptor = PingService_service_descriptor
 
         middleware = [

@@ -27,7 +27,7 @@ from connect.handler_context import HandlerContext
 from connect.handler_interceptor import apply_interceptors
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.options import ConnectOptions
+from connect.options import HandlerOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
@@ -80,13 +80,13 @@ class HandlerConfig:
     require_connect_protocol_header: bool
     idempotency_level: IdempotencyLevel
 
-    def __init__(self, procedure: str, stream_type: StreamType, options: ConnectOptions):
+    def __init__(self, procedure: str, stream_type: StreamType, options: HandlerOptions):
         """Initialize a new handler instance with the specified procedure, stream type, and options.
 
         Args:
             procedure (str): The name of the procedure to handle.
             stream_type (StreamType): The type of stream (e.g., unary, server streaming, etc.).
-            options (ConnectOptions): Configuration options for the handler, including descriptor, compression, and protocol settings.
+            options (HandlerOptions): Configuration options for the handler, including descriptor, compression, and protocol settings.
 
         """
         self.procedure = procedure
@@ -371,7 +371,7 @@ class UnaryHandler[T_Request, T_Response](Handler):
         unary: UnaryFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
         """Initialize a handler for a unary RPC procedure.
 
@@ -380,12 +380,12 @@ class UnaryHandler[T_Request, T_Response](Handler):
             unary (UnaryFunc[T_Request, T_Response]): The asynchronous function implementing the unary RPC logic.
             input (type[T_Request]): The expected input type for the request.
             output (type[T_Response]): The expected output type for the response.
-            options (ConnectOptions | None, optional): Optional configuration for the handler, such as interceptors. Defaults to None.
+            options (HandlerOptions | None, optional): Optional configuration for the handler, such as interceptors. Defaults to None.
 
         Calls the superclass initializer with the configured protocol handlers and method options.
 
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
 
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
         protocol_handlers = create_protocol_handlers(config)
@@ -459,7 +459,7 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
         """Initialize a server-streaming handler for a given procedure.
 
@@ -468,13 +468,13 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
             stream (StreamFunc[T_Request, T_Response]): The asynchronous stream function handling the server-streaming logic.
             input (type[T_Request]): The expected request message type.
             output (type[T_Response]): The expected response message type.
-            options (ConnectOptions | None, optional): Additional configuration options for the handler. Defaults to None.
+            options (HandlerOptions | None, optional): Additional configuration options for the handler. Defaults to None.
 
         Raises:
             Any exceptions raised by the parent class initializer.
 
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ServerStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
@@ -550,7 +550,7 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
         """Initialize a handler for a client-streaming RPC procedure.
 
@@ -559,13 +559,13 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
             stream (StreamFunc[T_Request, T_Response]): The asynchronous stream function handling the client-streaming logic.
             input (type[T_Request]): The expected input message type.
             output (type[T_Response]): The expected output message type.
-            options (ConnectOptions | None, optional): Additional configuration options for the handler. Defaults to None.
+            options (HandlerOptions | None, optional): Additional configuration options for the handler. Defaults to None.
 
         Raises:
             Any exceptions raised by the parent class initializer or protocol handler creation.
 
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ClientStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
@@ -643,7 +643,7 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
         """Initialize a handler for a bidirectional streaming procedure.
 
@@ -652,13 +652,13 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
             stream (StreamFunc[T_Request, T_Response]): The asynchronous stream function handling requests and responses.
             input (type[T_Request]): The expected input type for requests.
             output (type[T_Response]): The expected output type for responses.
-            options (ConnectOptions | None, optional): Configuration options for the handler. Defaults to None.
+            options (HandlerOptions | None, optional): Configuration options for the handler. Defaults to None.
 
         Raises:
             Any exceptions raised by the parent class initializer.
 
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.BiDiStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 

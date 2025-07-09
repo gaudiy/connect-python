@@ -10,7 +10,7 @@ Thank you for contributing to connect-py! Please read the [Contributor License A
 **Setup:**
 ```bash
 git clone https://github.com/YOUR_USERNAME/connect-python.git
-cd connect-py
+cd connect-python
 uv sync
 
 go build -o ./bin/protoc-gen-connect-python -v -x ./cmd/protoc-gen-connect-python

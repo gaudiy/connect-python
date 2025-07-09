@@ -1,4 +1,4 @@
-"""gRPC client implementation for Connect-Python, supporting async streaming and HTTP/2 communication."""
+"""gRPC protocol client implementation for asynchronous Python clients."""
 
 import asyncio
 import contextlib
@@ -49,13 +49,25 @@ EventHook = Callable[..., Any]
 
 
 class GRPCClient(ProtocolClient):
-    """GRPCClient is a protocol client implementation for gRPC communication, supporting both standard and web environments.
+    """GRPCClient is a gRPC protocol client implementation that manages connection parameters, peer association, and request header configuration for gRPC or HTTP/2 communication. It supports both standard and web environments, handling codec selection, compression negotiation, and header mutation for outgoing requests.
 
     Attributes:
-        params (ProtocolClientParams): Configuration parameters for the protocol client, including codec, compression, pool, and URL.
+        params (ProtocolClientParams): Configuration parameters for the protocol client, including codec, compression, and connection pool.
         _peer (Peer): The peer instance associated with this client, representing the remote endpoint.
-        web (bool): Indicates whether the client is running in a web environment, affecting header and content-type handling.
+        web (bool): Indicates if the client operates in a web environment, affecting header and content-type handling.
 
+    Methods:
+        __init__(params: ProtocolClientParams, peer: Peer, web: bool) -> None:
+            Initializes the GRPCClient with the provided parameters, peer, and environment flag.
+
+        peer -> Peer:
+            Returns the associated Peer object.
+
+        write_request_headers(_: StreamType, headers: Headers) -> None:
+            Modifies the provided headers dictionary in place to ensure compliance with gRPC protocol requirements, including user agent, content type, compression, and environment-specific headers.
+
+        conn(spec: Spec, headers: Headers) -> StreamingClientConn:
+            Creates and returns a configured GRPCClientConn instance for the specified protocol/service specification and request headers, initializing marshaling and unmarshaling logic with appropriate codecs and compression settings.
     """
 
     params: ProtocolClientParams
@@ -63,13 +75,12 @@ class GRPCClient(ProtocolClient):
     web: bool
 
     def __init__(self, params: ProtocolClientParams, peer: Peer, web: bool) -> None:
-        """Initialize the ProtocolClient with the given parameters.
+        """Initializes the gRPC client with the given parameters.
 
         Args:
             params (ProtocolClientParams): The parameters for the protocol client.
-            peer (Peer): The peer instance to be used.
+            peer (Peer): The peer instance to connect to.
             web (bool): Indicates whether the client is running in a web environment.
-
         """
         self.params = params
         self._peer = peer
@@ -77,33 +88,34 @@ class GRPCClient(ProtocolClient):
 
     @property
     def peer(self) -> Peer:
-        """Returns the associated Peer object.
+        """Returns the associated Peer object for this client.
 
         Returns:
-            Peer: The peer instance associated with this object.
-
+            Peer: The peer instance representing the remote endpoint.
         """
         return self._peer
 
     def write_request_headers(self, _: StreamType, headers: Headers) -> None:
-        """Set and modifies HTTP/2 or gRPC request headers based on the stream type, connection parameters, and environment.
+        """Sets and modifies HTTP/2 or gRPC-specific headers for an outgoing request.
+
+        This method ensures that required headers such as `User-Agent`, `Content-Type`, and compression-related headers
+        are present and correctly set based on the client's configuration and the request context.
 
         Args:
-            stream_type (StreamType): The type of stream for which headers are being written.
-            headers (Headers): The dictionary of headers to be modified or populated.
+            _ (StreamType): The stream associated with the request (unused in this method).
+            headers (Headers): The dictionary of HTTP headers to be modified in-place.
 
         Behavior:
-            - Ensures the 'User-Agent' header is set to the default gRPC user agent if not already present.
-            - If running in a web environment, also sets the 'X-User-Agent' header.
-            - Sets the 'Content-Type' header according to the codec name and environment.
-            - Sets the 'Accept-Encoding' header to indicate supported compression.
-            - If a specific compression is configured and is not the identity, sets the gRPC compression header.
-            - If multiple compressions are supported, sets the gRPC accept compression header with the supported values.
-            - For non-web environments, adds the 'Te: trailers' header required for gRPC.
+            - Sets a default `User-Agent` header if not already present.
+            - For web clients, sets an additional `X-User-Agent` header if not present.
+            - Sets the `Content-Type` header based on the codec and web mode.
+            - Sets the `Accept-Encoding` header to indicate supported compression.
+            - If a specific compression is configured, sets the corresponding gRPC compression header.
+            - If multiple compressions are supported, sets the `Accept-Encoding` header accordingly.
+            - For non-web clients, adds the `Te: trailers` header as required by gRPC.
 
-        Note:
-            This method mutates the provided headers dictionary in place.
-
+        Returns:
+            None
         """
         if headers.get(HEADER_USER_AGENT, None) is None:
             headers[HEADER_USER_AGENT] = DEFAULT_GRPC_USER_AGENT
@@ -124,19 +136,14 @@ class GRPCClient(ProtocolClient):
             headers["Te"] = "trailers"
 
     def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
-        """Create and returns a GRPCClientConn instance configured with the provided specification and headers.
+        """Creates and returns a GRPCClientConn instance configured with the provided specification and headers.
 
         Args:
-            spec (Spec): The specification object defining the protocol or service interface.
-            headers (Headers): The request headers to include in the connection.
+            spec (Spec): The specification object defining the gRPC method and message types.
+            headers (Headers): The request headers to include in the gRPC call.
 
         Returns:
-            StreamingClientConn: An initialized gRPC streaming client connection.
-
-        Details:
-            - Configures the connection with parameters such as pool, peer, URL, codec, and compression settings.
-            - Initializes GRPCMarshaler and GRPCUnmarshaler with appropriate codecs and limits.
-            - Compression is determined using the provided compression name and available compressions.
+            StreamingClientConn: An instance of GRPCClientConn configured for streaming communication.
 
         """
         return GRPCClientConn(
@@ -163,24 +170,24 @@ class GRPCClient(ProtocolClient):
 
 
 class GRPCClientConn(StreamingClientConn):
-    """GRPCClientConn is a gRPC client connection implementation supporting asynchronous streaming requests and responses over HTTP/2.
+    """GRPCClientConn manages a gRPC client connection over HTTP/2, supporting streaming, compression, and custom codecs.
 
-    This class manages the lifecycle of a gRPC client connection, including marshaling and unmarshaling messages, handling request and response headers/trailers, managing compression, and supporting event hooks for request/response events. It integrates with an asynchronous HTTP client connection pool and supports cancellation via asyncio events.
+    This class is responsible for sending and receiving gRPC messages asynchronously, handling request/response headers and trailers, managing connection pooling, and supporting event hooks for request and response lifecycle events. It abstracts the details of HTTP/2 transport and gRPC protocol compliance, including marshaling/unmarshaling messages, applying compression, and error handling.
 
     Attributes:
-        pool (AsyncConnectionPool): The asynchronous connection pool for managing HTTP/2 connections.
-        _spec (Spec): The protocol or API specification.
-        _peer (Peer): Information about the remote peer.
-        url (URL): The endpoint URL for the connection.
-        codec (Codec | None): Codec for encoding/decoding messages.
-        compressions (list[Compression]): Supported compression algorithms.
-        marshaler (GRPCMarshaler): Marshaler for serializing messages.
-        unmarshaler (GRPCUnmarshaler): Unmarshaler for deserializing messages.
-        _response_headers (Headers): HTTP response headers.
-        _response_trailers (Headers): HTTP response trailers.
-        _request_headers (Headers): HTTP request headers.
+        web (bool): Indicates if the connection is for a web environment.
+        pool (AsyncConnectionPool): The connection pool for managing HTTP/2 connections.
+        _spec (Spec): The specification object describing the protocol or API.
+        _peer (Peer): The peer information for the connection.
+        url (URL): The URL endpoint for the connection.
+        codec (Codec | None): The codec to use for encoding/decoding messages, or None.
+        compressions (list[Compression]): List of supported compression algorithms.
+        marshaler (GRPCMarshaler): The marshaler for serializing messages.
+        unmarshaler (GRPCUnmarshaler): The unmarshaler for deserializing messages.
+        _response_headers (Headers): Stores response headers.
+        _response_trailers (Headers): Stores response trailers.
+        _request_headers (Headers): Stores request headers.
         receive_trailers (Callable[[], None] | None): Callback to receive trailers after response.
-
     """
 
     web: bool
@@ -211,21 +218,20 @@ class GRPCClientConn(StreamingClientConn):
         unmarshaler: GRPCUnmarshaler,
         event_hooks: None | (Mapping[str, list[EventHook]]) = None,
     ) -> None:
-        """Initialize a new instance of the class.
+        """Initializes a new instance of the gRPC client.
 
         Args:
-            web (bool): Indicates if the connection is for a web environment.
-            pool (AsyncConnectionPool): The connection pool for managing HTTP/2 connections.
-            spec (Spec): The specification object describing the protocol or API.
+            web (bool): Indicates if the client is running in a web environment.
+            pool (AsyncConnectionPool): The asynchronous connection pool to use for connections.
+            spec (Spec): The service specification.
             peer (Peer): The peer information for the connection.
-            url (URL): The URL endpoint for the connection.
-            codec (Codec | None): The codec to use for encoding/decoding messages, or None.
+            url (URL): The URL of the gRPC server.
+            codec (Codec | None): The codec to use for message serialization, or None.
             compressions (list[Compression]): List of supported compression algorithms.
-            request_headers (Headers): Headers to include in outgoing requests.
-            marshaler (GRPCMarshaler): The marshaler for serializing messages.
-            unmarshaler (GRPCUnmarshaler): The unmarshaler for deserializing messages.
-            event_hooks (None | Mapping[str, list[EventHook]], optional): Optional mapping of event hooks for "request" and "response" events. Defaults to None.
-
+            request_headers (Headers): Headers to include in each request.
+            marshaler (GRPCMarshaler): The marshaler for serializing requests.
+            unmarshaler (GRPCUnmarshaler): The unmarshaler for deserializing responses.
+            event_hooks (None | Mapping[str, list[EventHook]], optional): Optional mapping of event hooks for "request" and "response" events.
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
@@ -249,12 +255,20 @@ class GRPCClientConn(StreamingClientConn):
 
     @property
     def spec(self) -> Spec:
-        """Return the specification details."""
+        """Returns the specification object associated with this client.
+
+        Returns:
+            Spec: The specification instance used by the client.
+        """
         return self._spec
 
     @property
     def peer(self) -> Peer:
-        """Return the peer information."""
+        """Returns the current Peer instance associated with this client.
+
+        Returns:
+            Peer: The peer instance representing the remote endpoint for this client.
+        """
         return self._peer
 
     async def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
@@ -314,26 +328,31 @@ class GRPCClientConn(StreamingClientConn):
 
     @property
     def request_headers(self) -> Headers:
-        """Return the request headers."""
+        """Returns the headers to be included in the gRPC request.
+
+        Returns:
+            Headers: The headers used for the gRPC request.
+        """
         return self._request_headers
 
     async def send(
         self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
-        """Send a gRPC request asynchronously using HTTP/2 via httpcore, handling streaming messages, timeouts, and abort events.
+        """Sends a gRPC request asynchronously using HTTP/2 via httpcore.
 
         Args:
             messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled and sent as the request body.
             timeout (float | None): Optional timeout in seconds for the request. If provided, sets the gRPC timeout header.
-            abort_event (asyncio.Event | None): Optional asyncio event that, if set, will abort the request and raise a cancellation error.
+            abort_event (asyncio.Event | None): Optional asyncio event that, when set, aborts the request.
 
         Raises:
-            ConnectError: If the request is aborted before or during execution, or if an error occurs during the HTTP request.
+            ConnectError: If the request is aborted via the abort_event.
+            Exception: Propagates exceptions raised by the underlying HTTP client or marshaling/unmarshaling logic.
 
         Side Effects:
             - Invokes registered request and response event hooks.
-            - Sets up the response stream and trailers for further processing.
-            - Validates the HTTP response.
+            - Sets up the response stream for unmarshaling.
+            - Validates the response after receiving it.
 
         """
         extensions = {}
@@ -421,54 +440,59 @@ class GRPCClientConn(StreamingClientConn):
 
     @property
     def response_headers(self) -> Headers:
-        """Return the response headers."""
+        """Returns the headers received in the response.
+
+        Returns:
+            Headers: The response headers.
+        """
         return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
-        """Return response trailers."""
+        """Returns the response trailers as headers.
+
+        Returns:
+            Headers: The response trailers received from the gRPC call.
+        """
         return self._response_trailers
 
     def on_request_send(self, fn: EventHook) -> None:
-        """Register a callback function to be invoked when a request is sent.
+        """Registers a callback function to be invoked when a request is sent.
 
         Args:
             fn (EventHook): The callback function to be added to the "request" event hook.
 
         Returns:
             None
-
         """
         self._event_hooks["request"].append(fn)
 
     async def aclose(self) -> None:
-        """Asynchronously closes the underlying unmarshaler resource.
+        """Asynchronously closes the resources associated with the client.
 
-        This method should be called to properly release any resources held by the unmarshaler,
-        such as open network connections or file handles, when they are no longer needed.
+        This method ensures that any resources held by the `unmarshaler` are properly released.
+        It should be called when the client is no longer needed to avoid resource leaks.
         """
         await self.unmarshaler.aclose()
 
 
 def grpc_encode_timeout(timeout: float) -> str:
-    """Encode a timeout value (in seconds) into the gRPC timeout format string.
+    """Encodes a timeout value (in seconds) into a gRPC-compatible timeout string.
 
-    The gRPC timeout format is a decimal number with a time unit suffix, where the unit can be:
-        - 'H' for hours
-        - 'M' for minutes
-        - 'S' for seconds
-        - 'm' for milliseconds
-        - 'u' for microseconds
-        - 'n' for nanoseconds
-
-    If the timeout is less than or equal to zero, returns "0n".
+    The gRPC protocol requires timeout values to be specified as a string with a numeric value and a unit suffix.
+    This function converts a floating-point timeout (in seconds) into the appropriate string format, choosing the
+    largest unit possible without exceeding the maximum value allowed for that unit.
 
     Args:
         timeout (float): The timeout value in seconds.
 
     Returns:
-        str: The timeout encoded as a gRPC timeout string.
+        str: The timeout encoded as a gRPC timeout string (e.g., "10S", "500m", "0n").
 
+    Notes:
+        - If the timeout is less than or equal to zero, "0n" is returned.
+        - The function uses predefined unit-to-seconds mappings and a maximum value per unit.
+        - If the timeout exceeds all unit ranges, it is encoded in hours ("H").
     """
     if timeout <= 0:
         return "0n"

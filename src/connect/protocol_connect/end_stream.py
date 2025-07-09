@@ -1,4 +1,4 @@
-"""Module for handling end-of-stream JSON serialization and deserialization for Connect protocol."""
+"""Helpers for serializing and deserializing Connect end-of-stream messages."""
 
 import json
 from typing import Any
@@ -10,15 +10,14 @@ from connect.protocol_connect.error_json import error_from_json, error_to_json
 
 
 def end_stream_to_json(error: ConnectError | None, trailers: Headers) -> dict[str, Any]:
-    """Convert the end of a stream to a JSON-serializable dictionary.
+    """Converts the end-of-stream state, including an optional error and trailers, into a JSON-serializable dictionary.
 
     Args:
-        error (ConnectError | None): An optional error object that may contain metadata.
-        trailers (Headers): Headers object containing metadata.
+        error (ConnectError | None): An optional error object representing the stream error, if any.
+        trailers (Headers): The headers (trailers) to include as metadata in the JSON output.
 
     Returns:
-        dict[str, Any]: A dictionary containing the error and metadata information in JSON-serializable format.
-
+        dict[str, Any]: A dictionary containing the serialized error (if present) and metadata extracted from the trailers.
     """
     json_obj = {}
 
@@ -34,18 +33,16 @@ def end_stream_to_json(error: ConnectError | None, trailers: Headers) -> dict[st
 
 
 def end_stream_from_bytes(data: bytes) -> tuple[ConnectError | None, Headers]:
-    """Parse a byte stream to extract metadata and error information.
+    """Parses a byte string representing an end stream message and returns a tuple containing a possible ConnectError and Headers.
 
     Args:
-        data (bytes): The byte stream to be parsed.
+        data (bytes): The byte string to parse, expected to be a JSON-encoded object.
 
     Returns:
-        tuple[ConnectError | None, Headers]: A tuple containing an optional ConnectError
-        and a Headers object with the parsed metadata.
+        tuple[ConnectError | None, Headers]: A tuple where the first element is a ConnectError if an error is present in the input, or None otherwise; the second element is a Headers object containing parsed metadata.
 
     Raises:
-        ConnectError: If the byte stream is invalid or the metadata format is incorrect.
-
+        ConnectError: If the input data is not valid JSON, or if the metadata format is invalid.
     """
     parse_error = ConnectError("invalid end stream", Code.UNKNOWN)
     try:

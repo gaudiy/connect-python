@@ -1,4 +1,4 @@
-"""Protocol implementation for handling gRPC and gRPC-Web requests."""
+"""gRPC and gRPC-Web protocol implementation for Connect framework."""
 
 from connect.codec import CodecNameType
 from connect.connect import (
@@ -25,24 +25,37 @@ from connect.protocol_grpc.grpc_handler import GRPCHandler
 
 
 class ProtocolGRPC(Protocol):
-    """ProtocolGRPC is a protocol implementation for handling gRPC and gRPC-Web requests.
+    """ProtocolGRPC is a protocol implementation for handling gRPC and gRPC-Web communication.
+
+    This class provides methods to create protocol handlers and clients that are configured
+    for either standard gRPC or gRPC-Web, depending on the `web` flag provided at initialization.
 
     Attributes:
-        web (bool): Indicates whether to use gRPC-Web (True) or standard gRPC (False).
+        web (bool): Indicates whether the protocol instance is configured for gRPC-Web.
 
+    Methods:
+        __init__(web: bool) -> None:
+            Initializes the ProtocolGRPC instance, setting the mode to gRPC or gRPC-Web.
+
+        handler(params: ProtocolHandlerParams) -> ProtocolHandler:
+            Creates and returns a GRPCHandler instance with content types determined by the codecs
+            and the protocol mode (gRPC or gRPC-Web).
+
+        client(params: ProtocolClientParams) -> ProtocolClient:
+            Creates and returns a GRPCClient instance, configuring the peer protocol and address
+            based on the provided parameters and the protocol mode.
     """
 
     def __init__(self, web: bool) -> None:
-        """Initialize the instance.
+        """Initializes the instance with the specified web mode.
 
         Args:
-            web (bool): Indicates whether the instance is for web usage.
-
+            web (bool): Indicates whether to use web mode.
         """
         self.web = web
 
     def handler(self, params: ProtocolHandlerParams) -> ProtocolHandler:
-        """Create and returns a GRPCHandler instance configured with appropriate content types based on the provided parameters.
+        """Creates and returns a GRPCHandler instance configured with appropriate content types based on the provided parameters.
 
         Args:
             params (ProtocolHandlerParams): The parameters containing codec information and other handler configuration.
@@ -53,9 +66,8 @@ class ProtocolGRPC(Protocol):
         Behavior:
             - Determines the default and prefix content types based on whether gRPC-Web is enabled.
             - Constructs a list of supported content types from the available codecs.
-            - Adds the bare content type if the PROTO codec is present.
+            - Adds the bare content type if the 'proto' codec is present.
             - Returns a GRPCHandler with the computed content types.
-
         """
         bare, prefix = GRPC_CONTENT_TYPE_DEFAULT, GRPC_CONTENT_TYPE_PREFIX
         if self.web:
@@ -71,14 +83,17 @@ class ProtocolGRPC(Protocol):
         return GRPCHandler(params, self.web, content_types)
 
     def client(self, params: ProtocolClientParams) -> ProtocolClient:
-        """Create and return a GRPCClient instance.
+        """Creates and returns a ProtocolClient instance configured for gRPC or gRPC-Web communication.
 
         Args:
-            params (ProtocolClientParams): The parameters required to initialize the client.
+            params (ProtocolClientParams): Parameters required to configure the protocol client, including the target URL.
 
         Returns:
-            ProtocolClient: An instance of GRPCClient.
+            ProtocolClient: An instance of GRPCClient initialized with the provided parameters and peer configuration.
 
+        Notes:
+            - If the instance is configured for web usage (`self.web` is True), the protocol is set to gRPC-Web.
+            - The peer's address is constructed from the host and port in `params.url`, defaulting to an empty host and port 80 if not specified.
         """
         peer = Peer(
             address=Address(host=params.url.host or "", port=params.url.port or 80),

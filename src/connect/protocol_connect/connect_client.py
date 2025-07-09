@@ -1,4 +1,4 @@
-"""Provides a ConnectClient class for handling connections using the Connect protocol."""
+"""Connect protocol client implementation for unary and streaming RPCs."""
 
 import asyncio
 import contextlib
@@ -68,23 +68,30 @@ EventHook = Callable[..., Any]
 
 
 class ConnectClient(ProtocolClient):
-    """ConnectClient is a client for handling connections using the Connect protocol.
+    """ConnectClient is a client implementation for the Connect protocol, extending ProtocolClient.
+
+    This class is responsible for initializing and managing the connection parameters, peer information,
+    and handling the construction of request headers and client connections for both unary and streaming
+    communication patterns.
 
     Attributes:
-        params (ProtocolClientParams): Parameters for the protocol client.
-        _peer (Peer): The peer object representing the connection endpoint.
-
+        params (ProtocolClientParams): The parameters required to initialize the client, including codec,
+            compression settings, connection pool, and URL.
+        _peer (Peer): The peer instance representing the remote endpoint for the connection.
     """
 
     params: ProtocolClientParams
     _peer: Peer
 
     def __init__(self, params: ProtocolClientParams) -> None:
-        """Initialize the ProtocolConnect instance with the given parameters.
+        """Initializes the ConnectClient with the given protocol client parameters.
 
         Args:
-            params (ProtocolClientParams): The parameters required to initialize the ProtocolConnect instance.
+            params (ProtocolClientParams): The parameters required to configure the protocol client, including URL information.
 
+        Attributes:
+            params (ProtocolClientParams): Stores the provided protocol client parameters.
+            _peer (Peer): Represents the peer connection, initialized with the host and port from the provided URL, using the CONNECT protocol.
         """
         self.params = params
         self._peer = Peer(
@@ -95,27 +102,29 @@ class ConnectClient(ProtocolClient):
 
     @property
     def peer(self) -> Peer:
-        """Return the peer associated with this instance.
+        """Returns the associated Peer object for this client.
 
-        :return: The peer associated with this instance.
-        :rtype: Peer
+        Returns:
+            Peer: The peer instance associated with this client.
         """
         return self._peer
 
     def write_request_headers(self, stream_type: StreamType, headers: Headers) -> None:
-        """Write the necessary request headers to the provided headers dictionary.
-
-        This method ensures that the headers dictionary contains the required headers
-        for a request, including user agent, protocol version, content type, and
-        optionally, compression settings.
+        """Sets and updates HTTP headers for a Connect protocol request based on the stream type and client parameters.
 
         Args:
-            stream_type (StreamType): The type of stream for the request.
-            headers (Headers): The dictionary of headers to be updated.
+            stream_type (StreamType): The type of stream (e.g., Unary or Streaming) for the request.
+            headers (Headers): The dictionary of HTTP headers to be sent with the request. This dictionary is modified in-place.
 
-        Returns:
-            None
+        Behavior:
+            - Ensures the 'User-Agent' header is set to a default value if not already present.
+            - Sets the Connect protocol version and appropriate 'Content-Type' header based on the codec.
+            - Configures compression-related headers depending on the stream type and client compression settings.
+            - For streaming requests, sets both accepted and used compression headers if applicable.
+            - Updates the 'Accept-Encoding' header to list all supported compression algorithms if provided.
 
+        Modifies:
+            The `headers` dictionary is updated in-place with the necessary protocol and compression headers.
         """
         if headers.get(HEADER_USER_AGENT, None) is None:
             headers[HEADER_USER_AGENT] = DEFAULT_CONNECT_USER_AGENT
@@ -134,15 +143,21 @@ class ConnectClient(ProtocolClient):
             headers[accept_compression_header] = ", ".join(c.name for c in self.params.compressions)
 
     def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
-        """Establish a unary client connection with the given specifications and headers.
+        """Creates and returns a streaming client connection based on the provided specification and headers.
+
+        Depending on the `stream_type` in the `spec`, this method initializes either a unary or streaming client connection
+        with the appropriate marshaler and unmarshaler configurations.
 
         Args:
-            spec (Spec): The specification for the connection.
-            headers (Headers): The headers to be included in the request.
+            spec (Spec): The specification for the connection, including stream type and idempotency level.
+            headers (Headers): The request headers to be used for the connection.
 
         Returns:
-            UnaryClientConn: The established unary client connection.
+            StreamingClientConn: An initialized client connection object, either unary or streaming.
 
+        Notes:
+            - For unary connections with `IdempotencyLevel.NO_SIDE_EFFECTS`, additional marshaler parameters are set.
+            - The connection is configured with compression, codec, and byte limit settings as specified in `self.params`.
         """
         conn: StreamingClientConn
         if spec.stream_type == StreamType.Unary:
@@ -195,21 +210,25 @@ class ConnectClient(ProtocolClient):
 
 
 class ConnectUnaryClientConn(StreamingClientConn):
-    """A client connection for unary RPCs using the Connect protocol.
+    """ConnectUnaryClientConn provides a client-side connection for unary (single-request, single-response) Connect protocol calls.
+
+    This class manages the lifecycle of a unary request, including marshaling the request, sending it over HTTP (GET or POST),
+    handling timeouts and aborts, processing response headers and trailers, and unmarshaling the response. It also supports
+    event hooks for request and response processing, and manages compression and content-type validation.
 
     Attributes:
-        _spec (Spec): The specification for the connection.
-        _peer (Peer): The peer information.
-        url (URL): The URL for the connection.
-        compressions (list[Compression]): List of supported compressions.
-        marshaler (ConnectUnaryRequestMarshaler): The marshaler for requests.
-        unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler for responses.
-        response_content (bytes | None): The content of the response.
-        _response_headers (Headers): The headers of the response.
-        _response_trailers (Headers): The trailers of the response.
-        _request_headers (Headers): The headers of the request.
-        _event_hooks (dict[str, list[EventHook]]): Event hooks for request and response.
-
+        pool (AsyncConnectionPool): The connection pool used for sending requests.
+        _spec (Spec): The protocol specification for the connection.
+        _peer (Peer): The peer information for the connection.
+        url (URL): The target URL for the connection.
+        compressions (list[Compression]): Supported compression methods.
+        marshaler (ConnectUnaryRequestMarshaler): Marshaler for encoding requests.
+        unmarshaler (ConnectUnaryUnmarshaler): Unmarshaler for decoding responses.
+        response_content (bytes | None): The raw response content, if available.
+        _response_headers (Headers): Headers received in the response.
+        _response_trailers (Headers): Trailers received after the response body.
+        _request_headers (Headers): Headers to send with the request.
+        _event_hooks (dict[str, list[EventHook]]): Registered event hooks for request and response events.
     """
 
     pool: AsyncConnectionPool
@@ -223,6 +242,7 @@ class ConnectUnaryClientConn(StreamingClientConn):
     _response_headers: Headers
     _response_trailers: Headers
     _request_headers: Headers
+    _event_hooks: dict[str, list[EventHook]]
 
     def __init__(
         self,
@@ -236,22 +256,32 @@ class ConnectUnaryClientConn(StreamingClientConn):
         unmarshaler: ConnectUnaryUnmarshaler,
         event_hooks: None | (Mapping[str, list[EventHook]]) = None,
     ) -> None:
-        """Initialize the ConnectProtocol instance.
+        """Initializes a new instance of the client.
 
         Args:
-            pool (AsyncConnectionPool): The connection pool for the client.
-            spec (Spec): The specification for the connection.
-            peer (Peer): The peer information.
-            url (URL): The URL for the connection.
-            compressions (list[Compression]): List of compression methods.
-            request_headers (Headers): The headers for the request.
-            marshaler (ConnectUnaryRequestMarshaler): The marshaler for the request.
-            unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler for the response.
-            event_hooks (None | Mapping[str, list[EventHook]], optional): Event hooks for request and response. Defaults to None.
+            pool (AsyncConnectionPool): The connection pool to use for managing connections.
+            spec (Spec): The specification object describing the protocol or service.
+            peer (Peer): The peer information for the connection.
+            url (URL): The URL endpoint for the connection.
+            compressions (list[Compression]): List of supported compression algorithms.
+            request_headers (Headers): Headers to include in outgoing requests.
+            marshaler (ConnectUnaryRequestMarshaler): Marshaler for serializing requests.
+            unmarshaler (ConnectUnaryUnmarshaler): Unmarshaler for deserializing responses.
+            event_hooks (None | Mapping[str, list[EventHook]], optional): Optional mapping of event hooks for "request" and "response" events. Defaults to None.
 
-        Returns:
-            None
-
+        Attributes:
+            pool (AsyncConnectionPool): The connection pool instance.
+            _spec (Spec): The protocol or service specification.
+            _peer (Peer): The peer information.
+            url (URL): The endpoint URL.
+            compressions (list[Compression]): Supported compression algorithms.
+            marshaler (ConnectUnaryRequestMarshaler): Request marshaler.
+            unmarshaler (ConnectUnaryUnmarshaler): Response unmarshaler.
+            response_content: The content of the response (initialized as None).
+            _response_headers (Headers): Headers from the response.
+            _response_trailers (Headers): Trailers from the response.
+            _request_headers (Headers): Headers for outgoing requests.
+            _event_hooks (dict): Event hooks for "request" and "response" events.
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
@@ -273,20 +303,19 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
     @property
     def spec(self) -> Spec:
-        """Return the specification of the protocol.
+        """Returns the specification object associated with this client.
 
         Returns:
-            Spec: The specification object of the protocol.
-
+            Spec: The specification instance used by the client.
         """
         return self._spec
 
     @property
     def peer(self) -> Peer:
-        """Return the peer object associated with this instance.
+        """Returns the associated Peer object for this client.
 
-        :return: The peer object.
-        :rtype: Peer
+        Returns:
+            Peer: The peer instance associated with this client, representing the remote endpoint.
         """
         return self._peer
 
@@ -298,67 +327,67 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
         Yields:
             Any: The unmarshaled object.
-
         """
         obj = await self.unmarshaler.unmarshal(message)
         yield obj
 
     def receive(self, message: Any, _abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
-        """Receives a message and returns an asynchronous iterator over the processed message.
+        """Receives messages asynchronously based on the provided input message.
 
         Args:
-            message (Any): The message to be received and processed.
+            message (Any): The input message or request to process.
+            _abort_event (asyncio.Event | None): Optional event to signal abortion of the receive operation.
+
+        Yields:
+            Any: Messages received from the underlying message stream.
 
         Returns:
-            AsyncIterator[Any]: An asynchronous iterator yielding processed message(s).
-
+            AsyncIterator[Any]: An asynchronous iterator yielding received messages.
         """
         return self._receive_messages(message)
 
     @property
     def request_headers(self) -> Headers:
-        """Retrieve the request headers.
+        """Returns the HTTP headers to be included in the request.
 
         Returns:
-            Headers: A dictionary-like object containing the request headers.
-
+            Headers: The headers to be sent with the request.
         """
         return self._request_headers
 
     def on_request_send(self, fn: EventHook) -> None:
-        """Register a callback function to be called when a request is sent.
+        """Registers a callback function to be invoked whenever a request is sent.
 
         Args:
-            fn (EventHook): The callback function to be registered. This function
-                            will be called with the request details when a request
-                            is sent.
+            fn (EventHook): The callback function to be added to the 'request' event hook.
 
+        Returns:
+            None
         """
         self._event_hooks["request"].append(fn)
 
     async def send(
         self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
-        """Send a single message asynchronously using either HTTP GET or POST, with support for timeouts and request abortion.
+        """Sends a single message asynchronously using either HTTP GET or POST, with optional timeout and abort support.
 
         Args:
             messages (AsyncIterable[Any]): An asynchronous iterable yielding the message(s) to send. Only a single message is allowed.
-            timeout (float | None): Optional timeout in seconds for the request. If provided, sets a read timeout for the request.
-            abort_event (asyncio.Event | None): Optional asyncio event that, if set, aborts the request.
+            timeout (float | None): Optional timeout in seconds for the request. If provided, sets the request timeout.
+            abort_event (asyncio.Event | None): Optional asyncio event that, when set, aborts the request.
 
         Raises:
-            ConnectError: If the request is aborted before or during execution, or if other connection errors occur.
+            ConnectError: If the marshaler URL is not set when required, if the request is aborted, or for internal errors.
+            Exception: Propagates exceptions raised by the underlying HTTP client.
 
         Side Effects:
-            - Modifies request headers for timeout and content length as needed.
+            - Modifies request headers based on timeout and content length.
             - Invokes registered request and response event hooks.
-            - Sets the unmarshaler's stream to the response stream for further processing.
-            - Validates the response after receiving it.
+            - Sets the unmarshaler's stream to the response stream.
+            - Validates the response.
 
-        Notes:
-            - If `marshaler.enable_get` is True, sends the request as HTTP GET; otherwise, uses HTTP POST.
-            - Handles cancellation and cleanup if the abort event is triggered during the request.
-
+        Returns:
+            None
         """
         extensions = {}
         if timeout:
@@ -447,23 +476,21 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
     @property
     def response_headers(self) -> Headers:
-        """Return the response headers.
+        """Returns the headers from the HTTP response.
 
         Returns:
-            Headers: A dictionary-like object containing the response headers.
-
+            Headers: The headers of the HTTP response.
         """
         return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
-        """Return the response trailers.
+        """Returns the response trailers as a Headers object.
 
-        Response trailers are additional headers sent after the response body.
+        Response trailers are HTTP headers sent after the response body, typically used in protocols like gRPC.
 
         Returns:
-            Headers: A dictionary containing the response trailers.
-
+            Headers: The response trailers associated with the response.
         """
         return self._response_trailers
 
@@ -518,16 +545,11 @@ class ConnectUnaryClientConn(StreamingClientConn):
 
     @property
     def event_hooks(self) -> dict[str, list[EventHook]]:
-        """Return the event hooks.
-
-        This method returns a dictionary where the keys are strings representing
-        event names, and the values are lists of EventHook objects associated with
-        those events.
+        """Returns the dictionary of registered event hooks.
 
         Returns:
-            dict[str, list[EventHook]]: A dictionary mapping event names to lists
-            of EventHook objects.
-
+            dict[str, list[EventHook]]: A dictionary where each key is a string representing the event name,
+            and the value is a list of EventHook instances associated with that event.
         """
         return self._event_hooks
 
@@ -539,20 +561,35 @@ class ConnectUnaryClientConn(StreamingClientConn):
         }
 
     async def aclose(self) -> None:
-        """Asynchronously closes the connection or releases any resources held by the object.
+        """Asynchronously closes the client connection and releases any associated resources.
 
-        This method should be called when the object is no longer needed to ensure proper cleanup.
-        Currently, this implementation does not perform any actions, but it can be overridden in subclasses.
-
-        Returns:
-            None
-
+        This method should be called when the client is no longer needed to ensure proper cleanup.
+        Currently, this implementation does not perform any actions, but it can be extended in the future.
         """
         return
 
 
 class ConnectStreamingClientConn(StreamingClientConn):
-    """ConnectStreamingClientConn is a class that manages a streaming client connection using the Connect protocol."""
+    """ConnectStreamingClientConn manages a streaming client connection for the Connect protocol.
+
+    This class handles the lifecycle of a streaming RPC client connection, including sending and receiving messages,
+    managing request and response headers, handling compression, marshaling/unmarshaling of messages, and supporting
+    event hooks for request and response events. It integrates with an asynchronous connection pool and supports
+    abortable operations via asyncio events.
+
+    Attributes:
+        _spec (Spec): The protocol specification for the connection.
+        _peer (Peer): The peer associated with this connection.
+        url (URL): The URL endpoint for the connection.
+        codec (Codec): Codec used for encoding and decoding messages.
+        compressions (list[Compression]): Supported compression methods.
+        marshaler (ConnectStreamingMarshaler): Marshaler for outgoing streaming messages.
+        unmarshaler (ConnectStreamingUnmarshaler): Unmarshaler for incoming streaming messages.
+        response_content (bytes | None): Raw response content, if any.
+        _response_headers (Headers): Headers received in the response.
+        _response_trailers (Headers): Trailers received after the response body.
+        _request_headers (Headers): Headers sent with the request.
+    """
 
     _spec: Spec
     _peer: Peer
@@ -579,23 +616,19 @@ class ConnectStreamingClientConn(StreamingClientConn):
         unmarshaler: ConnectStreamingUnmarshaler,
         event_hooks: None | (Mapping[str, list[EventHook]]) = None,
     ) -> None:
-        """Initialize a new instance of the class.
+        """Initializes a new instance of the client.
 
         Args:
-            pool (AsyncConnectionPool): The connection pool for the client.
-            spec (Spec): The specification object.
-            peer (Peer): The peer object.
-            url (URL): The URL for the connection.
-            codec (Codec): The codec to be used for encoding and decoding.
-            compressions (list[Compression]): List of compression methods.
-            request_headers (Headers): The headers for the request.
-            marshaler (ConnectStreamingMarshaler): The marshaler for streaming.
-            unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler for streaming.
-            event_hooks (None | Mapping[str, list[EventHook]], optional): Event hooks for request and response. Defaults to None.
-
-        Returns:
-            None
-
+            pool (AsyncConnectionPool): The asynchronous connection pool to use for network operations.
+            spec (Spec): The service specification or schema.
+            peer (Peer): The peer information for the connection.
+            url (URL): The URL endpoint for the connection.
+            codec (Codec): The codec used for encoding and decoding messages.
+            compressions (list[Compression]): List of supported compression algorithms.
+            request_headers (Headers): Headers to include in outgoing requests.
+            marshaler (ConnectStreamingMarshaler): Marshaler for streaming request bodies.
+            unmarshaler (ConnectStreamingUnmarshaler): Unmarshaler for streaming response bodies.
+            event_hooks (Optional[Mapping[str, list[EventHook]]]): Optional mapping of event hooks for 'request' and 'response' events.
         """
         event_hooks = {} if event_hooks is None else event_hooks
 
@@ -618,79 +651,78 @@ class ConnectStreamingClientConn(StreamingClientConn):
 
     @property
     def spec(self) -> Spec:
-        """Return the specification of the protocol.
+        """Returns the specification object associated with this client.
 
         Returns:
-            Spec: The specification object of the protocol.
-
+            Spec: The specification instance used by the client.
         """
         return self._spec
 
     @property
     def peer(self) -> Peer:
-        """Return the peer object associated with this instance.
+        """Returns the associated Peer object for this client.
 
-        :return: The peer object.
-        :rtype: Peer
+        Returns:
+            Peer: The peer instance linked to this client.
         """
         return self._peer
 
     @property
     def request_headers(self) -> Headers:
-        """Retrieve the request headers.
+        """Returns the HTTP headers to be included in the request.
 
         Returns:
-            Headers: A dictionary-like object containing the request headers.
-
+            Headers: The headers to be sent with the request.
         """
         return self._request_headers
 
     @property
     def response_headers(self) -> Headers:
-        """Return the response headers.
+        """Returns the HTTP response headers.
 
         Returns:
-            Headers: A dictionary-like object containing the response headers.
-
+            Headers: The headers received in the HTTP response.
         """
         return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
-        """Return the response trailers.
+        """Returns the response trailers as a Headers object.
 
-        Response trailers are additional headers sent after the response body.
+        Response trailers are additional HTTP headers sent after the response body,
+        typically used in protocols like gRPC for sending metadata at the end of a response.
 
         Returns:
-            Headers: A dictionary containing the response trailers.
-
+            Headers: The response trailers associated with the response.
         """
         return self._response_trailers
 
     def on_request_send(self, fn: EventHook) -> None:
-        """Register a callback function to be called when a request is sent.
+        """Registers a callback function to be invoked whenever a request is sent.
 
         Args:
-            fn (EventHook): The callback function to be registered. This function
-                            will be called with the request details when a request
-                            is sent.
+            fn (EventHook): The callback function to be executed on request send events.
 
+        Returns:
+            None
         """
         self._event_hooks["request"].append(fn)
 
     async def receive(self, message: Any, abort_event: asyncio.Event | None = None) -> AsyncIterator[Any]:
-        """Asynchronously receives and processes a message.
+        """Asynchronously receives and yields messages from the unmarshaler, handling stream control and errors.
 
         Args:
-            message (Any): The message to be processed.
-            abort_event (asyncio.Event | None): Event to signal abortion of the operation.
+            message (Any): The incoming message or stream to be unmarshaled.
+            abort_event (asyncio.Event | None, optional): An event to signal abortion of the receive operation.
+                If set, the operation is canceled and a ConnectError is raised.
 
         Yields:
-            Any: Objects obtained from unmarshaling the message.
+            Any: The next unmarshaled object from the message stream.
 
         Raises:
-            ConnectError: If stream is malformed or aborted.
-
+            ConnectError: If the receive operation is aborted, if extra end stream messages are received,
+                if a message is received after the end of the stream, if an error is encountered in the end stream,
+                or if the end stream message is missing.
         """
         end_stream_received = False
 
@@ -727,25 +759,21 @@ class ConnectStreamingClientConn(StreamingClientConn):
     async def send(
         self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
-        """Send an asynchronous HTTP POST request with the given messages and handle the response.
+        """Sends a stream of messages asynchronously to the server using HTTP POST.
 
         Args:
             messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent.
-            timeout (float | None): Optional timeout value in seconds for the request. If provided,
-                it sets the read timeout for the request.
-            abort_event (asyncio.Event | None): Optional asyncio event that, if set, will abort the request.
+            timeout (float | None): Optional timeout in seconds for the request. If provided, sets the request timeout.
+            abort_event (asyncio.Event | None): Optional asyncio event to abort the request. If set and triggered, the request will be cancelled.
 
         Raises:
-            ConnectError: If the request is aborted or if there is an error during the request.
+            ConnectError: If the request is aborted via the abort_event.
+            Exception: Propagates exceptions raised during the request or response handling.
 
-        Hooks:
-            - Executes hooks registered in `self._event_hooks["request"]` before sending the request.
-            - Executes hooks registered in `self._event_hooks["response"]` after receiving the response.
-
-        Notes:
-            - If `abort_event` is provided and set during the request, the request will be canceled,
-              and a `ConnectError` with code `Code.CANCELED` will be raised.
-            - The response stream is unmarshaled and validated after the request is completed.
+        Side Effects:
+            - Invokes registered request and response event hooks.
+            - Sets up the response stream for unmarshaling.
+            - Validates the server response.
 
         """
         extensions = {}
@@ -853,10 +881,9 @@ class ConnectStreamingClientConn(StreamingClientConn):
         self._response_headers.update(response_headers)
 
     async def aclose(self) -> None:
-        """Asynchronously closes the connection by invoking the `aclose` method of the unmarshaler.
+        """Asynchronously closes the client by closing the associated unmarshaler.
 
-        Returns:
-            None
-
+        This method should be called to properly release any resources held by the unmarshaler
+        when the client is no longer needed.
         """
         await self.unmarshaler.aclose()

@@ -1,4 +1,4 @@
-"""Provides functions to convert between ConnectError and gRPC trailer headers."""
+"""Helpers for encoding and decoding gRPC error trailers in Connect protocol."""
 
 import base64
 from urllib.parse import quote, unquote
@@ -18,20 +18,17 @@ from connect.protocol_grpc.constants import (
 
 
 def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
-    """Convert a ConnectError to gRPC trailer headers.
+    """Converts a ConnectError into gRPC trailer headers.
+
+    This function populates the provided trailer headers with gRPC status information
+    based on the given error. If no error is provided, it sets the status to "0" (OK).
+    If the error is not a wire error, it updates the trailer with the error's metadata,
+    excluding protocol headers. It then serializes the error status and attaches the
+    status code, message, and (if present) base64-encoded details to the trailer.
 
     Args:
-        trailer (Headers): The trailer headers dictionary to update with gRPC error information.
-        error (ConnectError | None): The error to convert. If None, indicates success.
-
-    Side Effects:
-        Modifies the `trailer` dictionary in-place to include gRPC status, message, and optional details.
-
-    Notes:
-        - If `error` is None, sets the gRPC status header to "0" (OK).
-        - If `ConnectError.wire_error` is False, updates the trailer with error metadata excluding protocol headers.
-        - Serializes error details using protobuf if present, encoding them in base64 for the trailer.
-
+        trailer (Headers): The trailer headers dictionary to be updated.
+        error (ConnectError | None): The error to convert into gRPC trailer headers.
     """
     if error is None:
         trailer[GRPC_HEADER_STATUS] = "0"
@@ -59,23 +56,22 @@ def grpc_error_to_trailer(trailer: Headers, error: ConnectError | None) -> None:
 
 
 def grpc_error_from_trailer(trailers: Headers) -> ConnectError | None:
-    """Parse gRPC error information from response trailers and constructs a ConnectError if present.
+    """Parses gRPC error information from response trailers and constructs a ConnectError if present.
 
     Args:
         trailers (Headers): The gRPC response trailers containing error information.
 
     Returns:
-        ConnectError | None: Returns a ConnectError instance if an error is found in the trailers,
+        ConnectError | None: Returns a ConnectError instance if an error is present in the trailers,
         or None if the status code indicates success.
 
     Raises:
-        ConnectError: If the grpc-status-details-bin trailer or protobuf error details are invalid.
+        ConnectError: If the trailers contain invalid or malformed error details or protobuf data.
 
-    The function extracts the gRPC status code, error message, and optional error details from the trailers.
-    If the status code is missing or invalid, it returns a ConnectError with an appropriate message.
-    If the status code indicates success ("0"), it returns None.
-    If error details are present and valid, they are attached to the ConnectError.
-
+    The function extracts the gRPC status code, error message, and optional error details from the
+    trailers. If the status code indicates an error, it constructs and returns a ConnectError with
+    the relevant information. If the status code is missing or invalid, or if error details are
+    malformed, a ConnectError is raised with an appropriate message.
     """
     code_header = trailers.get(GRPC_HEADER_STATUS)
     if code_header is None:
@@ -141,10 +137,10 @@ def grpc_error_from_trailer(trailers: Headers) -> ConnectError | None:
 
 
 def decode_binary_header(data: str) -> bytes:
-    """Decode a base64-encoded string representing a binary header.
+    """Decodes a base64-encoded string representing a binary header.
 
-    If the input string's length is not a multiple of 4, it pads the string with '=' characters
-    to make it valid base64 before decoding.
+    If the input string's length is not a multiple of 4, it is padded with '=' characters
+    to make it valid for base64 decoding.
 
     Args:
         data (str): The base64-encoded string to decode.
@@ -152,6 +148,8 @@ def decode_binary_header(data: str) -> bytes:
     Returns:
         bytes: The decoded binary data.
 
+    Raises:
+        binascii.Error: If the input is not correctly base64-encoded.
     """
     if len(data) % 4:
         data += "=" * (-len(data) % 4)

@@ -15,7 +15,6 @@ def decode_base64_with_padding(value: str) -> bytes:
     Raises:
         Exception: If base64 decoding fails
     """
-    # Add padding if needed
     padded_value = value + "=" * (-len(value) % 4)
     return base64.b64decode(padded_value.encode())
 
@@ -32,7 +31,6 @@ def decode_urlsafe_base64_with_padding(value: str) -> bytes:
     Raises:
         Exception: If base64 decoding fails
     """
-    # Add padding if needed
     padded_value = value + "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(padded_value)
 

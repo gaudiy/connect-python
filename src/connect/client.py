@@ -1,7 +1,4 @@
-"""Provide the Client and ClientConfig classes for making unary calls.
-
-These classes allow making unary calls to a specified URL with given request and response types.
-"""
+"""Provides the main client implementation for making Connect protocol RPCs."""
 
 import contextlib
 from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -36,17 +33,16 @@ from connect.utils import aiterate
 
 
 def parse_request_url(raw_url: str) -> URL:
-    """Parse the given raw URL string and returns a URL object.
+    """Parses and validates a request URL.
 
     Args:
-        raw_url (str): The raw URL string to be parsed.
+        raw_url: The URL string to parse.
 
     Returns:
-        URL: The parsed URL object.
+        A validated URL object.
 
     Raises:
-        ConnectError: If the URL does not have a valid scheme (http or https).
-
+        ConnectError: If the URL is missing a valid scheme (http or https).
     """
     url = URL(raw_url)
 
@@ -60,21 +56,23 @@ def parse_request_url(raw_url: str) -> URL:
 
 
 class ClientConfig:
-    """Configuration class for a client.
+    """Configuration for a Connect client.
 
-    Attributes:
-        url (URL): The URL of the client.
-        protocol (ProtocolConnect): The protocol used for connection.
-        procedure (str): The procedure path derived from the URL.
-        codec (Codec): The codec used for encoding/decoding.
-        request_compression_name (str | None): The name of the request compression method.
-        compressions (list[Compression]): List of compression methods.
-        descriptor (Any): The descriptor for the client.
-        idempotency_level (IdempotencyLevel): The idempotency level of the client.
-        compress_min_bytes (int): Minimum bytes for compression.
-        read_max_bytes (int): Maximum bytes to read.
-        send_max_bytes (int): Maximum bytes to send.
+    This class holds all the configuration required to make a request with the client,
+    parsing the raw URL and client options into a structured format.
 
+        url (URL): The parsed request URL.
+        protocol (Protocol): The protocol implementation to use (e.g., Connect, gRPC, gRPC-Web).
+        procedure (str): The full procedure string, including the service and method name (e.g., /acme.user.v1.UserService/GetUser).
+        codec (Codec): The codec for marshaling and unmarshaling request/response messages.
+        request_compression_name (str | None): The name of the compression algorithm to use for requests.
+        compressions (list[Compression]): A list of supported compression implementations.
+        descriptor (Any): The protobuf descriptor for the service.
+        idempotency_level (IdempotencyLevel): The idempotency level for the procedure.
+        compress_min_bytes (int): The minimum message size in bytes to be eligible for compression.
+        read_max_bytes (int): The maximum number of bytes to read from a response.
+        send_max_bytes (int): The maximum number of bytes to send in a request.
+        enable_get (bool): Whether to enable GET requests for idempotent procedures.
     """
 
     url: URL
@@ -91,25 +89,19 @@ class ClientConfig:
     enable_get: bool
 
     def __init__(self, raw_url: str, options: ClientOptions):
-        """Initialize the client with the given URL and options.
+        """Initializes a new client instance.
+
+        This method configures the client based on the provided URL and options.
+        It sets up the protocol (Connect, gRPC, or gRPC-Web), the message codec
+        (Protobuf binary or JSON), compression settings, and other operational
+        parameters.
 
         Args:
-            raw_url (str): The raw URL to connect to.
-            options (ClientOptions): The options for the client configuration.
+            raw_url (str): The full URL for the RPC endpoint.
+            options (ClientOptions): An object containing configuration options for the client.
 
-        Attributes:
-            url (ParseResult): The parsed URL.
-            protocol (ProtocolConnect): The protocol used for connection.
-            procedure (str): The procedure path extracted from the URL.
-            codec (ProtoBinaryCodec): The codec used for encoding/decoding messages.
-            request_compression_name (str): The name of the request compression method.
-            compressions (list): The list of compression methods.
-            descriptor (Descriptor): The descriptor for the client.
-            idempotency_level (int): The idempotency level for requests.
-            compress_min_bytes (int): The minimum number of bytes to trigger compression.
-            read_max_bytes (int): The maximum number of bytes to read.
-            send_max_bytes (int): The maximum number of bytes to send.
-
+        Raises:
+            ConnectError: If an unknown compression algorithm is specified in the options.
         """
         url = parse_request_url(raw_url)
         proto_path = url.path
@@ -144,15 +136,17 @@ class ClientConfig:
         self.enable_get = options.enable_get
 
     def spec(self, stream_type: StreamType) -> Spec:
-        """Generate a Spec object with the given stream type.
+        """Builds a specification for a given stream type.
+
+        This method combines the procedure's general configuration (like procedure name,
+        descriptor, and idempotency level) with a specific stream type to create
+        a complete `Spec` object.
 
         Args:
-            stream_type (StreamType): The type of stream to be used in the Spec.
+            stream_type: The type of the stream for which to create the spec.
 
         Returns:
-            Spec: A Spec object initialized with the procedure, descriptor,
-                  stream type, and idempotency level of the client.
-
+            A `Spec` object tailored to the specified stream type.
         """
         return Spec(
             procedure=self.procedure,
@@ -163,21 +157,22 @@ class ClientConfig:
 
 
 class Client[T_Request, T_Response]:
-    """A client for making unary calls to a specified URL with given request and response types.
+    """A generic client for making Connect protocol RPCs.
+
+    This client is responsible for making unary and streaming RPCs to a Connect-compliant server.
+    It is initialized with a connection pool, a server URL, request and response message types,
+    and optional configurations. It abstracts the underlying protocol details, allowing users
+    to make different types of RPC calls (unary, server-stream, client-stream, bidi-stream)
+    through a unified interface.
+
+    Type Parameters:
+        T_Request: The type of the request message.
+        T_Response: The type of the response message.
+
 
     Attributes:
-        config (ClientConfig): Configuration for the client.
-        protocol_client (ProtocolClient): The protocol client used for communication.
-        _call_unary (Callable[[UnaryRequest[T_Request]], Awaitable[UnaryResponse[T_Response]]]):
-            Internal method to handle unary calls.
-
-    Methods:
-        __init__(url: str, input: type[T_Request], output: type[T_Response], options: ClientOptions | None = None):
-            Initialize the client with the given parameters.
-
-        call_unary(request: UnaryRequest[T_Request]) -> UnaryResponse[T_Response]:
-            Make a unary call with the given request.
-
+        config (ClientConfig): The configuration used by the client.
+        protocol_client (ProtocolClient): The underlying protocol-specific client.
     """
 
     config: ClientConfig
@@ -194,20 +189,21 @@ class Client[T_Request, T_Response]:
         input: type[T_Request],
         output: type[T_Response],
         options: ClientOptions | None = None,
-    ):
-        """Initialize the client with the given URL, request and response types, and optional client options.
+    ) -> None:
+        """Initializes a client for a specific RPC method.
+
+        This constructor sets up the necessary components for making RPC calls to a single method.
+        It configures the protocol client based on the provided options and prepares wrapped,
+        interceptor-aware functions for both unary and streaming calls. These internal call
+        functions handle request/response validation, header manipulation, and the actual
+        network communication.
 
         Args:
-            pool (AsyncConnectionPool): The connection pool to use for making requests.
-            url (str): The URL of the server to connect to.
-            input (type[T_Request]): The type of the request object.
-            output (type[T_Response]): The type of the response object.
-            options (ClientOptions | None, optional): Optional client configuration options. Defaults to None.
-
-        Raises:
-            TypeError: If the request method is not ASCII encoded.
-            ConnectError: If the request or response type is incorrect.
-
+            pool: The asynchronous connection pool to use for HTTP requests.
+            url: The full URL of the RPC method.
+            input: The expected type of the request message object.
+            output: The expected type of the response message object.
+            options: Optional client configuration.
         """
         options = options or ClientOptions()
         config = ClientConfig(url, options)
@@ -312,15 +308,18 @@ class Client[T_Request, T_Response]:
     async def call_unary(
         self, request: UnaryRequest[T_Request], call_options: CallOptions | None = None
     ) -> UnaryResponse[T_Response]:
-        """Asynchronously calls a unary RPC (Remote Procedure Call) with the given request.
+        """Calls a unary RPC method.
+
+        This method sends a single request to the server and receives a single
+        response. It is a simple request-response pattern.
 
         Args:
-            request (UnaryRequest[T_Request]): The request object containing the data to be sent to the server.
-            call_options (CallOptions | None, optional): Optional call options for the request. Defaults to None.
+            request: The unary request object containing the message to be sent.
+            call_options: Optional configuration for the call, such as timeouts
+                or metadata.
 
         Returns:
-            UnaryResponse[T_Response]: The response object containing the data received from the server.
-
+            An awaitable that resolves to the unary response from the server.
         """
         return await self._call_unary(request, call_options)
 
@@ -328,25 +327,17 @@ class Client[T_Request, T_Response]:
     async def call_server_stream(
         self, request: StreamRequest[T_Request], call_options: CallOptions | None = None
     ) -> AsyncGenerator[StreamResponse[T_Response]]:
-        """Initiate a server-streaming RPC call and returns an asynchronous generator that yields responses from the server.
+        """Calls a server-streaming RPC.
 
         Args:
-            request (StreamRequest[T_Request]): The request object containing the
-                data to be sent to the server.
-            call_options (CallOptions | None, optional): Optional call options for the request. Defaults to None.
+            request (StreamRequest[T_Request]): The request object for the RPC.
+            call_options (CallOptions | None): Optional call options for the RPC.
 
         Yields:
-            StreamResponse[T_Response]: The response objects received from the server.
-
-        Raises:
-            Any exceptions that occur during the streaming process.
-
-        Notes:
-            - This method ensures that the response stream is properly closed
-              after the generator is exhausted or an exception occurs.
-            - The type parameters `T_Request` and `T_Response` represent the
-              request and response types, respectively.
-
+            AsyncGenerator[StreamResponse[T_Response]]: An asynchronous generator that yields
+            the response stream object. The caller is responsible for iterating over this
+            object to receive messages from the server. The stream is automatically closed
+            when the generator context is exited.
         """
         response = await self._call_stream(StreamType.ServerStream, request, call_options)
         try:
@@ -358,24 +349,26 @@ class Client[T_Request, T_Response]:
     async def call_client_stream(
         self, request: StreamRequest[T_Request], call_options: CallOptions | None = None
     ) -> AsyncGenerator[StreamResponse[T_Response]]:
-        """Initiate a client-streaming RPC call and returns an asynchronous generator for streaming responses from the server.
+        """Initiates a client-streaming RPC.
+
+        In a client-streaming RPC, the client sends a sequence of messages to the
+        server using a provided stream. Once the client has finished writing the
+        messages, it waits for the server to read them and return a single response.
+
+        This method returns an async generator that yields a single `StreamResponse`
+        object. The generator pattern is used to ensure that the underlying stream
+        is properly closed after use. You should use this method in an `async for`
+        loop to correctly manage the stream's lifecycle.
 
         Args:
-            request (StreamRequest[T_Request]): The request object containing the
-                client-streaming data to be sent to the server.
-            call_options (CallOptions | None, optional): Optional call options for the request. Defaults to None.
+            request: The `StreamRequest` object, which includes the RPC method
+                and an async iterable of request messages to be sent.
+            call_options: Optional configuration for the call, such as timeout
+                or metadata.
 
         Yields:
-            StreamResponse[T_Response]: An asynchronous generator that yields
-                responses from the server.
-
-        Raises:
-            Any exceptions raised during the streaming call.
-
-        Notes:
-            - The `response.aclose()` method is called in the `finally` block to
-              ensure proper cleanup of the response stream.
-
+            A single `StreamResponse` object that can be used to receive the
+            server's final response message.
         """
         response = await self._call_stream(StreamType.ClientStream, request, call_options)
         try:
@@ -387,27 +380,23 @@ class Client[T_Request, T_Response]:
     async def call_bidi_stream(
         self, request: StreamRequest[T_Request], call_options: CallOptions | None = None
     ) -> AsyncGenerator[StreamResponse[T_Response]]:
-        """Initiate a bidirectional streaming call with the server.
+        """Calls a bidirectional streaming method.
 
-        This method sends a stream request to the server and returns an asynchronous
-        generator that yields stream responses from the server. The connection is
-        automatically closed when the generator is exhausted or an exception occurs.
+        This method initiates a bidirectional streaming call and returns an async generator
+        that yields a single `StreamResponse` object. The caller is then responsible for
+        iterating over the yielded `StreamResponse` to receive the response messages from
+        the server.
+
+        The stream is automatically closed when the context manager exits.
 
         Args:
-            request (StreamRequest[T_Request]): The stream request object containing
-                the data to be sent to the server.
-            call_options (CallOptions | None, optional): Optional call options for
+            request (StreamRequest[T_Request]): The request object, containing the
+                method details and an async iterable of request messages.
+            call_options (CallOptions | None): Optional call-specific configurations.
 
         Yields:
-            StreamResponse[T_Response]: The stream response object received from the server.
-
-        Raises:
-            Any exceptions raised during the streaming call.
-
-        Notes:
-            Ensure to consume the generator properly to avoid resource leaks, as the
-            connection is closed in the `finally` block.
-
+            StreamResponse[T_Response]: An async iterable response object that can be
+            iterated over to receive messages from the server.
         """
         response = await self._call_stream(StreamType.BiDiStream, request, call_options)
         try:

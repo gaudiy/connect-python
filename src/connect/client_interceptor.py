@@ -1,4 +1,4 @@
-"""Defines interceptors and request/response classes for unary and streaming RPC calls."""
+"""Client-side interceptor utilities for modifying RPC behavior in Connect Python."""
 
 import inspect
 from collections.abc import Awaitable, Callable
@@ -12,24 +12,47 @@ StreamFunc = Callable[[StreamRequest[Any], CallOptions], Awaitable[StreamRespons
 
 
 class ClientInterceptor:
-    """Abstract base class for interceptors that can wrap unary functions."""
+    """A client-side interceptor for modifying RPC behavior.
+
+    Interceptors are a powerful mechanism for implementing cross-cutting concerns
+    like logging, metrics, authentication, and retries. They can inspect and
+    modify requests and responses for both unary and streaming RPCs.
+
+    To create an interceptor, you can instantiate this class directly, providing
+    wrapper functions for `wrap_unary` and/or `wrap_stream`. These wrappers are
+    higher-order functions that take an RPC handler and return a new, wrapped
+    handler. The wrapped handler can then execute logic before and/or after
+    invoking the original RPC.
+
+    Attributes:
+        wrap_unary (Callable[[UnaryFunc], UnaryFunc] | None): A function that
+            takes a unary RPC handler and returns a new unary RPC handler.
+            The returned handler is responsible for invoking the original
+            handler. This is used to intercept unary (request-response) RPCs.
+        wrap_stream (Callable[[StreamFunc], StreamFunc] | None): A function
+            that takes a streaming RPC handler and returns a new streaming RPC
+            handler. The returned handler is responsible for invoking the
+            original handler. This is used to intercept streaming RPCs.
+    """
 
     wrap_unary: Callable[[UnaryFunc], UnaryFunc] | None = None
     wrap_stream: Callable[[StreamFunc], StreamFunc] | None = None
 
 
 def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
-    """Determine if the given function is a unary function.
+    """Type guard to determine if a function is a UnaryFunc.
 
-    A unary function is defined as a callable that takes a single parameter
-    whose type annotation has an origin of `UnaryRequest`.
+    This function inspects the signature of the provided callable `next`
+    to determine if it matches the expected signature of a unary RPC handler.
+    A function is considered a `UnaryFunc` if it is callable, accepts exactly
+    two parameters, and its first parameter is type-hinted as a `UnaryRequest`.
 
     Args:
-        next (UnaryFunc | StreamFunc): The function to be checked.
+        next: The function to inspect, which can be either a UnaryFunc or a StreamFunc.
 
     Returns:
-        TypeGuard[UnaryFunc]: True if the function is a unary function, False otherwise.
-
+        True if the function signature matches `UnaryFunc`, False otherwise.
+        This allows type checkers to narrow the type of `next` to `UnaryFunc`.
     """
     signature = inspect.signature(next)
     parameters = list(signature.parameters.values())
@@ -41,17 +64,16 @@ def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
 
 
 def is_stream_func(next: UnaryFunc | StreamFunc) -> TypeGuard[StreamFunc]:
-    """Determine if the given function is a StreamFunc.
+    """Determines if the given function is a stream function.
 
-    This function checks if the provided function `next` is callable, has exactly one parameter,
-    and if the annotation of that parameter has an origin of `StreamRequest`.
+    A stream function is identified by being callable, having exactly two parameters,
+    and the first parameter's annotation having an `__origin__` attribute equal to `StreamRequest`.
 
     Args:
-        next (UnaryFunc | StreamFunc): The function to be checked.
+        next (UnaryFunc | StreamFunc): The function to check.
 
     Returns:
-        TypeGuard[StreamFunc]: True if `next` is a StreamFunc, False otherwise.
-
+        TypeGuard[StreamFunc]: True if the function is a stream function, False otherwise.
     """
     signature = inspect.signature(next)
     parameters = list(signature.parameters.values())
@@ -73,20 +95,21 @@ def apply_interceptors(next: StreamFunc, interceptors: list[ClientInterceptor] |
 def apply_interceptors(
     next: UnaryFunc | StreamFunc, interceptors: list[ClientInterceptor] | None
 ) -> UnaryFunc | StreamFunc:
-    """Apply a list of interceptors to a given function.
+    """Applies a list of client interceptors to a unary or stream function.
+
+    This function wraps the provided `next` function (either unary or stream) with the corresponding
+    interceptor wrappers from the `interceptors` list. If an interceptor does not provide a wrapper
+    for the function type, the wrapping process stops at that interceptor.
 
     Args:
-        next (UnaryFunc | StreamFunc): The function to which interceptors will be applied.
-                                    It can be either a unary function or a stream function.
-        interceptors (list[Interceptor] | None): A list of interceptors to apply. If None, the original function is returned.
+        next (UnaryFunc | StreamFunc): The function to be wrapped by interceptors. Can be either a unary or stream function.
+        interceptors (list[ClientInterceptor] | None): A list of client interceptors to apply. If None, the original function is returned.
 
     Returns:
-        UnaryFunc | StreamFunc: The function wrapped with the provided interceptors.
+        UnaryFunc | StreamFunc: The wrapped function with all applicable interceptors applied.
 
     Raises:
-        ValueError: If an interceptor does not implement the required wrap method for the function type,
-                or if the provided function type is invalid.
-
+        ValueError: If the provided function is neither a unary nor a stream function.
     """
     if interceptors is None:
         return next

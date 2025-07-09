@@ -1,4 +1,4 @@
-"""Provides utility functions for asynchronous programming."""
+"""Utility functions for async operations, HTTP exception handling, and callable attribute inspection."""
 
 import asyncio
 import contextlib
@@ -26,19 +26,17 @@ def is_async_callable(obj: typing.Any) -> typing.TypeGuard[AwaitableCallable[typ
 
 
 def is_async_callable(obj: typing.Any) -> typing.Any:
-    """Check if the given object is an asynchronous callable.
+    """Check if an object is an async callable (coroutine function or callable with async __call__).
 
-    This function unwraps functools.partial objects to check if the underlying
-    function is an asynchronous coroutine function. It returns True if the object
-    is an async coroutine function or if it is a callable object whose __call__ method
-    is an async coroutine function.
+    This function handles partial functions by unwrapping them to check the underlying
+    function. It returns True if the object is a coroutine function or if it's a
+    callable object with an async __call__ method.
 
     Args:
-        obj (typing.Any): The object to check.
+        obj (typing.Any): The object to check for async callability.
 
     Returns:
-        bool: True if the object is an asynchronous callable, False otherwise.
-
+        typing.Any: True if the object is async callable, False otherwise.
     """
     while isinstance(obj, functools.partial):
         obj = obj.func
@@ -47,40 +45,38 @@ def is_async_callable(obj: typing.Any) -> typing.Any:
 
 
 async def run_in_threadpool[T, **P](func: typing.Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
-    """Run a function in a thread pool and return the result.
+    """Execute a synchronous function in a thread pool asynchronously.
 
-    This function is useful for running synchronous code in an asynchronous context
-    by offloading the execution to a thread pool.
+    This function takes a synchronous callable and runs it in a separate thread
+    using anyio's thread pool, allowing async code to call blocking functions
+    without blocking the event loop.
 
     Args:
-        func (typing.Callable[P, T]): The function to run in the thread pool.
-        *args (P.args): Positional arguments to pass to the function.
-        **kwargs (P.kwargs): Keyword arguments to pass to the function.
+        func: A callable function to execute in the thread pool
+        *args: Positional arguments to pass to the function
+        **kwargs: Keyword arguments to pass to the function
 
     Returns:
-        T: The result of the function execution.
-
-    Raises:
-        Exception: Any exception raised by the function will be propagated.
-
-    Example:
-        result = await run_in_threadpool(some_sync_function, arg1, arg2, kwarg1=value1)
-
+        The return value of the executed function
     """
     func = functools.partial(func, *args, **kwargs)
     return await anyio.to_thread.run_sync(func)
 
 
 def get_callable_attribute(obj: object, attr: str) -> typing.Callable[..., typing.Any] | None:
-    """Retrieve a callable attribute from an object if it exists and is callable.
+    """Get a callable attribute from an object.
+
+    This function attempts to retrieve an attribute from an object and returns it
+    only if the attribute exists and is callable. If the attribute doesn't exist
+    or is not callable, returns None.
 
     Args:
         obj (object): The object from which to retrieve the attribute.
         attr (str): The name of the attribute to retrieve.
 
     Returns:
-        typing.Callable[..., typing.Any] | None: The callable attribute if it exists and is callable, otherwise None.
-
+        typing.Callable[..., typing.Any] | None: The callable attribute if it exists
+            and is callable, otherwise None.
     """
     try:
         attr_value = getattr(obj, attr)
@@ -101,7 +97,6 @@ def get_acallable_attribute(obj: object, attr: str) -> typing.Callable[..., typi
     Returns:
         typing.Callable[..., typing.Awaitable[typing.Any]] | None:
             The attribute if it is callable and asynchronous, otherwise None.
-
     """
     try:
         attr_value = getattr(obj, attr)
@@ -113,14 +108,16 @@ def get_acallable_attribute(obj: object, attr: str) -> typing.Callable[..., typi
 
 
 async def aiterate[T](iterable: typing.Iterable[T]) -> typing.AsyncIterator[T]:
-    """Turn a plain iterable into an async iterator.
+    """Convert a regular iterable to an async iterator.
+
+    This function takes a synchronous iterable and yields each item asynchronously,
+    allowing it to be used in async contexts with `async for` loops.
 
     Args:
-        iterable (typing.Iterable[T]): The iterable to convert.
+        iterable: A synchronous iterable of type T.
 
     Yields:
-        typing.AsyncIterator[T]: An async iterator over the elements of the input iterable.
-
+        T: Each item from the input iterable, yielded asynchronously.
     """
     for i in iterable:
         yield i
@@ -150,21 +147,19 @@ HTTPCORE_EXC_MAP: dict[type[Exception], Code] = {}
 
 @contextlib.contextmanager
 def map_httpcore_exceptions() -> Iterator[None]:
-    """Map exceptions raised by the HTTP core to custom exceptions.
+    """Context manager that maps httpcore exceptions to ConnectError exceptions.
 
-    This function uses a global exception map `HTTPCORE_EXC_MAP` to translate exceptions
-    raised within its context. If the map is empty, it loads the exceptions using the
-    `_load_httpcore_exceptions` function. When an exception is caught, it checks if the
-    exception matches any in the map and raises a `ConnectError` with the corresponding
-    error code. If no match is found, the original exception is re-raised.
+    This function lazily loads a mapping of httpcore exceptions to Connect error codes
+    and converts any httpcore exceptions that occur within its context to ConnectError
+    instances with appropriate error codes.
 
     Yields:
-        None: This function is a generator used as a context manager.
+        None: This is a context manager that yields control to the calling code.
 
     Raises:
-        ConnectError: If the caught exception matches an entry in `HTTPCORE_EXC_MAP`.
-        Exception: If no match is found in `HTTPCORE_EXC_MAP`, the original exception is re-raised.
-
+        ConnectError: If an httpcore exception occurs that has a mapping defined,
+                     it will be converted to a ConnectError with the appropriate code.
+        Exception: Any other exceptions are re-raised unchanged.
     """
     global HTTPCORE_EXC_MAP
     if len(HTTPCORE_EXC_MAP) == 0:

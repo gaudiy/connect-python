@@ -1,4 +1,4 @@
-"""Response module for the connect package."""
+"""Streaming HTTP response implementation with async content delivery and trailer support."""
 
 import typing
 from functools import partial
@@ -17,19 +17,28 @@ AsyncContentStream = typing.AsyncIterable[typing.Any]
 
 
 class StreamingResponse(Response):
-    """A streaming HTTP response class that supports HTTP trailers.
+    """A streaming HTTP response class that supports asynchronous content delivery with optional trailers.
 
-    This class extends the standard response to allow sending HTTP trailers
-    at the end of a streamed response body, if supported by the ASGI server.
+    This class extends the base Response class to handle streaming content delivery,
+    allowing for efficient transmission of large or dynamically generated content.
+    It supports both synchronous and asynchronous iterables as content sources,
+    HTTP trailers, and background tasks.
 
     Attributes:
-        body_iterator (AsyncContentStream): An asynchronous iterator over the response body content.
-        status_code (int): HTTP status code for the response.
-        media_type (str | None): The media type of the response.
-        background (BackgroundTask | None): Optional background task to run after response is sent.
-        headers (Mapping[str, str]): HTTP headers for the response.
-        _trailers (Mapping[str, str] | None): HTTP trailers to send after the response body.
+        body_iterator (AsyncContentStream): An async iterator over the response body content.
 
+    Features:
+        - Automatic conversion of sync iterables to async using thread pools
+        - HTTP trailer support with proper header advertisement
+        - Client disconnect detection and handling
+        - Background task execution after response completion
+        - ASGI spec version compatibility (2.0+ with enhanced features for 2.4+)
+
+
+    Note:
+        For ASGI spec versions < 2.4, client disconnect detection is handled through
+        concurrent task monitoring. For versions >= 2.4, native disconnect detection
+        via OSError is used for better performance.
     """
 
     body_iterator: AsyncContentStream
@@ -44,20 +53,18 @@ class StreamingResponse(Response):
         media_type: str | None = None,
         background: BackgroundTask | None = None,
     ) -> None:
-        """Initialize a response object with optional HTTP trailers.
+        """Initialize a streaming response.
 
         Args:
-            content (ContentStream): The response body content, which can be an async iterable or a regular iterable.
-            status_code (int, optional): HTTP status code for the response. Defaults to 200.
-            headers (typing.Mapping[str, str] | None, optional): HTTP headers to include in the response. Defaults to None.
-            trailers (typing.Mapping[str, str] | None, optional): HTTP trailers to include in the response. Defaults to None.
-            media_type (str | None, optional): The media type of the response. If None, uses the default media type. Defaults to None.
-            background (BackgroundTask | None, optional): A background task to run after the response is sent. Defaults to None.
+            content: The content to stream, either an async iterable or content that will be iterated in a thread pool.
+            status_code: HTTP status code for the response. Defaults to 200.
+            headers: Optional mapping of HTTP headers to include in the response.
+            trailers: Optional mapping of HTTP trailers to include in the response.
+            media_type: Optional media type for the response. If None, uses the existing media_type.
+            background: Optional background task to run after the response is sent.
 
-        Notes:
-            - If `content` is not an async iterable, it will be wrapped to run in a thread pool.
-            - If trailers are provided, their names will be added to the "Trailer" header.
-
+        Returns:
+            None
         """
         if isinstance(content, typing.AsyncIterable):
             self.body_iterator = content
@@ -99,23 +106,27 @@ class StreamingResponse(Response):
             })
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Handle the ASGI call interface for streaming HTTP responses with optional support for HTTP trailers.
+        """ASGI application callable that handles HTTP response streaming with disconnect detection.
 
-        This method determines the ASGI spec version and whether HTTP response trailers are supported.
-        For ASGI spec version >= 2.4, it streams the response and handles client disconnects.
-        For earlier versions, it concurrently streams the response and listens for client disconnects,
-        cancelling the response stream if a disconnect is detected.
-
-        After sending the response, if a background task is provided, it is awaited.
+        This method implements the ASGI application interface, handling different ASGI spec versions
+        and managing client disconnections during response streaming.
 
         Args:
-            scope (Scope): The ASGI connection scope.
-            receive (Receive): Awaitable callable to receive ASGI messages.
-            send (Send): Awaitable callable to send ASGI messages.
+            scope (Scope): ASGI scope dictionary containing request information and server capabilities
+            receive (Receive): ASGI receive callable for receiving messages from the client
+            send (Send): ASGI send callable for sending messages to the client
+
+        Returns:
+            None
 
         Raises:
-            ClientDisconnect: If the client disconnects during response streaming.
+            ClientDisconnect: When an OSError occurs during response streaming (client disconnected)
 
+        Notes:
+            - For ASGI spec version 2.4+: Uses simple streaming with OSError handling
+            - For older versions: Uses task group with concurrent disconnect listening
+            - Supports HTTP trailers when available in the server extensions
+            - Executes background tasks after response completion if configured
         """
         spec_version = tuple(map(int, scope.get("asgi", {}).get("spec_version", "2.0").split(".")))
         trailers_supported = "http.response.trailers" in scope.get("extensions", {})

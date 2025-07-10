@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import functools
+import sys
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from http import HTTPMethod
 from typing import Any
@@ -271,28 +272,40 @@ class GRPCClientConn(StreamingClientConn):
         """
         return self._peer
 
-    async def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
+    async def receive(
+        self, message: Any, abort_event: asyncio.Event | None, metadata: dict[str, Any] | None = None
+    ) -> AsyncIterator[Any]:
+        import sys
+
+        test_name = metadata.get("test_name", "unknown") if metadata else "unknown"
         """Receives a message and processes it."""
         trailer_received = False
 
-        async for obj, end in self.unmarshaler.unmarshal(message):
-            if abort_event and abort_event.is_set():
-                raise ConnectError("receive operation aborted", Code.CANCELED)
+        try:
+            async for obj, end in self.unmarshaler.unmarshal(message, metadata):
+                if abort_event and abort_event.is_set():
+                    raise ConnectError("receive operation aborted", Code.CANCELED)
 
-            if end:
+                if end:
+                    if trailer_received:
+                        raise ConnectError("received extra end stream trailer", Code.INVALID_ARGUMENT)
+
+                    trailer_received = True
+                    if self.unmarshaler.web_trailers is None:
+                        raise ConnectError("trailer not received", Code.INVALID_ARGUMENT)
+
+                    continue
+
                 if trailer_received:
-                    raise ConnectError("received extra end stream trailer", Code.INVALID_ARGUMENT)
+                    raise ConnectError("protocol error: received extra message after trailer", Code.INVALID_ARGUMENT)
 
-                trailer_received = True
-                if self.unmarshaler.web_trailers is None:
-                    raise ConnectError("trailer not received", Code.INVALID_ARGUMENT)
+                print(f"[{test_name}] Received message", file=sys.stderr)
+                yield obj
+        except Exception as exc:
+            print(f"[{test_name}] Exception during unmarshaling: {exc}", file=sys.stderr)
+            raise exc
 
-                continue
-
-            if trailer_received:
-                raise ConnectError("protocol error: received extra message after trailer", Code.INVALID_ARGUMENT)
-
-            yield obj
+        print(f"[{test_name}] Received end of stream", file=sys.stderr)
 
         if callable(self.receive_trailers):
             self.receive_trailers()
@@ -303,11 +316,13 @@ class GRPCClientConn(StreamingClientConn):
                 del self._response_headers[HEADER_CONTENT_TYPE]
 
             server_error = grpc_error_from_trailer(self.response_trailers)
+            print(f"[{test_name}] 1 server_error: {server_error}", file=sys.stderr)
             if server_error:
                 server_error.metadata = self.response_headers.copy()
                 raise server_error
 
         server_error = grpc_error_from_trailer(self.response_trailers)
+        print(f"[{test_name}] 2 server_error: {server_error}", file=sys.stderr)
         if server_error:
             server_error.metadata = self.response_headers.copy()
             server_error.metadata.update(self.response_trailers.copy())
@@ -336,7 +351,11 @@ class GRPCClientConn(StreamingClientConn):
         return self._request_headers
 
     async def send(
-        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+        self,
+        messages: AsyncIterable[Any],
+        timeout: float | None,
+        abort_event: asyncio.Event | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Sends a gRPC request asynchronously using HTTP/2 via httpcore.
 
@@ -416,11 +435,13 @@ class GRPCClientConn(StreamingClientConn):
         self.unmarshaler.stream = BoundAsyncStream(response.stream)
         self.receive_trailers = functools.partial(self._receive_trailers, response)
 
-        await self._validate_response(response)
+        await self._validate_response(response, metadata)
 
-    async def _validate_response(self, response: httpcore.Response) -> None:
+    async def _validate_response(self, response: httpcore.Response, metadata: dict[str, Any] | None = None) -> None:
+        test_name = metadata.get("test_name", "unknown") if metadata else "unknown"
         response_headers = Headers(response.headers)
         if response.status != 200:
+            print(f"[{test_name}] Response status: {response.status}", file=sys.stderr)
             raise ConnectError(
                 f"HTTP {response.status}",
                 code_from_http_status(response.status),

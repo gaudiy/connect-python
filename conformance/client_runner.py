@@ -254,6 +254,9 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                     UnaryRequest(
                         content=req,
                         headers=headers,
+                        metadata={
+                            "test_name": msg.test_name,
+                        },
                     ),
                     CallOptions(
                         timeout=msg.timeout_ms / 1000,
@@ -279,6 +282,7 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                     async for req in reqs:
                         if msg.request_delay_ms > 0:
                             await asyncio.sleep(msg.request_delay_ms / 1000)
+                        print(f"[{msg.test_name}] Sending request", file=sys.stderr)
                         yield req
 
                     if msg.cancel.HasField("before_close_send"):
@@ -293,7 +297,13 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                         asyncio.create_task(delayed_abort())
 
                 async with getattr(client, msg.method)(
-                    StreamRequest(content=_reqs(), headers=headers),
+                    StreamRequest(
+                        content=_reqs(),
+                        headers=headers,
+                        metadata={
+                            "test_name": msg.test_name,
+                        },
+                    ),
                     CallOptions(
                         timeout=msg.timeout_ms / 1000,
                         abort_event=abort_event,
@@ -319,7 +329,13 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                 headers = to_connect_headers(msg.request_headers)
 
                 async with getattr(client, msg.method)(
-                    StreamRequest(content=reqs, headers=headers),
+                    StreamRequest(
+                        content=reqs,
+                        headers=headers,
+                        metadata={
+                            "test_name": msg.test_name,
+                        },
+                    ),
                     CallOptions(
                         timeout=msg.timeout_ms / 1000,
                         abort_event=abort_event,
@@ -358,12 +374,19 @@ async def handle_message(msg: client_compat_pb2.ClientCompatRequest) -> client_c
                     async for req in reqs:
                         if msg.request_delay_ms > 0:
                             await asyncio.sleep(msg.request_delay_ms / 1000)
+                        print(f"[{msg.test_name}] Sending request", file=sys.stderr)
                         yield req
 
                 headers = to_connect_headers(msg.request_headers)
 
                 async with getattr(client, msg.method)(
-                    StreamRequest(content=_reqs(), headers=headers),
+                    StreamRequest(
+                        content=_reqs(),
+                        headers=headers,
+                        metadata={
+                            "test_name": msg.test_name,
+                        },
+                    ),
                     CallOptions(
                         timeout=msg.timeout_ms / 1000,
                         abort_event=abort_event,

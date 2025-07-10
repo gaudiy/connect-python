@@ -331,7 +331,12 @@ class ConnectUnaryClientConn(StreamingClientConn):
         obj = await self.unmarshaler.unmarshal(message)
         yield obj
 
-    def receive(self, message: Any, _abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
+    def receive(
+        self,
+        message: Any,
+        _abort_event: asyncio.Event | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
         """Receives messages asynchronously based on the provided input message.
 
         Args:
@@ -367,7 +372,11 @@ class ConnectUnaryClientConn(StreamingClientConn):
         self._event_hooks["request"].append(fn)
 
     async def send(
-        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+        self,
+        messages: AsyncIterable[Any],
+        timeout: float | None,
+        abort_event: asyncio.Event | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Sends a single message asynchronously using either HTTP GET or POST, with optional timeout and abort support.
 
@@ -708,7 +717,12 @@ class ConnectStreamingClientConn(StreamingClientConn):
         """
         self._event_hooks["request"].append(fn)
 
-    async def receive(self, message: Any, abort_event: asyncio.Event | None = None) -> AsyncIterator[Any]:
+    async def receive(
+        self,
+        message: Any,
+        abort_event: asyncio.Event | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AsyncIterator[Any]:
         """Asynchronously receives and yields messages from the unmarshaler, handling stream control and errors.
 
         Args:
@@ -757,7 +771,11 @@ class ConnectStreamingClientConn(StreamingClientConn):
             raise ConnectError("missing end stream message", Code.INVALID_ARGUMENT)
 
     async def send(
-        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+        self,
+        messages: AsyncIterable[Any],
+        timeout: float | None,
+        abort_event: asyncio.Event | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Sends a stream of messages asynchronously to the server using HTTP POST.
 

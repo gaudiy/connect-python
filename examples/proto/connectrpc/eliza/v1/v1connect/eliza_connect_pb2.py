@@ -10,9 +10,9 @@ from enum import Enum
 from connect import (
     Client,
     ClientOptions,
-    ConnectOptions,
     Handler,
     HandlerContext,
+    HandlerOptions,
     IdempotencyLevel,
     StreamRequest,
     StreamResponse,
@@ -58,7 +58,7 @@ class ElizaServiceClient:
         base_url = base_url.removesuffix("/")
 
         self.Say = Client[SayRequest, SayResponse](
-            pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, options
+            pool, base_url + ElizaServiceProcedures.Say.value, SayRequest, SayResponse, ClientOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS, enable_get=True).merge(options)
         ).call_unary
         self.Converse = Client[ConverseRequest, ConverseResponse](
             pool, base_url + ElizaServiceProcedures.Converse.value, ConverseRequest, ConverseResponse, options
@@ -93,14 +93,14 @@ class ElizaServiceHandler(metaclass=abc.ABCMeta):
         raise NotImplementedError()
 
 
-def create_ElizaService_handlers(service: ElizaServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+def create_ElizaService_handlers(service: ElizaServiceHandler, options: HandlerOptions | None = None) -> list[Handler]:
     handlers = [
         UnaryHandler(
             procedure=ElizaServiceProcedures.Say.value,
             unary=service.Say,
             input=SayRequest,
             output=SayResponse,
-            options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
+            options=HandlerOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS).merge(options),
         ),
         BidiStreamHandler(
             procedure=ElizaServiceProcedures.Converse.value,

@@ -8,7 +8,7 @@ from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
 from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
 from connect.handler_context import HandlerContext
-from connect.options import ConnectOptions
+from connect.options import HandlerOptions
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 
@@ -42,7 +42,7 @@ class PingServiceHandler(metaclass=abc.ABCMeta):
     async def PingClientStream(self, request: StreamRequest[PingRequest], context: HandlerContext) -> StreamResponse[PingResponse]: ...
 
 
-def create_PingService_handlers(service: PingServiceHandler, options: ConnectOptions | None = None) -> list[Handler]:
+def create_PingService_handlers(service: PingServiceHandler, options: HandlerOptions | None = None) -> list[Handler]:
     handlers: list[Handler] = [
         UnaryHandler(
             procedure=PingServiceProcedures.Ping.value,

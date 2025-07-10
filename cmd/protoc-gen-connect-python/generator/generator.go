@@ -20,8 +20,6 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-var version = "devel"
-
 type Config struct{}
 
 type Generator struct {
@@ -103,6 +101,7 @@ type Method struct {
 	Method   string
 	FullName string
 	RPCType  RPCType
+	Options  protoreflect.ProtoMessage
 }
 
 type message struct {
@@ -140,16 +139,17 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 				idx:      i,
 				Method:   meth.GoName,
 				FullName: fullname[:idx],
+				Options:  meth.Desc.Options(),
 			}
 
 			// parse RPC type
 			switch {
+			case meth.Desc.IsStreamingServer() && meth.Desc.IsStreamingClient():
+				method.RPCType = BidirectionalStreaming
 			case meth.Desc.IsStreamingServer():
 				method.RPCType = ServerStreaming
 			case meth.Desc.IsStreamingClient():
 				method.RPCType = ClientStreaming
-			case meth.Desc.IsStreamingServer() && meth.Desc.IsStreamingClient():
-				method.RPCType = BidirectionalStreaming
 			default:
 				method.RPCType = Unary
 			}
@@ -174,13 +174,23 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		}
 		p.P(`"""Generated connect code."""`)
 		p.P()
+		p.P(`import abc`)
 		p.P(`from enum import Enum`)
 		p.P()
-		p.P(`from connect.client import Client`)
-		p.P(`from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse`)
-		p.P(`from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler`)
-		p.P(`from connect.options import ClientOptions, ConnectOptions`)
+		p.P(`from connect import (`)
+		p.P(`    Client,`)
+		p.P(`    ClientOptions,`)
+		p.P(`    HandlerOptions,`)
+		p.P(`    Handler,`)
+		p.P(`    HandlerContext,`)
+		p.P(`    IdempotencyLevel,`)
+		p.P(`    StreamRequest,`)
+		p.P(`    StreamResponse,`)
+		p.P(`    UnaryRequest,`)
+		p.P(`    UnaryResponse,`)
+		p.P(`)`)
 		p.P(`from connect.connection_pool import AsyncConnectionPool`)
+		p.P(`from connect.handler import BidiStreamHandler, ClientStreamHandler, ServerStreamHandler, UnaryHandler`)
 		p.P(`from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor`)
 		p.P()
 
@@ -191,7 +201,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		var sb strings.Builder
 		numSvc := len(p.services)
 		if numSvc > 0 {
-			fmt.Fprintf(&sb, "from ..%s import ", svcNamePB)
+			fmt.Fprintf(&sb, "from ..%s import (\n", svcNamePB)
 		}
 		seem := make(map[string]bool)
 		i := 0
@@ -201,22 +211,25 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 			case seem[svc.input.method] && seem[svc.output.method]:
 				continue
 			case !seem[svc.input.method] && seem[svc.output.method]:
-				fmt.Fprintf(&sb, "%s", svc.input.method)
+				fmt.Fprintf(&sb, "    %s\n", svc.input.method)
 				seem[svc.input.method] = true
 			case seem[svc.input.method] && !seem[svc.output.method]:
-				fmt.Fprintf(&sb, "%s", svc.output.method)
+				fmt.Fprintf(&sb, "    %s\n", svc.output.method)
 				seem[svc.output.method] = true
 			default:
-				fmt.Fprintf(&sb, "%s, %s", svc.input.method, svc.output.method)
+				fmt.Fprintf(&sb, "    %s,\n    %s", svc.input.method, svc.output.method)
 				seem[svc.input.method] = true
 				seem[svc.output.method] = true
 			}
 			if i <= numSvc-2 {
-				fmt.Fprint(&sb, ", ")
+				fmt.Fprint(&sb, ",\n")
+			} else {
+				fmt.Fprint(&sb, ",")
 			}
 			i++
 		}
-		p.P(strings.TrimSuffix(sb.String(), ", "))
+		p.P(sb.String())
+		p.P(`)`)
 		p.P()
 		p.P()
 		procedures := upperSvcName + `Procedures`
@@ -244,7 +257,13 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		for _, meth := range sortedMap(p.services) {
 			svc := p.services[meth]
 			p.P(`        `, `self.`, meth.Method, ` = `, `Client[`, svc.input.method, `, `, svc.output.method, `](`)
-			p.P(`            `, `pool, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, options`)
+			if options := meth.Options; options != nil {
+				if desc, ok := options.(*descriptorpb.MethodOptions); ok && desc.GetIdempotencyLevel() != descriptorpb.MethodOptions_IDEMPOTENCY_UNKNOWN {
+					p.P(`            `, `pool, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, ClientOptions(idempotency_level=IdempotencyLevel.`, desc.GetIdempotencyLevel().String(), `, enable_get=True).merge(options)`)
+				} else {
+					p.P(`            `, `pool, `, `base_url + `, procedures+`.`+meth.Method+`.value, `, svc.input.method+`, `, svc.output.method, `, options`)
+				}
+			}
 			switch meth.RPCType {
 			case Unary:
 				p.P(`        `, `).call_unary`)
@@ -252,12 +271,14 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 				p.P(`        `, `).call_server_stream`)
 			case ClientStreaming:
 				p.P(`        `, `).call_client_stream`)
+			case BidirectionalStreaming:
+				p.P(`        `, `).call_bidi_stream`)
 			}
 		}
 		p.P()
 		p.P()
 		handler := upperSvcName + `Handler`
-		p.P(`class `, handler, `:`)
+		p.P(`class `, handler, `(metaclass=abc.ABCMeta):`)
 		p.P(`    `, `"""Handler for the `, lowerCamelCase(upperSvcName), ` service."""`)
 		p.P()
 		j := 0
@@ -269,16 +290,15 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 				reqRPCType  string
 				respRPCType string
 			)
-			// TODO(zchee): BidirectionalStreaming?
 			switch meth.RPCType {
 			case Unary:
 				reqRPCType = `UnaryRequest`
 				respRPCType = `UnaryResponse`
-			case ServerStreaming, ClientStreaming:
+			case ServerStreaming, ClientStreaming, BidirectionalStreaming:
 				reqRPCType = `StreamRequest`
 				respRPCType = `StreamResponse`
 			}
-			fmt.Fprintf(&sb, "%s[%s]) -> %s[%s]: ...", reqRPCType, svc.input.method, respRPCType, svc.output.method)
+			fmt.Fprintf(&sb, "%s[%s], context: HandlerContext) -> %s[%s]:\n        raise NotImplementedError()", reqRPCType, svc.input.method, respRPCType, svc.output.method)
 			p.P(sb.String())
 			if j <= len(p.services)-2 {
 				p.P()
@@ -287,7 +307,7 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 		}
 		p.P()
 		p.P()
-		p.P(`def create_`, upperSvcName, `_handlers`, `(`, `service: `, handler, `, options: ConnectOptions | None = None`, `) -> list[Handler]:`)
+		p.P(`def create_`, upperSvcName, `_handlers`, `(`, `service: `, handler, `, options: HandlerOptions | None = None`, `) -> list[Handler]:`)
 		p.P(`    handlers = [`)
 		for _, meth := range sortedMap(p.services) {
 			svc := p.services[meth]
@@ -295,7 +315,6 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 				rpcHandler string
 				call       string
 			)
-			// TODO(zchee): BidirectionalStreaming?
 			switch meth.RPCType {
 			case Unary:
 				rpcHandler = `UnaryHandler`
@@ -306,17 +325,25 @@ func (g *Generator) generate(gen *protogen.GeneratedFile, f *protogen.File) {
 			case ClientStreaming:
 				rpcHandler = `ClientStreamHandler`
 				call = fmt.Sprintf("            stream=service.%s,", meth.Method)
+			case BidirectionalStreaming:
+				rpcHandler = `BidiStreamHandler`
+				call = fmt.Sprintf("            stream=service.%s,", meth.Method)
 			}
 
-			// TODO(zchee): BidirectionalStreaming?
 			switch meth.RPCType {
-			case Unary, ServerStreaming, ClientStreaming:
+			case Unary, ServerStreaming, ClientStreaming, BidirectionalStreaming:
 				p.P(`        `, rpcHandler, `(`)
 				p.P(`            procedure=`, procedures+`.`+meth.Method+`.value,`)
 				p.P(call)
 				p.P(`            input=`, svc.input.method, `,`)
 				p.P(`            output=`, svc.output.method, `,`)
-				p.P(`            options=options,`)
+				if options := meth.Options; options != nil {
+					if desc, ok := options.(*descriptorpb.MethodOptions); ok && desc.GetIdempotencyLevel() != descriptorpb.MethodOptions_IDEMPOTENCY_UNKNOWN {
+						p.P(`            options=HandlerOptions(idempotency_level=IdempotencyLevel.`, desc.GetIdempotencyLevel().String(), `).merge(options),`)
+					} else {
+						p.P(`            options=options,`)
+					}
+				}
 				p.P(`        ),`)
 			}
 		}

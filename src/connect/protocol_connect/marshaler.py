@@ -1,4 +1,4 @@
-"""Provides marshaling utilities for the Connect protocol."""
+"""Marshaling utilities for Connect protocol unary and streaming messages."""
 
 import base64
 import contextlib
@@ -32,15 +32,16 @@ from connect.protocol_connect.end_stream import end_stream_to_json
 
 
 class ConnectUnaryMarshaler:
-    """ConnectUnaryMarshaler is responsible for serializing and optionally compressing messages.
+    """ConnectUnaryMarshaler is responsible for marshaling unary messages in the Connect protocol.
+
+    This class handles the encoding and optional compression of messages before they are sent over the network.
 
     Attributes:
-        codec (Codec): The codec used for serializing messages.
-        compression (Compression | None): The compression method used for compressing messages, if any.
-        compress_min_bytes (int): The minimum size in bytes for a message to be compressed.
-        send_max_bytes (int): The maximum allowed size in bytes for a message to be sent.
-        headers (Headers | Headers): The headers to be included in the message.
-
+        codec (Codec | None): Codec used for encoding/decoding messages.
+        compression (Compression | None): Compression algorithm to use, or None for no compression.
+        compress_min_bytes (int): Minimum message size (in bytes) before compression is applied.
+        send_max_bytes (int): Maximum allowed size (in bytes) for a message to be sent.
+        headers (Headers): Headers to include in the connection.
     """
 
     codec: Codec | None
@@ -57,18 +58,14 @@ class ConnectUnaryMarshaler:
         send_max_bytes: int,
         headers: Headers,
     ) -> None:
-        """Initialize the protocol connection.
+        """Initializes the object with the specified codec, compression settings, and headers.
 
         Args:
-            codec (Codec): The codec to be used for encoding/decoding.
-            compression (Compression | None): The compression method to be used, or None if no compression.
+            codec (Codec | None): The codec to use for encoding/decoding, or None if not specified.
+            compression (Compression | None): The compression algorithm to use, or None for no compression.
             compress_min_bytes (int): The minimum number of bytes before compression is applied.
-            send_max_bytes (int): The maximum number of bytes to send in a single message.
-            headers (Headers): The headers to be included in the connection.
-
-        Returns:
-            None
-
+            send_max_bytes (int): The maximum number of bytes allowed to send in a single message.
+            headers (Headers): The headers to include with each message.
         """
         self.codec = codec
         self.compression = compression
@@ -77,17 +74,24 @@ class ConnectUnaryMarshaler:
         self.headers = headers
 
     def marshal(self, message: Any) -> bytes:
-        """Marshals a message into bytes, optionally compressing it if it exceeds a certain size.
+        """Serializes and optionally compresses a message object into bytes.
 
         Args:
-            message (Any): The message to be marshaled.
+            message (Any): The message object to be marshaled.
 
         Returns:
-            bytes: The marshaled (and possibly compressed) message.
+            bytes: The serialized (and possibly compressed) message.
 
         Raises:
-            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
+            ConnectError: If the codec is not set, if marshaling fails, or if the (compressed or uncompressed)
+                message size exceeds the configured send_max_bytes limit.
 
+        Process:
+            - Uses the configured codec to serialize the message.
+            - If the serialized data is smaller than `compress_min_bytes` or compression is not set,
+              returns the data as-is (after checking size limits).
+            - Otherwise, compresses the data, checks the size limit again, and sets the appropriate
+              compression header before returning the compressed data.
         """
         if self.codec is None:
             raise ConnectError("codec is not set", Code.INTERNAL)
@@ -119,18 +123,17 @@ class ConnectUnaryMarshaler:
 
 
 class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
-    """ConnectUnaryRequestMarshaler is responsible for marshaling unary request messages for the Connect protocol, with support for GET requests and stable codecs.
+    """ConnectUnaryRequestMarshaler is a specialized marshaler for unary requests in the Connect protocol.
 
-    This class extends ConnectUnaryMarshaler to provide additional functionality for handling GET requests,
-    including marshaling messages using a stable codec, enforcing message size limits, and optionally compressing
-    messages when necessary. It also manages the construction of GET URLs with appropriate query parameters and
-    headers for the Connect protocol.
+    This class extends ConnectUnaryMarshaler and adds the ability to marshal messages for GET requests,
+    optionally using a stable codec for deterministic serialization. It manages request headers, compression,
+    and enforces message size limits. If GET requests are enabled, it ensures that a stable codec is available
+    and handles URL construction for GET requests, including optional compression and base64 encoding.
 
     Attributes:
-        enable_get (bool): Flag indicating whether GET requests are enabled.
-        stable_codec (StableCodec | None): The codec used for stable marshaling, if available.
-        url (URL | None): The URL to use for the request.
-
+        enable_get (bool): Whether to enable GET requests for marshaling.
+        stable_codec (StableCodec | None): Optional stable codec for deterministic message serialization.
+        url (URL | None): The URL endpoint for the connection.
     """
 
     enable_get: bool
@@ -148,21 +151,17 @@ class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
         stable_codec: StableCodec | None = None,
         url: URL | None = None,
     ) -> None:
-        """Initialize the protocol connection with the specified configuration.
+        """Initializes the object with the specified codec, compression, compression threshold, maximum send bytes, headers, and optional parameters.
 
         Args:
-            codec (Codec | None): The codec to use for encoding/decoding messages, or None.
-            compression (Compression | None): The compression algorithm to use, or None.
+            codec (Codec | None): The codec to use for serialization, or None.
+            compression (Compression | None): The compression method to use, or None.
             compress_min_bytes (int): Minimum number of bytes before compression is applied.
-            send_max_bytes (int): Maximum number of bytes allowed per send operation.
-            headers (Headers): Headers to include in each request.
+            send_max_bytes (int): Maximum number of bytes allowed to send.
+            headers (Headers): Headers to include in the protocol.
             enable_get (bool, optional): Whether to enable GET requests. Defaults to False.
-            stable_codec (StableCodec | None, optional): An optional stable codec for message encoding/decoding. Defaults to None.
-            url (URL | None, optional): The URL endpoint for the connection. Defaults to None.
-
-        Returns:
-            None
-
+            stable_codec (StableCodec | None, optional): An optional stable codec for serialization. Defaults to None.
+            url (URL | None, optional): An optional URL associated with the protocol. Defaults to None.
         """
         super().__init__(codec, compression, compress_min_bytes, send_max_bytes, headers)
         self.enable_get = enable_get
@@ -170,24 +169,20 @@ class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
         self.url = url
 
     def marshal(self, message: Any) -> bytes:
-        """Marshal a message into bytes.
+        """Serializes the given message into bytes using the configured codec.
 
-        If `enable_get` is True and `stable_codec` is None, raises a `ConnectError`
-        indicating that the codec does not support stable marshal and cannot use get.
-        Otherwise, if `enable_get` is True and `stable_codec` is not None, marshals
-        the message using the `marshal_with_get` method.
-
-        If `enable_get` is False, marshals the message using the `.
+        If `enable_get` is True, attempts to use a stable codec for marshaling.
+        Raises a ConnectError if the codec is not set or if the codec does not support stable marshaling.
+        Otherwise, delegates marshaling to the superclass implementation.
 
         Args:
-            message (Any): The message to be marshaled.
+            message (Any): The message object to be serialized.
 
         Returns:
-            bytes: The marshaled message in bytes.
+            bytes: The serialized message.
 
         Raises:
-            ConnectError: If `enable_get` is True and `stable_codec` is None.
-
+            ConnectError: If the codec is not set or does not support stable marshaling when required.
         """
         if self.enable_get:
             if self.codec is None:
@@ -204,29 +199,22 @@ class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
         return super().marshal(message)
 
     def marshal_with_get(self, message: Any) -> bytes:
-        """Marshals the given message and sends it using a GET request.
-
-        This method first marshals the message using the stable codec. If the marshaled
-        data exceeds the maximum allowed size (`send_max_bytes`) and compression is not
-        enabled, it raises a `ConnectError`. If the data size is within the limit, it
-        builds the GET URL and sends the data.
-
-        If the data size exceeds the limit and compression is enabled, it compresses
-        the data and checks the size again. If the compressed data still exceeds the
-        limit, it raises a `ConnectError`. Otherwise, it builds the GET URL with the
-        compressed data and sends it.
+        """Marshals a message and sends it using a GET request, applying compression if necessary.
 
         Args:
-            message (Any): The message to be marshaled and sent.
+            message (Any): The message object to be marshaled and sent.
 
         Returns:
-            bytes: The marshaled (and possibly compressed) data.
+            bytes: The marshaled (and possibly compressed) message data.
 
         Raises:
-            ConnectError: If the data size exceeds the maximum allowed size and compression
-                          is not enabled, or if the compressed data size still exceeds the
-                          limit.
+            ConnectError: If the stable codec is not set.
+            ConnectError: If the marshaled message size exceeds `send_max_bytes` and compression is not enabled.
+            ConnectError: If the compressed message size still exceeds `send_max_bytes`.
 
+        Notes:
+            - If the marshaled message size exceeds `send_max_bytes` and compression is enabled, the message will be compressed before sending.
+            - The method builds the appropriate GET URL based on whether compression was applied.
         """
         if self.stable_codec is None:
             raise ConnectError("stable_codec is not set", Code.INTERNAL)
@@ -305,12 +293,13 @@ class ConnectUnaryRequestMarshaler(ConnectUnaryMarshaler):
 
 
 class ConnectStreamingMarshaler(EnvelopeWriter):
-    """A class responsible for marshaling messages with optional compression.
+    """ConnectStreamingMarshaler is responsible for marshaling streaming messages in the Connect protocol.
 
     Attributes:
-        codec (Codec): The codec used for marshaling messages.
-        compression (Compression | None): The compression method used for compressing messages, if any.
-
+        codec (Codec | None): The codec used for encoding and decoding messages.
+        compress_min_bytes (int): The minimum payload size (in bytes) before compression is applied.
+        send_max_bytes (int): The maximum allowed size (in bytes) for a single message to be sent.
+        compression (Compression | None): The compression algorithm to use, or None for no compression.
     """
 
     codec: Codec | None
@@ -321,14 +310,13 @@ class ConnectStreamingMarshaler(EnvelopeWriter):
     def __init__(
         self, codec: Codec | None, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int
     ) -> None:
-        """Initialize the ProtocolConnect instance.
+        """Initializes the marshaler with the specified codec, compression settings, and byte limits.
 
         Args:
-            codec (Codec): The codec to be used for encoding and decoding.
-            compression (Compression | None): The compression method to be used, or None if no compression is to be applied.
+            codec (Codec | None): The codec to use for encoding/decoding, or None if not specified.
+            compression (Compression | None): The compression algorithm to use, or None if not specified.
             compress_min_bytes (int): The minimum number of bytes before compression is applied.
-            send_max_bytes (int): The maximum number of bytes that can be sent in a single message.
-
+            send_max_bytes (int): The maximum number of bytes allowed to send in a single message.
         """
         self.codec = codec
         self.compress_min_bytes = compress_min_bytes
@@ -336,15 +324,18 @@ class ConnectStreamingMarshaler(EnvelopeWriter):
         self.compression = compression
 
     def marshal_end_stream(self, error: ConnectError | None, response_trailers: Headers) -> bytes:
-        """Serialize the end-of-stream message with optional error and response trailers into a bytes envelope.
+        """Serializes the end-of-stream message for a Connect protocol response.
+
+        This method converts the provided error (if any) and response trailers into a JSON object,
+        encodes it, wraps it in an envelope with the end_stream flag, and returns the final bytes
+        to be sent over the wire.
 
         Args:
-            error (ConnectError | None): An optional error object to include in the end-of-stream message.
-            response_trailers (Headers): Headers to include as response trailers.
+            error (ConnectError | None): The error to include in the end-of-stream message, or None if no error occurred.
+            response_trailers (Headers): The response trailers to include in the end-of-stream message.
 
         Returns:
-            bytes: The serialized envelope containing the end-of-stream message.
-
+            bytes: The serialized and enveloped end-of-stream message.
         """
         json_obj = end_stream_to_json(error, response_trailers)
         json_str = json.dumps(json_obj)

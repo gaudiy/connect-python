@@ -1,4 +1,4 @@
-"""Provides a ConnectHandler class for handling connection protocols."""
+"""Connect protocol handler implementation for unary and streaming RPCs."""
 
 import json
 from collections.abc import (
@@ -61,13 +61,12 @@ from connect.utils import (
 
 
 class ConnectHandler(ProtocolHandler):
-    """A handler for managing protocol connections.
+    """ConnectHandler is a protocol handler for the Connect protocol.
 
     Attributes:
-        params (ProtocolHandlerParams): Parameters for the protocol handler.
-        __methods (list[HTTPMethod]): List of HTTP methods supported by the handler.
-        accept (list[str]): List of accepted content types.
-
+        params (ProtocolHandlerParams): The parameters for the protocol handler, including specification and compression options.
+        _methods (list[HTTPMethod]): The list of HTTP methods supported by this handler.
+        accept (list[str]): The list of accepted content types.
     """
 
     params: ProtocolHandlerParams
@@ -75,13 +74,15 @@ class ConnectHandler(ProtocolHandler):
     accept: list[str]
 
     def __init__(self, params: ProtocolHandlerParams, methods: list[HTTPMethod], accept: list[str]) -> None:
-        """Initialize the ProtocolConnect instance.
+        """Initializes the handler with the given parameters, supported HTTP methods, and accepted content types.
 
         Args:
-            params (ProtocolHandlerParams): The parameters for the protocol handler.
-            methods (list[HTTPMethod]): A list of HTTP methods.
+            params (ProtocolHandlerParams): The parameters required for the protocol handler.
+            methods (list[HTTPMethod]): A list of supported HTTP methods.
             accept (list[str]): A list of accepted content types.
 
+        Returns:
+            None
         """
         self.params = params
         self._methods = methods
@@ -89,25 +90,35 @@ class ConnectHandler(ProtocolHandler):
 
     @property
     def methods(self) -> list[HTTPMethod]:
-        """Return the list of HTTP methods.
+        """Returns the list of HTTP methods supported by this handler.
 
         Returns:
-            list[HTTPMethod]: A list of HTTP methods.
-
+            list[HTTPMethod]: A list containing the supported HTTP methods.
         """
         return self._methods
 
     def content_types(self) -> list[str]:
-        """Handle content types.
+        """Returns a list of accepted content types.
 
-        This method currently does nothing and serves as a placeholder for future
-        implementation related to content types.
-
+        Returns:
+            list[str]: A list of MIME types that are accepted.
         """
         return self.accept
 
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
-        """Check if the handler can handle the payload."""
+        """Determines if the handler can process the given request payload based on the content type.
+
+        Args:
+            request (Request): The incoming HTTP request object.
+            content_type (str): The content type of the request payload.
+
+        Returns:
+            bool: True if the handler can accept the payload with the specified content type, False otherwise.
+
+        Notes:
+            - For GET requests, the content type may be determined from a query parameter and the stream type.
+            - For other HTTP methods, the provided content_type is used directly.
+        """
         if HTTPMethod(request.method) == HTTPMethod.GET:
             codec_name = request.query_params.get(CONNECT_UNARY_ENCODING_QUERY_PARAMETER, "")
             content_type = connect_content_type_from_codec_name(self.params.spec.stream_type, codec_name)
@@ -121,21 +132,24 @@ class ConnectHandler(ProtocolHandler):
         response_trailers: Headers,
         writer: ServerResponseWriter,
     ) -> StreamingHandlerConn | None:
-        """Handle a connection request.
+        """Handles the connection for a Connect protocol request.
 
         Args:
-            request (Request): The incoming request object.
-            response_headers (Headers): The headers to be sent in the response.
-            response_trailers (Headers): The trailers to be sent in the response.
-            writer (ServerResponseWriter): The writer used to send the response.
-            is_streaming (bool, optional): Whether this is a streaming connection. Defaults to False.
+            request (Request): The incoming HTTP request object.
+            response_headers (Headers): Mutable headers to be sent with the response.
+            response_trailers (Headers): Mutable trailers to be sent with the response.
+            writer (ServerResponseWriter): Writer for sending responses to the client.
 
         Returns:
-            StreamingHandlerConn | None: The connection handler or None if not implemented.
+            StreamingHandlerConn | None: A connection handler for the request, or None if an error occurred.
 
-        Raises:
-            ConnectError: If there is an error in negotiating compression, protocol version, or message encoding.
-
+        Workflow:
+            - Determines stream type (Unary or Streaming) and negotiates compression and encoding.
+            - Validates protocol version and required parameters.
+            - Parses and decodes the request message for unary GET requests.
+            - Sets appropriate response headers based on negotiated compression and encoding.
+            - Constructs and returns the appropriate connection handler (unary or streaming).
+            - Sends an error response and returns None if any validation or negotiation fails.
         """
         query_params = request.query_params
 
@@ -268,14 +282,23 @@ class ConnectHandler(ProtocolHandler):
 
 
 class ConnectUnaryHandlerConn(StreamingHandlerConn):
-    """ConnectUnaryHandlerConn is a handler connection class for unary RPCs in the Connect protocol.
+    """Handler for unary Connect protocol requests.
+
+    This class manages the lifecycle of a unary RPC connection, including
+    request parsing, response serialization, error handling, and header/trailer
+    management. It provides methods to receive and unmarshal incoming messages,
+    marshal and send responses, and handle protocol-specific metadata.
 
     Attributes:
+        writer (ServerResponseWriter): The writer used to send responses.
         request (Request): The incoming request object.
-        marshaler (ConnectUnaryMarshaler): An instance of ConnectUnaryMarshaler used to marshal messages.
-        unmarshaler (ConnectUnaryUnmarshaler): An instance of ConnectUnaryUnmarshaler used to unmarshal messages.
-        headers (Headers): The headers for the response.
-
+        _peer (Peer): Information about the remote peer.
+        _spec (Spec): The protocol specification object.
+        marshaler (ConnectUnaryMarshaler): Marshaler for serializing response messages.
+        unmarshaler (ConnectUnaryUnmarshaler): Unmarshaler for deserializing request messages.
+        _request_headers (Headers): Headers from the incoming request.
+        _response_headers (Headers): Headers to be sent in the response.
+        _response_trailers (Headers): Trailers to be sent in the response.
     """
 
     writer: ServerResponseWriter
@@ -300,18 +323,18 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         response_headers: Headers,
         response_trailers: Headers | None = None,
     ) -> None:
-        """Initialize the protocol connection.
+        """Initializes a new instance of the class.
 
         Args:
-            writer (ServerResponseWriter): The writer to send the response.
+            writer (ServerResponseWriter): The writer used to send responses to the client.
             request (Request): The incoming request object.
-            peer (Peer): The peer information.
-            spec (Spec): The specification object.
-            marshaler (ConnectUnaryMarshaler): The marshaler to serialize data.
-            unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler to deserialize data.
-            request_headers (Headers): The headers for the request.
-            response_headers (Headers): The headers for the response.
-            response_trailers (Headers, optional): The trailers for the response.
+            peer (Peer): Information about the remote peer.
+            spec (Spec): The specification for the current operation.
+            marshaler (ConnectUnaryMarshaler): The marshaler for serializing responses.
+            unmarshaler (ConnectUnaryUnmarshaler): The unmarshaler for deserializing requests.
+            request_headers (Headers): Headers from the incoming request.
+            response_headers (Headers): Headers to include in the response.
+            response_trailers (Headers | None, optional): Trailers to include in the response. Defaults to None.
 
         """
         self.writer = writer
@@ -325,7 +348,18 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     def parse_timeout(self) -> float | None:
-        """Parse the timeout value."""
+        """Parses the timeout value from the request headers.
+
+        Retrieves the timeout value from the `CONNECT_HEADER_TIMEOUT` header in the request.
+        If the header is not present, returns None. If present, attempts to convert the value
+        to an integer (milliseconds), and returns the timeout in seconds as a float.
+
+        Raises:
+            ConnectError: If the timeout value cannot be converted to an integer.
+
+        Returns:
+            float | None: The timeout value in seconds, or None if not specified.
+        """
         try:
             timeout = self.request.headers.get(CONNECT_HEADER_TIMEOUT)
             if timeout is None:
@@ -339,67 +373,68 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
     @property
     def spec(self) -> Spec:
-        """Return the specification object.
+        """Returns the specification object associated with this handler.
 
         Returns:
-            Spec: The specification object.
-
+            Spec: The specification instance for this handler.
         """
         return self._spec
 
     @property
     def peer(self) -> Peer:
-        """Return the peer associated with this instance.
+        """Returns the associated Peer object for this handler.
 
-        :return: The peer associated with this instance.
-        :rtype: Peer
+        Returns:
+            Peer: The Peer object containing information about the remote peer.
         """
         return self._peer
 
     async def _receive_messages(self, message: Any) -> AsyncIterator[Any]:
-        """Receives and unmarshals a message into an object.
+        """Asynchronously receives and unmarshals a message, yielding the result.
 
         Args:
-            message (Any): The message to be unmarshaled.
+            message (Any): The raw message to be unmarshaled.
 
-        Returns:
-            AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
+        Yields:
+            Any: The unmarshaled message object.
 
         """
         yield await self.unmarshaler.unmarshal(message)
 
     def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Receives a message, unmarshals it, and returns the resulting object.
+        """Receives a message and returns an asynchronous iterator over the processed messages.
 
         Args:
-            message (Any): The message to be unmarshaled.
+            message (Any): The input message to be processed.
 
         Returns:
-            AsyncIterator[Any]: An async iterator yielding the unmarshaled object.
-
+            AsyncIterator[Any]: An asynchronous iterator yielding processed messages.
         """
         return self._receive_messages(message)
 
     @property
     def request_headers(self) -> Headers:
-        """Retrieve the headers from the request.
+        """Returns the HTTP headers associated with the current request.
 
         Returns:
-            Mapping[str, str]: A dictionary-like object containing the request headers.
-
+            Headers: The headers of the request.
         """
         return self._request_headers
 
     async def send(self, messages: AsyncIterable[Any]) -> None:
-        """Send message(s) by marshaling them into bytes.
+        """Sends a single message over the connection.
+
+        This asynchronous method expects an asynchronous iterable of messages,
+        ensures that only a single message is present, marshals it, and writes
+        the response using the provided writer. Response trailers are merged
+        before sending the message.
 
         Args:
-            messages (AsyncIterable[Any]): The message(s) to be sent. For unary operations,
-                                         this should be an iterable with a single item.
+            messages (AsyncIterable[Any]): An asynchronous iterable containing the message to send.
 
-        Returns:
-            None
-
+        Raises:
+            ValueError: If the iterable contains zero or more than one message.
+            Exception: Propagates exceptions raised during marshaling or writing.
         """
         self.merge_response_trailers()
 
@@ -410,49 +445,46 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
 
     @property
     def response_headers(self) -> Headers:
-        """Retrieve the response headers.
+        """Returns the HTTP response headers.
 
         Returns:
-            Any: The response headers.
-
+            Headers: The headers of the HTTP response.
         """
         return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
-        """Handle response trailers.
+        """Returns the HTTP response trailers as a Headers object.
 
-        This method is intended to be overridden in subclasses to provide
-        specific functionality for processing response trailers.
+        Response trailers are additional HTTP headers sent after the response body,
+        typically used in protocols like gRPC or HTTP/2 for metadata that is only
+        available once the response body has been generated.
 
         Returns:
-            Any: The processed response trailer data.
-
+            Headers: The response trailers associated with the HTTP response.
         """
         return self._response_trailers
 
     def get_http_method(self) -> HTTPMethod:
-        """Retrieve the HTTP method from the request.
+        """Returns the HTTP method of the current request as an `HTTPMethod` enum.
 
         Returns:
-            HTTPMethod: The HTTP method from the request.
-
+            HTTPMethod: The HTTP method (e.g., GET, POST) of the request.
         """
         return HTTPMethod(self.request.method)
 
     async def send_error(self, error: ConnectError) -> None:
-        """Send an error response.
-
-        This method updates the response headers with the error metadata,
-        sets the response trailers, converts the error code to an HTTP status code,
-        serializes the error to JSON, and writes the response.
+        """Sends an error response to the client in the Connect protocol format.
 
         Args:
-            error (ConnectError): The error to be sent in the response.
+            error (ConnectError): The error object containing error details, code, and metadata.
 
-        Returns:
-            None
-
+        Behavior:
+            - Updates response headers with error metadata, excluding protocol-specific headers if `wire_error` is False.
+            - Merges response trailers into the headers.
+            - Sets the appropriate HTTP status code based on the Connect error code.
+            - Sets the response content type to Connect JSON.
+            - Serializes the error to JSON bytes and writes the response to the client.
         """
         if not error.wire_error:
             self.response_headers.update(exclude_protocol_headers(error.metadata))
@@ -467,34 +499,36 @@ class ConnectUnaryHandlerConn(StreamingHandlerConn):
         await self.writer.write(Response(content=body, headers=self.response_headers, status_code=status_code))
 
     def merge_response_trailers(self) -> None:
-        """Merge response trailers into the response headers.
+        """Merges the response trailers into the response headers by prefixing each trailer key with CONNECT_UNARY_TRAILER_PREFIX and adding it to the response headers dictionary.
 
-        This method iterates through the `_response_trailers` dictionary and adds
-        each trailer key-value pair to the `_response_headers` dictionary,
-        prefixing the trailer keys with `CONNECT_UNARY_TRAILER_PREFIX`.
+        This is typically used to ensure that trailer metadata is included in the headers
+        for protocols or transports that do not natively support trailers.
 
         Returns:
             None
-
         """
         for key, value in self._response_trailers.items():
             self._response_headers[CONNECT_UNARY_TRAILER_PREFIX + key] = value
 
 
 class ConnectStreamingHandlerConn(StreamingHandlerConn):
-    """ConnectStreamingHandlerConn is a class that handles streaming connections for the Connect protocol.
+    """ConnectStreamingHandlerConn manages the lifecycle and data flow of a streaming connection using the Connect protocol.
+
+    It handles marshaling and unmarshaling of streaming messages, manages request and response
+    headers/trailers, and provides methods for sending and receiving messages asynchronously.
+    This class is designed to work with a server response writer and encapsulates protocol-specific
+    logic for error handling and timeout parsing.
 
     Attributes:
-        writer (ServerResponseWriter): The writer used to send responses.
+        writer (ServerResponseWriter): The writer used to send responses to the client.
         request (Request): The incoming request object.
-        _peer (Peer): The peer associated with this connection.
-        _spec (Spec): The specification object.
-        marshaler (ConnectStreamingMarshaler): The marshaler used to serialize messages.
-        unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler used to deserialize messages.
-        _request_headers (Headers): The headers from the request.
-        _response_headers (Headers): The headers for the response.
-        _response_trailers (Headers): The trailers for the response.
-
+        _peer (Peer): Information about the remote peer.
+        _spec (Spec): The protocol specification details.
+        marshaler (ConnectStreamingMarshaler): Marshals outgoing streaming messages.
+        unmarshaler (ConnectStreamingUnmarshaler): Unmarshals incoming streaming messages.
+        _request_headers (Headers): Headers from the incoming request.
+        _response_headers (Headers): Headers to be sent in the response.
+        _response_trailers (Headers): Trailers to be sent at the end of the response stream.
     """
 
     writer: ServerResponseWriter
@@ -519,18 +553,18 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         response_headers: Headers,
         response_trailers: Headers | None = None,
     ) -> None:
-        """Initialize the protocol connection.
+        """Initializes the ConnectHandler with the provided writer, request, peer, specification, marshaler, unmarshaler, and headers.
 
         Args:
-            writer (ServerResponseWriter): The writer for server responses.
-            request (Request): The request object.
-            peer (Peer): The peer information.
-            spec (Spec): The specification details.
-            marshaler (ConnectStreamingMarshaler): The marshaler for streaming.
-            unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler for streaming.
-            request_headers (Headers): The headers for the request.
-            response_headers (Headers): The headers for the response.
-            response_trailers (Headers, optional): The trailers for the response. Defaults to None.
+            writer (ServerResponseWriter): The writer used to send responses to the client.
+            request (Request): The incoming request object.
+            peer (Peer): The peer information for the connection.
+            spec (Spec): The specification for the connection.
+            marshaler (ConnectStreamingMarshaler): The marshaler for streaming responses.
+            unmarshaler (ConnectStreamingUnmarshaler): The unmarshaler for streaming requests.
+            request_headers (Headers): Headers from the incoming request.
+            response_headers (Headers): Headers to include in the response.
+            response_trailers (Headers | None, optional): Trailing headers to include in the response. Defaults to None.
 
         """
         self.writer = writer
@@ -544,7 +578,19 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
         self._response_trailers = response_trailers if response_trailers is not None else Headers()
 
     def parse_timeout(self) -> float | None:
-        """Parse the timeout value."""
+        """Parses the timeout value from the request headers.
+
+        Retrieves the timeout value specified in the CONNECT_HEADER_TIMEOUT header,
+        converts it from milliseconds to seconds, and returns it as a float.
+        If the header is not present, returns None.
+        Raises a ConnectError with Code.INVALID_ARGUMENT if the header value is not a valid integer.
+
+        Returns:
+            float | None: The timeout value in seconds, or None if not specified.
+
+        Raises:
+            ConnectError: If the timeout value cannot be converted to an integer.
+        """
         try:
             timeout = self.request.headers.get(CONNECT_HEADER_TIMEOUT)
             if timeout is None:
@@ -558,80 +604,73 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
     @property
     def spec(self) -> Spec:
-        """Return the specification object.
+        """Returns the specification object associated with this handler.
 
         Returns:
-            Spec: The specification object.
-
+            Spec: The specification instance for this handler.
         """
         return self._spec
 
     @property
     def peer(self) -> Peer:
-        """Return the peer associated with this instance.
+        """Returns the associated Peer object for this handler.
 
-        :return: The peer associated with this instance.
-        :rtype: Peer
+        Returns:
+            Peer: The Peer object containing information about the remote peer.
         """
         return self._peer
 
     async def _receive_messages(self, message: Any) -> AsyncIterator[Any]:
-        """Asynchronously receives a message and yields unmarshaled objects.
-
-        This method unmarshals the received message and yields each
-        unmarshaled object one by one as an asynchronous iterator.
+        """Asynchronously receives and yields unmarshaled message objects.
 
         Args:
-            message (Any): The message to unmarshal.
-
-        Returns:
-            AsyncIterator[Any]: An asynchronous iterator yielding unmarshaled objects.
+            message (Any): The incoming message to be unmarshaled.
 
         Yields:
-            Any: Each unmarshaled object from the message.
+            Any: Each unmarshaled object extracted from the message.
 
+        Raises:
+            Any exceptions raised by the unmarshaler during processing.
         """
         async for obj, _ in self.unmarshaler.unmarshal(message):
             yield obj
 
     def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Receives a message and returns an asynchronous content stream.
-
-        This method processes the incoming message through the receive_message method
-        and wraps the result in an AsyncContentStream with the appropriate stream type.
+        """Receives a message and returns an asynchronous iterator over the processed messages.
 
         Args:
-            message (Any): The message to be processed.
+            message (Any): The message to be received and processed.
 
         Returns:
-            AsyncContentStream[Any]: An asynchronous stream of content based on the
-                processed message, configured with the specification's stream type.
-
+            AsyncIterator[Any]: An asynchronous iterator yielding processed messages.
         """
         return self._receive_messages(message)
 
     @property
     def request_headers(self) -> Headers:
-        """Retrieve the headers from the request.
+        """Returns the HTTP headers associated with the current request.
 
         Returns:
-            Mapping[str, str]: A dictionary-like object containing the request headers.
-
+            Headers: The headers of the request.
         """
         return self._request_headers
 
     async def _send_messages(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
-        """Create an async iterator that marshals messages with error handling.
+        """Asynchronously sends marshaled messages and yields them as byte streams.
+
+        Iterates over the provided asynchronous iterable of messages, marshals each message,
+        and yields the resulting bytes. If an exception occurs during marshaling, it captures
+        the error and ensures that an end-of-stream message is marshaled and yielded with
+        appropriate error information and response trailers.
 
         Args:
-            messages (AsyncIterable[Any]): Messages to marshal
-
-        Returns:
-            AsyncIterator[bytes]: Marshaled bytes with end stream message
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled and sent.
 
         Yields:
-            bytes: Each marshaled message followed by an end stream message
+            bytes: Marshaled message bytes, including a final end-of-stream message.
 
+        Raises:
+            ConnectError: If an internal error occurs during marshaling.
         """
         error: ConnectError | None = None
         try:
@@ -644,21 +683,16 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
             yield body
 
     async def send(self, messages: AsyncIterable[Any]) -> None:
-        """Send a stream of messages asynchronously.
-
-        This method marshals the provided messages and sends them using the writer.
-        If an error occurs during the marshaling process, it captures the error,
-        converts it to a JSON object, and sends it as the final message in the stream.
+        """Asynchronously sends a stream of messages to the client using a streaming HTTP response.
 
         Args:
-            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent.
+            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be sent to the client.
 
         Returns:
             None
 
         Raises:
-            ConnectError: If an error occurs during the marshaling process.
-
+            Any exceptions raised by the writer or during message streaming will propagate.
         """
         await self.writer.write(
             StreamingResponse(
@@ -670,36 +704,35 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
     @property
     def response_headers(self) -> Headers:
-        """Retrieve the response headers.
+        """Returns the HTTP response headers.
 
         Returns:
-            Any: The response headers.
-
+            Headers: The headers included in the HTTP response.
         """
         return self._response_headers
 
     @property
     def response_trailers(self) -> Headers:
-        """Handle response trailers.
+        """Returns the HTTP response trailers.
 
-        This method is intended to be overridden in subclasses to provide
-        specific functionality for processing response trailers.
+        Response trailers are additional headers sent after the response body, typically used in protocols like HTTP/2 or gRPC to provide metadata that is only available once the response body has been generated.
 
         Returns:
-            Any: The processed response trailer data.
-
+            Headers: The response trailers as a Headers object.
         """
         return self._response_trailers
 
     async def send_error(self, error: ConnectError) -> None:
-        """Send an error response in the form of a JSON object.
+        """Sends an error response to the client using the provided ConnectError.
+
+        This method marshals the error and response trailers into a response body,
+        then writes a streaming HTTP response with the appropriate headers and a status code of 200.
 
         Args:
-            error (ConnectError): The error object to be sent.
+            error (ConnectError): The error to be sent to the client.
 
         Returns:
             None
-
         """
         body = self.marshaler.marshal_end_stream(error, self.response_trailers)
 
@@ -709,17 +742,19 @@ class ConnectStreamingHandlerConn(StreamingHandlerConn):
 
 
 def connect_check_protocol_version(request: Request, required: bool) -> ConnectError | None:
-    """Check the protocol version in the request headers for POST requests.
+    """Validates the protocol version in a Connect request based on the HTTP method.
+
+    For GET requests, checks the presence and value of a specific query parameter.
+    For POST requests, checks the presence and value of a specific header.
+    Returns a ConnectError if the required protocol version is missing or incorrect,
+    or if the HTTP method is unsupported. Returns None if the protocol version is valid.
 
     Args:
-        request (Request): The incoming HTTP request.
-        required (bool): Flag indicating whether the protocol version is required.
+        request (Request): The incoming HTTP request to validate.
+        required (bool): Whether the protocol version is required.
 
-    Raises:
-        ValueError: If the protocol version is required but not present in the headers.
-        ValueError: If the protocol version is present but unsupported.
-        ValueError: If the HTTP method is unsupported.
-
+    Returns:
+        ConnectError | None: A ConnectError describing the validation failure, or None if valid.
     """
     match HTTPMethod(request.method):
         case HTTPMethod.GET:
@@ -751,18 +786,16 @@ def connect_check_protocol_version(request: Request, required: bool) -> ConnectE
 
 
 def error_to_json_bytes(error: ConnectError) -> bytes:
-    """Serialize a ConnectError object to a JSON-encoded byte string.
+    """Serializes a ConnectError object to a JSON-formatted bytes object.
 
     Args:
-        error (ConnectError): The ConnectError object to serialize.
+        error (ConnectError): The ConnectError instance to serialize.
 
     Returns:
-        bytes: The JSON-encoded byte string representation of the error.
+        bytes: The JSON representation of the error, encoded as UTF-8 bytes.
 
     Raises:
-        ConnectError: If serialization fails, a ConnectError is raised with an
-                      appropriate error message and code.
-
+        ConnectError: If serialization fails, raises a new ConnectError with an INTERNAL code.
     """
     try:
         json_obj = error_to_json(error)

@@ -10,7 +10,7 @@ import pytest
 from connect.connect import UnaryRequest, UnaryResponse
 from connect.handler_context import HandlerContext
 from connect.idempotency_level import IdempotencyLevel
-from connect.options import ConnectOptions
+from connect.options import HandlerOptions
 from tests.conftest import AsyncClient
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceHandler
@@ -140,7 +140,7 @@ async def test_get() -> None:
 
     async with AsyncClient(
         PingService(),
-        options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS),
+        options=HandlerOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS),
     ) as client:
         encoded_message = json.dumps({"name": "test"}).encode()
         response = await client.get(
@@ -171,7 +171,7 @@ async def test_get_base64() -> None:
 
     async with AsyncClient(
         PingService(),
-        options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS),
+        options=HandlerOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS),
     ) as client:
         encoded_message = base64.b64encode(json.dumps({"name": "test"}).encode()).decode()
         response = await client.get(
@@ -203,7 +203,7 @@ async def test_unsupported_raw_deflate_compression() -> None:
 
     async with AsyncClient(
         PingService(),
-        options=ConnectOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS),
+        options=HandlerOptions(idempotency_level=IdempotencyLevel.NO_SIDE_EFFECTS),
     ) as client:
         compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
         content = PingRequest(name="test").SerializeToString()

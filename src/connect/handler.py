@@ -1,4 +1,4 @@
-"""Module provides handler configurations and implementations for unary procedures and stream types."""
+"""Defines the server-side handlers for Connect, gRPC, and gRPC-Web RPCs."""
 
 import asyncio
 from collections.abc import Awaitable, Callable
@@ -27,7 +27,7 @@ from connect.handler_context import HandlerContext
 from connect.handler_interceptor import apply_interceptors
 from connect.headers import Headers
 from connect.idempotency_level import IdempotencyLevel
-from connect.options import ConnectOptions
+from connect.options import HandlerOptions
 from connect.protocol import (
     HEADER_CONTENT_LENGTH,
     HEADER_CONTENT_TYPE,
@@ -55,18 +55,23 @@ type StreamFunc[T_Request, T_Response] = Callable[
 
 
 class HandlerConfig:
-    """HandlerConfig encapsulates the configuration for a handler in the Connect framework.
+    """Configuration for an RPC handler.
+
+    This class encapsulates all the configuration required to execute a specific RPC
+    procedure. It includes details about the procedure itself, serialization codecs,
+    compression algorithms, and various protocol-level settings.
 
     Attributes:
-        codecs (dict[str, Codec]): A mapping of codec names to codec instances supported by the handler.
-        compressions (list[Compression]): A list of compression algorithms supported by the handler.
-        descriptor (Any): The descriptor providing metadata about the procedure.
-        compress_min_bytes (int): The minimum message size (in bytes) before compression is applied.
-        read_max_bytes (int): The maximum number of bytes allowed to be read in a single message.
-        send_max_bytes (int): The maximum number of bytes allowed to be sent in a single message.
-        require_connect_protocol_header (bool): Whether the Connect protocol header is required.
+        procedure (str): The full name of the RPC procedure (e.g., /acme.foo.v1.FooService/Bar).
+        stream_type (StreamType): The type of stream for the procedure (unary, client, server, or bidi).
+        codecs (dict[str, Codec]): A dictionary mapping codec names to their respective Codec implementations.
+        compressions (list[Compression]): A list of supported compression algorithms.
+        descriptor (Any): The protobuf message or service descriptor.
+        compress_min_bytes (int): The minimum number of bytes a message must have to be considered for compression.
+        read_max_bytes (int): The maximum number of bytes to read for a single message.
+        send_max_bytes (int): The maximum number of bytes to send for a single message.
+        require_connect_protocol_header (bool): Whether to require the `Connect-Protocol-Version` header.
         idempotency_level (IdempotencyLevel): The idempotency level of the procedure.
-
     """
 
     procedure: str
@@ -80,14 +85,25 @@ class HandlerConfig:
     require_connect_protocol_header: bool
     idempotency_level: IdempotencyLevel
 
-    def __init__(self, procedure: str, stream_type: StreamType, options: ConnectOptions):
-        """Initialize a new handler instance with the specified procedure, stream type, and options.
+    def __init__(self, procedure: str, stream_type: StreamType, options: HandlerOptions):
+        """Initializes a new Handler.
 
         Args:
-            procedure (str): The name of the procedure to handle.
-            stream_type (StreamType): The type of stream (e.g., unary, server streaming, etc.).
-            options (ConnectOptions): Configuration options for the handler, including descriptor, compression, and protocol settings.
+            procedure (str): The full name of the RPC procedure.
+            stream_type (StreamType): The type of stream for the procedure.
+            options (HandlerOptions): Configuration options for the handler.
 
+        Attributes:
+            procedure (str): The full name of the RPC procedure.
+            stream_type (StreamType): The type of stream for the procedure.
+            codecs (dict[str, Codec]): A dictionary of supported codecs, keyed by name.
+            compressions (list[Compression]): A list of supported compression algorithms.
+            descriptor: The protobuf method descriptor.
+            compress_min_bytes (int): The minimum number of bytes for a response to be compressed.
+            read_max_bytes (int): The maximum number of bytes to read for a request message.
+            send_max_bytes (int): The maximum number of bytes to send for a response message.
+            require_connect_protocol_header (bool): Whether to require the Connect protocol header.
+            idempotency_level: The idempotency level of the procedure.
         """
         self.procedure = procedure
         self.stream_type = stream_type
@@ -106,11 +122,11 @@ class HandlerConfig:
         self.idempotency_level = options.idempotency_level
 
     def spec(self) -> Spec:
-        """Create and returns a Spec object initialized with the current handler's procedure, descriptor, stream type, and idempotency level.
+        """Get the specification for the handler.
 
         Returns:
-            Spec: An instance of the Spec class containing the handler's configuration.
-
+            Spec: A `Spec` object containing the handler's specification,
+                including procedure, descriptor, stream type, and idempotency level.
         """
         return Spec(
             procedure=self.procedure,
@@ -121,15 +137,19 @@ class HandlerConfig:
 
 
 def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
-    """Create and returns a list of protocol handlers based on the provided configuration.
+    """Creates and configures protocol handlers based on the provided configuration.
+
+    This function initializes handlers for the Connect, gRPC, and gRPC-Web protocols.
+    Each handler is configured with parameters extracted from the `config` object,
+    such as codecs, compression algorithms, message size limits, and other
+    protocol-specific settings.
 
     Args:
-        config (HandlerConfig): The configuration object containing settings for codecs, compressions,
-            byte limits, protocol requirements, and idempotency level.
+        config: A HandlerConfig object containing the configuration
+            for the protocol handlers.
 
     Returns:
-        list[ProtocolHandler]: A list of initialized protocol handler instances for each supported protocol.
-
+        A list of initialized ProtocolHandler instances.
     """
     protocols = [ProtocolConnect(), ProtocolGRPC(web=False), ProtocolGRPC(web=True)]
 
@@ -156,14 +176,22 @@ def create_protocol_handlers(config: HandlerConfig) -> list[ProtocolHandler]:
 
 
 class Handler:
-    """Handler is an abstract base class for handling HTTP requests in a protocol-agnostic way, supporting both unary and streaming RPCs.
+    """A base handler for a single RPC procedure.
+
+    This class is responsible for routing an incoming HTTP request to the correct
+    protocol-specific handler (e.g., Connect, gRPC, gRPC-Web) based on the
+    HTTP method and the Content-Type header. It manages the request lifecycle,
+    including validation, asynchronous processing, and error handling.
+
+    Subclasses must implement the `implementation` method to define the
+    procedure's business logic.
 
     Attributes:
-        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): Mapping of HTTP methods to their protocol handlers.
-        allow_methods (str): String specifying allowed HTTP methods.
-        accept_post (str): String specifying accepted content types for POST requests.
-        protocol_handler (ProtocolHandler): The protocol handler selected for the current request.
-
+        procedure (str): The fully-qualified name of the procedure (e.g., /acme.foo.v1.FooService/Bar).
+        protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A mapping of HTTP methods to the protocol handlers that support them.
+        allow_methods (str): A comma-separated string of allowed HTTP methods, used in the `Allow` header for 405 responses.
+        accept_post (str): A comma-separated string of supported `Content-Type` values for POST requests, used in the `Accept-Post` header for 415 responses.
+        protocol_handler (ProtocolHandler): The specific protocol handler chosen to handle the current request. This is set within the `handle` method.
     """
 
     procedure: str
@@ -179,14 +207,15 @@ class Handler:
         allow_methods: str,
         accept_post: str,
     ) -> None:
-        """Initialize the handler with the specified procedure, protocol handlers, and HTTP method configurations.
+        """Initializes a handler for a specific RPC procedure.
 
         Args:
-            procedure (str): The name of the procedure to be handled.
-            protocol_handlers (dict[HTTPMethod, list[ProtocolHandler]]): A mapping of HTTP methods to their corresponding protocol handlers.
-            allow_methods (str): A string specifying which HTTP methods are allowed.
-            accept_post (str): A string specifying the accepted content types for POST requests.
-
+            procedure: The full name of the procedure.
+            protocol_handlers: A dictionary mapping HTTP methods to a list of
+                protocol-specific handlers that can process requests for this procedure.
+            allow_methods: The value for the 'Allow' HTTP header, listing supported methods.
+            accept_post: The value for the 'Accept-Post' HTTP header, listing supported
+                content types for POST requests.
         """
         self.procedure = procedure
         self.protocol_handlers = protocol_handlers
@@ -194,42 +223,45 @@ class Handler:
         self.accept_post = accept_post
 
     async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
-        """Abstract method to be implemented by subclasses to handle streaming connections.
+        """The actual implementation of the streaming handler logic.
+
+        This method must be overridden by subclasses to define the specific
+        behavior of the handler. It is called to process the streaming
+        connection.
 
         Args:
-            conn (StreamingHandlerConn): The streaming connection handler instance.
-            timeout (float | None): Optional timeout value in seconds for the operation.
-
-        Raises:
-            NotImplementedError: If the method is not implemented by a subclass.
-
+            conn (StreamingHandlerConn): The connection object for the streaming
+                session, used to send and receive messages.
+            timeout (float | None): An optional timeout in seconds for the
+                entire handling operation.
         """
         raise NotImplementedError()
 
     async def handle(self, request: Request) -> Response:
-        """Handle an incoming HTTP request and returns an appropriate response.
+        """Handles an incoming HTTP request and routes it to the appropriate Connect protocol handler.
 
-        This method determines the correct protocol handler based on the HTTP method and content type,
-        validates the request (including checking for unsupported methods or media types), and manages
-        asynchronous processing of the request and response writing.
+        This method acts as the main entry point for the Connect service. It performs the
+        following steps:
+        1.  Validates the HTTP method. If the method is not supported, it returns a
+            405 Method Not Allowed response.
+        2.  Determines the correct protocol handler (e.g., Connect, gRPC-Web) based on
+            the request's Content-Type header. If no suitable handler is found, it
+            returns a 415 Unsupported Media Type response.
+        3.  For GET requests, it ensures there is no request body, returning a 415
+            response if a body is present, as per the Connect protocol specification.
+        4.  It creates two concurrent tasks:
+            - One to execute the actual RPC logic (`_handle`).
+            - One to wait for the response headers to be written by the logic task.
+        5.  It waits for the first task to complete. The response is typically generated
+            as soon as the headers are available, allowing for streaming responses.
+        6.  Ensures proper cleanup by cancelling any lingering tasks.
+        7.  Returns the generated `Response` object to the web server.
 
         Args:
-            request (Request): The incoming HTTP request to be handled.
+            request: The incoming Starlette Request object.
 
         Returns:
-            Response: The HTTP response generated by the handler.
-
-        Raises:
-            Exception: Propagates any exception raised during request handling.
-            asyncio.CancelledError: If the handling task is cancelled.
-
-        Behavior:
-            - Returns 405 Method Not Allowed if the HTTP method is not supported.
-            - Returns 415 Unsupported Media Type if no protocol handler can handle the request's content type.
-            - For GET requests, returns 415 if a request body is present.
-            - Handles the request asynchronously, ensuring proper cleanup of tasks.
-            - Returns a 500 Internal Server Error if no response is generated.
-
+            A Starlette Response object to be sent to the client.
         """
         response_headers = Headers(encoding="latin-1")
         response_trailers = Headers(encoding="latin-1")
@@ -274,7 +306,7 @@ class Handler:
 
         writer = ServerResponseWriter()
 
-        handle_task = asyncio.create_task(self._handle(request, response_headers, response_trailers, writer))
+        handle_task = asyncio.create_task(self._handle_rpc(request, response_headers, response_trailers, writer))
         writer_task = asyncio.create_task(writer.receive())
 
         response: Response | None = None
@@ -308,23 +340,24 @@ class Handler:
 
         return response
 
-    async def _handle(
+    async def _handle_rpc(
         self, request: Request, response_headers: Headers, response_trailers: Headers, writer: ServerResponseWriter
     ) -> None:
-        """Handle an incoming request by establishing a connection, parsing timeout values, and invoking the implementation logic.
+        """Handles a single RPC request.
+
+        This internal method orchestrates the processing of a request by:
+        1. Initializing a protocol-specific connection handler.
+        2. Parsing the request timeout.
+        3. Executing the user-provided service implementation within the timeout.
+        4. Catching any exceptions, including timeouts, and mapping them to
+           the appropriate Connect protocol error.
+        5. Sending the error back to the client if one occurs.
 
         Args:
-            request (Request): The incoming request object.
-            response_headers (Headers): Headers to be sent in the response.
-            response_trailers (Headers): Trailers to be sent in the response.
-            writer (ServerResponseWriter): The writer used to send responses to the client.
-
-        Returns:
-            None
-
-        Raises:
-            Sends an appropriate ConnectError to the client if an exception occurs during processing, including timeout, unimplemented, or internal errors.
-
+            request: The incoming request object.
+            response_headers: The headers for the response.
+            response_trailers: The trailers for the response.
+            writer: The server response writer to send data to the client.
         """
         conn = await self.protocol_handler.conn(request, response_headers, response_trailers, writer)
         if conn is None:
@@ -352,12 +385,17 @@ class Handler:
 
 
 class UnaryHandler[T_Request, T_Response](Handler):
-    """UnaryHandler is a generic handler class for unary RPC procedures.
+    """A concrete implementation of the `Handler` class for unary RPCs.
 
-    Type Parameters:
-        T_Request: The type of the request message.
-        T_Response: The type of the response message.
+    This handler is responsible for processing RPCs that involve a single request message
+    and a single response message. It is generic over the request and response types.
 
+    Attributes:
+        stream_type (StreamType): The type of stream, fixed to `StreamType.Unary`.
+        input (type[T_Request]): The type of the input request message.
+        output (type[T_Response]): The type of the output response message.
+        call (UnaryFunc[T_Request, T_Response]): The asynchronous function that implements the RPC logic,
+            potentially wrapped with interceptors.
     """
 
     stream_type: StreamType = StreamType.Unary
@@ -371,21 +409,22 @@ class UnaryHandler[T_Request, T_Response](Handler):
         unary: UnaryFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
-        """Initialize a handler for a unary RPC procedure.
+        """Initializes a new unary handler.
+
+        This sets up the necessary components for handling a unary RPC call,
+        including protocol-specific handlers (Connect, gRPC, gRPC-Web) and
+        any configured interceptors.
 
         Args:
-            procedure (str): The name of the RPC procedure.
-            unary (UnaryFunc[T_Request, T_Response]): The asynchronous function implementing the unary RPC logic.
-            input (type[T_Request]): The expected input type for the request.
-            output (type[T_Response]): The expected output type for the response.
-            options (ConnectOptions | None, optional): Optional configuration for the handler, such as interceptors. Defaults to None.
-
-        Calls the superclass initializer with the configured protocol handlers and method options.
-
+            procedure: The full name of the procedure, e.g., "/package.Service/Method".
+            unary: The asynchronous function that implements the RPC logic.
+            input: The type of the request message.
+            output: The type of the response message.
+            options: Optional configuration for the handler, including interceptors.
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
 
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.Unary, options=options)
         protocol_handlers = create_protocol_handlers(config)
@@ -409,20 +448,16 @@ class UnaryHandler[T_Request, T_Response](Handler):
         )
 
     async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
-        """Handle the implementation of a streaming handler connection.
+        """Implementation of the unary handler.
 
-        This asynchronous method receives a unary request from the given connection,
-        optionally sets a timeout on the request, invokes the handler's call method,
-        and sends the response message back through the connection. It also updates
-        the connection's response headers and trailers, excluding protocol-specific headers.
+        This method orchestrates the handling of a single incoming request. It
+        receives the request message, invokes the user-defined RPC logic via
+        `self.call`, and sends back the resulting response message. It also
+        propagates headers and trailers from the response to the connection.
 
         Args:
-            conn (StreamingHandlerConn): The streaming handler connection to process.
-            timeout (float | None): Optional timeout value to set on the request.
-
-        Returns:
-            None
-
+            conn (StreamingHandlerConn): The connection object for the stream.
+            timeout (float | None): The timeout for the request, in seconds.
         """
         request = await receive_unary_request(conn, self.input)
         context = HandlerContext(timeout=timeout)
@@ -435,17 +470,21 @@ class UnaryHandler[T_Request, T_Response](Handler):
 
 
 class ServerStreamHandler[T_Request, T_Response](Handler):
-    """ServerStreamHandler is a handler class for server-streaming RPC procedures.
+    """Handler for server-streaming RPCs.
 
-    This generic class manages the lifecycle and protocol handling for server-streaming RPCs,
-    where a single request from the client results in a stream of responses from the server.
-    It sets up protocol handlers, applies interceptors, and provides an asynchronous implementation
-    method to process incoming streaming requests and send responses.
+    This class manages the lifecycle of a server-streaming RPC. It is responsible for
+    receiving a single request message from the client, invoking the user-defined stream
+    function to generate a stream of response messages, and sending these messages back
+    to the client.
 
-    Type Parameters:
-        T_Request: The type of the request message.
-        T_Response: The type of the response message.
+    It is generic over the request type `T_Request` and the response type `T_Response`.
 
+    Attributes:
+        stream_type (StreamType): The type of stream, always `StreamType.ServerStream`.
+        input (type[T_Request]): The protobuf message type for the request.
+        output (type[T_Response]): The protobuf message type for the response.
+        call (StreamFunc[T_Request, T_Response]): The wrapped, user-provided stream function,
+            including any configured interceptors.
     """
 
     stream_type: StreamType = StreamType.ServerStream
@@ -459,22 +498,20 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
-        """Initialize a server-streaming handler for a given procedure.
+        """Initializes a new server streaming handler.
 
         Args:
-            procedure (str): The name of the RPC procedure.
-            stream (StreamFunc[T_Request, T_Response]): The asynchronous stream function handling the server-streaming logic.
-            input (type[T_Request]): The expected request message type.
-            output (type[T_Response]): The expected response message type.
-            options (ConnectOptions | None, optional): Additional configuration options for the handler. Defaults to None.
-
-        Raises:
-            Any exceptions raised by the parent class initializer.
-
+            procedure (str): The full name of the procedure, e.g., /my.service.v1.MyService/MyMethod.
+            stream (StreamFunc[T_Request, T_Response]): The async function that implements the server
+                streaming logic. It takes a request stream and a context, and returns a response stream.
+            input (type[T_Request]): The type of the request message.
+            output (type[T_Response]): The type of the response message.
+            options (HandlerOptions | None, optional): Optional configuration for the handler.
+                Defaults to None.
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ServerStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
@@ -496,22 +533,18 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
         )
 
     async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
-        """Handle the implementation of a streaming handler.
+        """Handles the logic for a streaming RPC.
 
-        This asynchronous method receives a stream request, optionally sets a timeout,
-        invokes the handler's call method, updates the connection's response headers and trailers,
-        and sends the response messages through the connection.
+        This method orchestrates the handling of a streaming request. It receives
+        the request data, invokes the user-defined service logic via the `call`
+        method, and sends the resulting response back to the client. It also
+        manages the transfer of headers and trailers.
 
         Args:
-            conn (StreamingHandlerConn): The streaming connection handler.
-            timeout (float | None): Optional timeout value for the request in seconds.
-
-        Returns:
-            None
-
-        Raises:
-            Any exceptions raised by `receive_stream_request`, `self.call`, or `conn.send` will propagate.
-
+            conn (StreamingHandlerConn): The connection object representing the
+                bidirectional stream with the client.
+            timeout (float | None): An optional timeout in seconds for the handler's
+                execution.
         """
         request = await receive_stream_request(conn, self.input)
         context = HandlerContext(timeout=timeout)
@@ -524,19 +557,19 @@ class ServerStreamHandler[T_Request, T_Response](Handler):
 
 
 class ClientStreamHandler[T_Request, T_Response](Handler):
-    """ClientStreamHandler is a handler class for client-streaming RPC procedures.
+    """A handler for client streaming RPCs.
 
-    This generic class manages the lifecycle of a client-streaming RPC, including request handling,
-    stream invocation, interceptor application, and response transmission. It is parameterized by
-    the request and response message types.
+    This handler manages RPCs where the client sends a stream of messages and the
+    server responds with a single message. It orchestrates receiving the client's
+    stream, invoking the user-defined implementation, and sending the final
+    response.
 
-    Type Parameters:
-        T_Request: The type of the input message for the stream.
-        T_Response: The type of the output message for the stream.
-
-        stream_type (StreamType): The type of stream handled (ClientStream).
-        call (StreamFunc[T_Request, T_Response]): The wrapped stream call function with applied interceptors.
-
+    Attributes:
+        stream_type (StreamType): The type of stream, always `StreamType.ClientStream`.
+        input (type[T_Request]): The protobuf message class for the request.
+        output (type[T_Response]): The protobuf message class for the response.
+        call (StreamFunc[T_Request, T_Response]): The wrapped, interceptor-aware
+            asynchronous function that implements the RPC logic.
     """
 
     stream_type: StreamType = StreamType.ClientStream
@@ -550,22 +583,24 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
-        """Initialize a handler for a client-streaming RPC procedure.
+        """Initializes a client streaming RPC handler.
+
+        This handler is responsible for processing a client streaming RPC, where the
+        client sends a stream of messages and the server responds with a single message.
 
         Args:
-            procedure (str): The name of the RPC procedure.
-            stream (StreamFunc[T_Request, T_Response]): The asynchronous stream function handling the client-streaming logic.
-            input (type[T_Request]): The expected input message type.
-            output (type[T_Response]): The expected output message type.
-            options (ConnectOptions | None, optional): Additional configuration options for the handler. Defaults to None.
-
-        Raises:
-            Any exceptions raised by the parent class initializer or protocol handler creation.
-
+            procedure: The full name of the RPC procedure.
+            stream: The asynchronous function that implements the RPC logic.
+                It receives a `StreamRequest` (an async iterator of request
+                messages) and a `HandlerContext`, and returns a `StreamResponse`
+                containing the single response message.
+            input: The protobuf message class for the request.
+            output: The protobuf message class for the response.
+            options: Optional configuration for the handler, including interceptors.
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.ClientStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
@@ -587,22 +622,18 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
         )
 
     async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
-        """Handle the implementation of a streaming handler.
+        """The core implementation for the streaming handler.
 
-        This asynchronous method receives a streaming request, optionally sets a timeout,
-        calls the handler logic, updates the connection's response headers and trailers,
-        and sends the response messages back through the connection.
+        This method orchestrates the handling of a streaming request. It receives
+        the request from the connection, invokes the user-defined call logic
+        with a context object, and sends the resulting response headers,
+        trailers, and messages back to the client.
 
         Args:
-            conn (StreamingHandlerConn): The streaming connection handler.
-            timeout (float | None): Optional timeout value for the request in seconds.
-
-        Returns:
-            None
-
-        Raises:
-            Any exceptions raised by `receive_stream_request` or `self.call` will propagate.
-
+            conn (StreamingHandlerConn): The connection object for the streaming RPC,
+                used for receiving the request and sending the response.
+            timeout (float | None): The maximum time in seconds to allow for the
+                handler's execution.
         """
         request = await receive_stream_request(conn, self.input)
         context = HandlerContext(timeout=timeout)
@@ -616,20 +647,22 @@ class ClientStreamHandler[T_Request, T_Response](Handler):
 
 
 class BidiStreamHandler[T_Request, T_Response](Handler):
-    """BidiStreamHandler is a handler class for bidirectional streaming procedures.
+    """Handler for bidirectional streaming procedures.
 
-    This generic class manages the lifecycle of a bidirectional streaming RPC, including request/response type validation,
-    application of interceptors, and integration with protocol-specific handlers. It wraps the provided stream function,
-    applies any configured interceptors, and exposes an asynchronous implementation method to process streaming requests
-    and send responses.
+    This class manages the lifecycle of a bidirectional streaming RPC, where both the client
+    and the server can send a stream of messages to each other. It wraps the user-provided
+    stream function with necessary protocol logic and interceptors.
 
-    Type Parameters:
+    Generic Types:
         T_Request: The type of the request messages.
         T_Response: The type of the response messages.
 
-        stream_type (StreamType): The type of stream handled (always StreamType.BiDiStream).
-        call (StreamFunc[T_Request, T_Response]): The wrapped stream call function with applied interceptors.
-
+    Attributes:
+        stream_type (StreamType): The type of stream, set to BiDiStream.
+        input (type[T_Request]): The expected type for request messages.
+        output (type[T_Response]): The expected type for response messages.
+        call (StreamFunc[T_Request, T_Response]): The wrapped, user-provided stream function
+            that processes the request and generates the response.
     """
 
     stream_type: StreamType = StreamType.BiDiStream
@@ -643,22 +676,18 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
         stream: StreamFunc[T_Request, T_Response],
         input: type[T_Request],
         output: type[T_Response],
-        options: ConnectOptions | None = None,
+        options: HandlerOptions | None = None,
     ) -> None:
-        """Initialize a handler for a bidirectional streaming procedure.
+        """Initializes a bi-directional streaming handler.
 
         Args:
-            procedure (str): The name of the procedure to handle.
-            stream (StreamFunc[T_Request, T_Response]): The asynchronous stream function handling requests and responses.
-            input (type[T_Request]): The expected input type for requests.
-            output (type[T_Response]): The expected output type for responses.
-            options (ConnectOptions | None, optional): Configuration options for the handler. Defaults to None.
-
-        Raises:
-            Any exceptions raised by the parent class initializer.
-
+            procedure: The full name of the procedure (e.g., /acme.foo.v1.FooService/Bar).
+            stream: The async function that implements the bi-directional stream logic.
+            input: The type of the request message.
+            output: The type of the response message.
+            options: Handler-specific options.
         """
-        options = options if options is not None else ConnectOptions()
+        options = options if options is not None else HandlerOptions()
         config = HandlerConfig(procedure=procedure, stream_type=StreamType.BiDiStream, options=options)
         protocol_handlers = create_protocol_handlers(config)
 
@@ -680,22 +709,18 @@ class BidiStreamHandler[T_Request, T_Response](Handler):
         )
 
     async def implementation(self, conn: StreamingHandlerConn, timeout: float | None) -> None:
-        """Handle the implementation of a streaming handler.
+        """Handles the logic for a streaming RPC.
 
-        This asynchronous method receives a streaming request, optionally sets a timeout,
-        calls the main processing function, updates the connection's response headers and trailers,
-        and sends the response messages back through the connection.
+        This method orchestrates the handling of a streaming request. It receives
+        the request data from the connection, invokes the user-defined `call`
+        method with the request and a context object, and then sends the
+        resulting response, including headers and trailers, back to the client.
 
         Args:
-            conn (StreamingHandlerConn): The streaming connection handler.
-            timeout (float | None): Optional timeout value for the request in seconds.
-
-        Returns:
-            None
-
-        Raises:
-            Any exceptions raised by `receive_stream_request` or `self.call` will propagate.
-
+            conn (StreamingHandlerConn): The connection object representing the
+                bidirectional stream with the client.
+            timeout (float | None): An optional timeout in seconds for the
+                handler's execution.
         """
         request = await receive_stream_request(conn, self.input)
         context = HandlerContext(timeout=timeout)

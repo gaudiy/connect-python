@@ -9,80 +9,94 @@ COMPRESSION_IDENTITY = "identity"
 
 
 class Compression(abc.ABC):
-    """Abstract base class for compression algorithms.
+    """Abstract base class for defining compression and decompression logic.
 
-    This class defines the interface for compression and decompression methods
-    that must be implemented by any concrete compression class.
-
+    This class provides a standard interface for different compression algorithms
+    used in Connect. Subclasses are expected to implement the `name` property,
+    and the `compress` and `decompress` methods.
     """
 
     @property
     @abc.abstractmethod
     def name(self) -> str:
-        """Return the name of the compression algorithm.
+        """Gets the name of the compression algorithm.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Raises:
+            NotImplementedError: This method is not implemented in the base class.
 
         Returns:
-            str: The name of the compression algorithm.
-
+            The name of the compression algorithm.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def compress(self, data: bytes) -> bytes:
-        """Compress the given data using a specified compression algorithm.
+        """Compresses the given data.
+
+        This is an abstract method that must be implemented by a subclass.
 
         Args:
-            data (bytes): The data to be compressed.
+            data: The bytes to be compressed.
 
         Returns:
-            bytes: The compressed data.
-
+            The compressed data as bytes.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def decompress(self, data: bytes, read_max_bytes: int) -> bytes:
-        """Decompress the given data.
+        """Decompresses the given data.
 
         Args:
-            data (bytes): The compressed data to be decompressed.
-            read_max_bytes (int): The maximum number of bytes to read from the decompressed data.
+            data: The compressed byte string.
+            read_max_bytes: The maximum number of bytes to read from the
+                decompressed data. This is a safeguard against decompression
+                bombs.
 
         Returns:
-            bytes: The decompressed data.
+            The decompressed byte string.
 
+        Raises:
+            NotImplementedError: This method must be implemented by a subclass.
         """
         raise NotImplementedError()
 
 
 class GZipCompression(Compression):
-    """A class to handle GZip compression and decompression."""
+    """Handles data compression and decompression using the GZip algorithm.
+
+    This class implements the `Compression` interface, providing methods to compress
+    and decompress byte data using the standard GZip format.
+
+    Attributes:
+        name (str): The identifier for this compression method, 'gzip'.
+    """
 
     _name: str
 
     def __init__(self) -> None:
-        """Initialize the compression object with the default compression method."""
+        """Initializes the compression algorithm with the GZIP name."""
         self._name = COMPRESSION_GZIP
 
     @property
     def name(self) -> str:
-        """Return the name attribute of the object.
+        """The name of the compression algorithm.
 
         Returns:
-            str: The name attribute.
-
+            The name of the compression algorithm.
         """
         return self._name
 
     def compress(self, data: bytes) -> bytes:
-        """Compress the given data using gzip compression.
+        """Compresses data using gzip.
 
         Args:
-            data (bytes): The data to be compressed.
+            data: The bytes to be compressed.
 
         Returns:
-            bytes: The compressed data.
-
+            The gzip-compressed data as bytes.
         """
         buf = io.BytesIO()
         with gzip.GzipFile(fileobj=buf, mode="wb") as f:
@@ -91,16 +105,16 @@ class GZipCompression(Compression):
         return buf.getvalue()
 
     def decompress(self, data: bytes, read_max_bytes: int) -> bytes:
-        """Decompress the given gzip-compressed data.
+        """Decompresses a gzip-compressed byte string.
 
         Args:
-            data (bytes): The gzip-compressed data to decompress.
-            read_max_bytes (int): The maximum number of bytes to read from the decompressed data.
-            If read_max_bytes is less than or equal to 0, all decompressed data will be read.
+            data: The compressed byte string to decompress.
+            read_max_bytes: The maximum number of bytes to read from the
+                decompressed stream. If this value is zero or negative, the
+                entire stream is read.
 
         Returns:
-            bytes: The decompressed data.
-
+            The decompressed data as a byte string.
         """
         read_max_bytes = read_max_bytes if read_max_bytes > 0 else -1
 
@@ -112,15 +126,14 @@ class GZipCompression(Compression):
 
 
 def get_compression_from_name(name: str | None, compressions: list[Compression]) -> Compression | None:
-    """Retrieve a Compression object from a list of compressions by its name.
+    """Finds a compression algorithm by its name from a list of available compressions.
 
     Args:
-        name (str): The name of the compression to retrieve.
-        compressions (list[Compression]): A list of Compression objects to search through.
+        name: The name of the compression algorithm to search for.
+        compressions: A list of available `Compression` objects.
 
     Returns:
-        Compression | None: The Compression object with the matching name, or None if not found.
-
+        The matching `Compression` object if found, otherwise `None`.
     """
     compression = (
         next(

@@ -1,4 +1,4 @@
-"""Module for gRPC message unmarshaling using EnvelopeReader and related utilities."""
+"""GRPCUnmarshaler provides async gRPC message unmarshaling with web trailer support."""
 
 from collections.abc import AsyncIterable, AsyncIterator
 from copy import copy
@@ -12,19 +12,25 @@ from connect.headers import Headers
 
 
 class GRPCUnmarshaler(EnvelopeReader):
-    """GRPCUnmarshaler is a specialized EnvelopeReader for handling gRPC message unmarshaling.
+    """GRPCUnmarshaler is a specialized EnvelopeReader for handling gRPC protocol messages.
 
-    Args:
-        codec (Codec | None): The codec used for decoding messages.
-        read_max_bytes (int): The maximum number of bytes to read from the stream.
-        stream (AsyncIterable[bytes] | None, optional): The asynchronous byte stream to read messages from.
-        compression (Compression | None, optional): Compression algorithm to use for decompressing messages.
+    With support for both standard and web environments, it provides asynchronous
+    unmarshaling of messages, extracting and storing HTTP/2 trailers when operating in
+    web mode.
+
+    Attributes:
+        _web_trailers (Headers | None): Stores the trailers received in the last envelope, if any.
 
     Methods:
-        async unmarshal(message: Any) -> AsyncIterator[Any]:
-            Asynchronously unmarshals the given message, yielding each decoded object.
-            Iterates over the results of the internal _unmarshal method, yielding only the object part of each tuple.
+        __init__(web, codec, read_max_bytes, stream=None, compression=None):
+            Initializes the GRPCUnmarshaler with the specified parameters.
 
+        async unmarshal(message):
+            Asynchronously unmarshals a given message, yielding each resulting object and
+            handling trailers in web mode.
+
+        web_trailers:
+            Returns the trailers received in the last envelope, or None if no trailers were received.
     """
 
     web: bool
@@ -38,29 +44,37 @@ class GRPCUnmarshaler(EnvelopeReader):
         stream: AsyncIterable[bytes] | None = None,
         compression: Compression | None = None,
     ) -> None:
-        """Initialize the protocol gRPC handler.
+        """Initializes the object with the given parameters.
 
         Args:
-            web (bool): Indicates if the connection is for a web environment.
-            codec (Codec | None): The codec to use for encoding/decoding messages. Can be None.
-            read_max_bytes (int): The maximum number of bytes to read from the stream.
+            web (bool): Indicates whether the web mode is enabled.
+            codec (Codec | None): The codec to use for decoding, or None.
+            read_max_bytes (int): The maximum number of bytes to read.
             stream (AsyncIterable[bytes] | None, optional): An asynchronous iterable stream of bytes. Defaults to None.
-            compression (Compression | None, optional): The compression method to use. Defaults to None.
+            compression (Compression | None, optional): The compression method to use, or None. Defaults to None.
 
+        Returns:
+            None
         """
         super().__init__(codec, read_max_bytes, stream, compression)
         self.web = web
         self._web_trailers = None
 
     async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
-        """Asynchronously unmarshals a given message and yields each resulting object.
+        """Asynchronously unmarshals a message and yields objects along with an end flag.
+
+        Iterates over the result of the superclass's `unmarshal` method, processing each object and its corresponding end flag.
+        When the end flag is True, validates and parses the envelope's data as HTTP/2 trailers, storing them in the instance.
+        Raises a ConnectError if the envelope is empty or has invalid flags.
 
         Args:
             message (Any): The message to be unmarshaled.
 
         Yields:
-            Any: Each object obtained from unmarshaling the message.
+            tuple[Any, bool]: A tuple containing the unmarshaled object and a boolean indicating if it is the end of the stream.
 
+        Raises:
+            ConnectError: If the envelope is empty or has invalid flags.
         """
         async for obj, end in super().unmarshal(message):
             if end:
@@ -96,10 +110,9 @@ class GRPCUnmarshaler(EnvelopeReader):
 
     @property
     def web_trailers(self) -> Headers | None:
-        """Return the trailers received in the last envelope.
+        """Returns the HTTP trailers associated with the web response, if any.
 
         Returns:
-            Headers | None: The trailers received in the last envelope, or None if no trailers were received.
-
+            Headers | None: The HTTP trailers as a Headers object if present, otherwise None.
         """
         return self._web_trailers

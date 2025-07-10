@@ -1,4 +1,4 @@
-"""Provides a Headers class for managing HTTP headers."""
+"""Provides a `Headers` class for managing HTTP headers and a utility function for request headers."""
 
 from collections.abc import AsyncIterable, Iterable, Iterator, KeysView, Mapping, MutableMapping, Sequence
 from typing import Any, Union
@@ -38,14 +38,30 @@ def _normalize_header_value(value: str | bytes, encoding: str | None = None) -> 
 
 
 class Headers(MutableMapping[str, str]):
-    """A class to represent HTTP headers.
+    """A case-insensitive, multi-valued dictionary for HTTP headers.
+
+    This class provides a dictionary-like interface for managing HTTP headers,
+    with special handling for their unique characteristics. Keys are treated in a
+    case-insensitive manner, and it's possible to have multiple values for the
+    same key, which are handled gracefully.
+
+    Internally, headers are stored as bytes to manage character encodings
+    correctly. The class can auto-detect the encoding or use a specified one.
+
+    When accessing a header that has multiple values via standard dictionary
+    lookup (`headers['key']`), the values are concatenated into a single,
+    comma-separated string. To retrieve all key-value pairs, including
+    duplicates, the `multi_items()` method should be used.
+
+    It inherits from `collections.abc.MutableMapping`, providing standard
+    dictionary methods like `keys()`, `items()`, `__getitem__`, `__setitem__`,
+    and `__delitem__`.
 
     Attributes:
-        raw : list[tuple[bytes, bytes]]
-            A list of tuples containing the raw header keys and values.
-        encoding : str
-            The encoding used for the headers.
-
+        encoding (str): The character encoding used for header keys and values.
+            It can be set manually or is auto-detected.
+        raw (list[tuple[bytes, bytes]]): A list of the raw (key, value) byte
+            pairs, preserving the original case of the keys.
     """
 
     _list: list[tuple[bytes, bytes, bytes]]
@@ -55,18 +71,14 @@ class Headers(MutableMapping[str, str]):
         headers: HeaderTypes | None = None,
         encoding: str | None = None,
     ) -> None:
-        """Initialize the Headers object.
+        """Initializes a new Headers object.
 
         Args:
-            headers (HeaderTypes | None): Initial headers to populate the object.
-                Can be another Headers object, a mapping of header key-value pairs,
-                or an iterable of key-value pairs.
-            encoding (str | None): The encoding to use for header keys and values.
-                If None, defaults to the system's default encoding.
-
-        Returns:
-            None
-
+            headers: An optional initial set of headers. Can be provided as
+                another `Headers` instance, a mapping (e.g., a dictionary),
+                or an iterable of (key, value) tuples.
+            encoding: The character encoding to use for converting string
+                header keys and values to bytes.
         """
         self._list = []
 
@@ -87,39 +99,38 @@ class Headers(MutableMapping[str, str]):
 
     @property
     def raw(self) -> list[tuple[bytes, bytes]]:
-        """Return the raw headers as a list of tuples.
-
-        Each tuple contains the raw key and value as bytes.
+        """Get the raw headers as a list of key-value pairs.
 
         Returns:
-            list[tuple[bytes, bytes]]: A list of tuples where each tuple contains
-            the raw key and value as bytes.
-
+            list[tuple[bytes, bytes]]: A list of (key, value) tuples,
+            where both the key and the value are bytes.
         """
         return [(raw_key, value) for raw_key, _, value in self._list]
 
     def keys(self) -> KeysView[str]:
-        """Return a view of the dictionary's keys.
+        """Return a new view of the header keys.
 
-        This method decodes the keys from the internal list using the specified encoding
-        and returns a view of these decoded keys.
+        The keys are decoded from bytes into strings using the configured encoding.
 
         Returns:
-            KeysView[str]: A view object that displays a list of the dictionary's keys.
-
+            A view object displaying a list of all header keys.
         """
         return {key.decode(self.encoding): None for _, key, value in self._list}.keys()
 
     @property
     def encoding(self) -> str:
-        """Determine and returns the encoding used for the headers.
+        """Determine and return the encoding for the headers.
 
-        This method attempts to decode the headers using "ascii" and "utf-8" encodings.
-        If neither of these encodings work, it defaults to "iso-8859-1" which can decode
-        any byte sequence.
+        The method iterates through a list of preferred encodings ('ascii', 'utf-8')
+        and attempts to decode all header keys and values. The first encoding
+        that successfully decodes all headers without a `UnicodeDecodeError` is
+        chosen and cached for subsequent calls.
+
+        If neither 'ascii' nor 'utf-8' is suitable, it falls back to 'iso-8859-1',
+        which can represent any byte value and is thus a safe default.
 
         Returns:
-            str: The encoding used for the headers.
+            str: The name of the determined encoding for the headers.
 
         """
         if self._encoding is None:
@@ -146,32 +157,39 @@ class Headers(MutableMapping[str, str]):
         self._encoding = value
 
     def copy(self) -> "Headers":
-        """Return a copy of the Headers object."""
+        """Returns a copy of the Headers object.
+
+        Returns:
+            Headers: A new Headers instance.
+        """
         return Headers(self, encoding=self.encoding)
 
     def multi_items(self) -> list[tuple[str, str]]:
-        """Return a list of tuples containing decoded key-value pairs from the internal list.
+        """Returns a list of all header key-value pairs.
 
-        The keys and values are decoded using the specified encoding.
+        The keys and values are decoded to strings using the specified encoding.
+        This method is useful for headers that can appear multiple times,
+        as it returns all occurrences.
 
         Returns:
-            list[tuple[str, str]]: A list of tuples where each tuple contains a decoded key and value.
-
+            list[tuple[str, str]]: A list of (key, value) tuples.
         """
         return [(key.decode(self.encoding), value.decode(self.encoding)) for _, key, value in self._list]
 
     def __getitem__(self, key: str) -> str:
-        """Retrieve the value associated with the given key in the headers.
+        """Retrieves a header value by its case-insensitive key.
+
+        If multiple headers share the same key, their values are concatenated
+        into a single string, separated by a comma and a space.
 
         Args:
-            key (str): The key to look up in the headers.
+            key: The case-insensitive name of the header to retrieve.
 
         Returns:
-            str: The value(s) associated with the key, joined by ", " if multiple values exist.
+            The corresponding header value.
 
         Raises:
-            KeyError: If the key is not found in the headers.
-
+            KeyError: If no header with the given key is found.
         """
         normalized_key = key.lower().encode(self.encoding)
 
@@ -187,18 +205,18 @@ class Headers(MutableMapping[str, str]):
         raise KeyError(key)
 
     def __setitem__(self, key: str, value: str) -> None:
-        """Set the value for a given key in the headers list.
+        """Sets a header value, treating the header name case-insensitively.
 
-        If the key already exists, update its value. If the key appears multiple times, remove all but the first
-        occurrence before updating.
+        If a header with the same name (case-insensitively) already exists,
+        its value is updated. The original casing of the new key is preserved.
+
+        If multiple headers with the same name exist, all subsequent occurrences
+        are removed, and the first one is updated with the new value. If the
+        header does not exist, it is added.
 
         Args:
-            key (str): The header key to set.
-            value (str): The header value to set.
-
-        Returns:
-            None
-
+            key: The name of the header.
+            value: The value for the header.
         """
         set_key = key.encode(self._encoding or "utf-8")
         set_value = value.encode(self._encoding or "utf-8")
@@ -216,14 +234,16 @@ class Headers(MutableMapping[str, str]):
             self._list.append((set_key, lookup_key, set_value))
 
     def __delitem__(self, key: str) -> None:
-        """Remove the item with the specified key from the list.
+        """Delete all headers matching the given key.
+
+        The key matching is case-insensitive. If multiple headers have the same
+        name, all of them will be removed.
 
         Args:
-            key (str): The key of the item to be removed.
+            key: The case-insensitive name of the header(s) to remove.
 
         Raises:
-            KeyError: If the key is not found in the list.
-
+            KeyError: If no header with the given key is found.
         """
         del_key = key.lower().encode(self.encoding)
 
@@ -260,21 +280,26 @@ def include_request_headers(
     content: bytes | Iterable[bytes] | AsyncIterable[bytes] | None,
     method: str | None = None,
 ) -> Headers:
-    """Include necessary request headers if they are not already present.
+    """Adds required request headers like 'Host' and 'Content-Length' if not present.
 
-    This function ensures that the "Host" and "Content-Length" headers are included in the request headers.
-    If the "Host" header is missing, it will be set based on the URL's host and port.
-    If the "Content-Length" header is missing and content is provided, it will be set to the length of the content.
+    This function inspects the request details (URL, content, method) and
+    populates essential HTTP headers if they are missing.
+
+    - It sets the 'Host' header based on the target URL, including the port
+      if it's non-standard.
+    - It determines whether to use 'Content-Length' (for fixed-size byte content)
+      or 'Transfer-Encoding: chunked' (for streaming content) for the request
+      body. This is skipped for 'GET' requests or if these headers are already set.
 
     Args:
-        headers (Headers): The original request headers.
-        url (URL): The URL object containing the scheme, host, and port.
-        content (bytes | None): The request content, if any.
-        method (str): The HTTP method of the request.
+        headers: The mutable headers dictionary-like object for the request.
+        url: The URL object of the request, used to determine the 'Host' header.
+        content: The request body, which can be bytes, an iterable of bytes,
+            or an async iterable of bytes.
+        method: The HTTP method of the request (e.g., "GET", "POST").
 
     Returns:
-        Headers: The updated request headers with the necessary headers included.
-
+        The updated headers object.
     """
     if headers.get("Host") is None:
         default_port = DEFAULT_PORTS.get(url.scheme.encode())

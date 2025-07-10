@@ -1,4 +1,4 @@
-"""Module for serializing and deserializing ConnectError objects to and from JSON."""
+"""Utilities for serializing and deserializing ConnectError objects to and from JSON."""
 
 import contextlib
 import json
@@ -17,18 +17,16 @@ _code_mapping_lock = threading.Lock()
 
 
 def code_to_string(value: Code) -> str:
-    """Convert a Code object to its string representation.
+    """Converts a Code enum value to its string representation.
 
-    If the Code object has a 'name' attribute and it is not None, the method returns
-    the lowercase version of the 'name'. Otherwise, it returns the string representation
-    of the 'value' attribute.
+    If the value has a 'name' attribute and it is not None, returns the lowercase name.
+    Otherwise, returns the string representation of the value's 'value' attribute.
 
     Args:
-        value (Code): The Code object to be converted to a string.
+        value (Code): The enum value to convert.
 
     Returns:
-        str: The string representation of the Code object.
-
+        str: The string representation of the enum value.
     """
     if not hasattr(value, "name") or value.name is None:
         return str(value.value)
@@ -37,20 +35,17 @@ def code_to_string(value: Code) -> str:
 
 
 def code_from_string(value: str) -> Code | None:
-    """Convert a string representation of a code to its corresponding Code enum value.
+    """Converts a string representation of a code to its corresponding `Code` enum value.
 
-    This function uses a global dictionary to cache the mapping from string to Code enum values.
-    If the cache is not initialized, it populates the cache by iterating over all Code enum values
-    and mapping their string representations to the corresponding Code enum.
-
-    This function is thread-safe and ensures the global cache is initialized only once.
+    This function uses a thread-safe, lazily-initialized mapping to efficiently look up
+    the `Code` enum associated with the given string. If the mapping is not yet initialized,
+    it will be created in a thread-safe manner using double-checked locking.
 
     Args:
         value (str): The string representation of the code.
 
     Returns:
-        Code | None: The corresponding Code enum value if found, otherwise None.
-
+        Code | None: The corresponding `Code` enum value if found, otherwise `None`.
     """
     global _string_to_code
 
@@ -68,19 +63,21 @@ def code_from_string(value: str) -> Code | None:
 
 
 def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError:
-    """Convert a JSON-serializable dictionary to a ConnectError object.
+    """Deserializes a JSON object into a ConnectError instance.
 
     Args:
-        obj (dict[str, Any]): The dictionary representing the error in JSON format.
-        fallback (ConnectError): A fallback ConnectError object to use in case of missing or invalid fields.
+        obj (dict[str, Any]): The JSON object representing the error, expected to contain
+            at least a "message" field, and optionally "code" and "details".
+        fallback (ConnectError): A fallback ConnectError instance to use for default values
+            or to raise in case of malformed input.
 
     Returns:
-        ConnectError: The ConnectError object converted from the dictionary.
+        ConnectError: The deserialized ConnectError instance with populated message, code,
+            and details.
 
     Raises:
-        ConnectError: If the dictionary is missing required fields or contains invalid values,
-                      a ConnectError is raised with an appropriate error message and code.
-
+        ConnectError: If required fields in the details are missing or if base64 decoding fails,
+            the fallback error is raised.
     """
     code = fallback.code
     if "code" in obj:
@@ -115,21 +112,21 @@ def error_from_json(obj: dict[str, Any], fallback: ConnectError) -> ConnectError
 
 
 def error_to_json(error: ConnectError) -> dict[str, Any]:
-    """Convert a ConnectError object to a JSON-serializable dictionary.
+    """Converts a ConnectError object into a JSON-serializable dictionary.
 
     Args:
         error (ConnectError): The error object to convert.
 
     Returns:
-        dict[str, Any]: A dictionary representing the error in JSON format.
-            - "code" (str): The error code as a string.
-            - "message" (str, optional): The raw error message, if available.
-            - "details" (list[dict[str, Any]], optional): A list of dictionaries containing error details, if available.
-                Each detail dictionary contains:
-                - "type" (str): The type name of the detail.
-                - "value" (str): The base64-encoded value of the detail.
-                - "debug" (str, optional): The JSON-encoded debug information, if available.
+        dict[str, Any]: A dictionary representing the error, including its code, message, and details if present.
 
+    The returned dictionary contains:
+        - "code": The string representation of the error code.
+        - "message": The raw error message, if available.
+        - "details": A list of dictionaries for each error detail, each containing:
+            - "type": The type name of the detail.
+            - "value": The base64-encoded value of the detail.
+            - "debug": (optional) A dictionary representation of the inner message, if available.
     """
     obj: dict[str, Any] = {"code": error.code.string()}
 

@@ -13,12 +13,18 @@ from connect.utils import get_acallable_attribute
 
 
 class EnvelopeFlags(Flag):
-    """EnvelopeFlags is an enumeration that defines flags for an envelope.
+    """Flags for an envelope.
+
+    This enumeration defines the bit flags that can be set on a Connect protocol
+    envelope to indicate special handling or metadata.
 
     Attributes:
-        compressed (int): Flag indicating that the envelope is compressed.
-        end_stream (int): Flag indicating that the envelope marks the end of a stream.
-
+        compressed: Indicates that the message is compressed. The compression
+            algorithm is determined by the `Content-Encoding` header.
+        end_stream: Signals the end of a stream. This is used in streaming RPCs
+            to indicate that no more messages will be sent.
+        trailer: Indicates that the envelope contains trailers instead of a
+            message. Trailers are sent as the last message in a stream.
     """
 
     compressed = 0b00000001
@@ -27,13 +33,18 @@ class EnvelopeFlags(Flag):
 
 
 class Envelope:
-    """A class to represent an Envelope which contains data and flags.
+    """A class to represent a protocol message envelope.
+
+    This class handles the encoding and decoding of messages, which consist of a
+    5-byte header and a variable-length data payload. The header contains flags
+    and the length of the data payload. The structure of the header is defined
+    by the `_format` attribute, which is a struct format string '>BI'
+    (big-endian, 1-byte unsigned char for flags, 4-byte unsigned int for data length).
 
     Attributes:
-        data (bytes): The data contained in the envelope.
-        flags (EnvelopeFlags): The flags associated with the envelope.
-        _format (str): The format string used for struct packing and unpacking.
-
+        data (bytes): The payload of the envelope.
+        flags (EnvelopeFlags): An enum representing the flags associated with the envelope.
+        _format (str): The struct format string for encoding/decoding the header.
     """
 
     data: bytes
@@ -41,49 +52,59 @@ class Envelope:
     _format: str = ">BI"
 
     def __init__(self, data: bytes, flags: EnvelopeFlags) -> None:
-        """Initialize a new instance of the class.
+        """Initializes a new Envelope instance.
 
         Args:
-            data (bytes): The data to be processed.
-            flags (EnvelopeFlags): The flags associated with the envelope.
-
+            data: The raw byte data of the envelope.
+            flags: The flags associated with the envelope, indicating its type.
         """
         self.data = data
         self.flags = flags
 
     def encode(self) -> bytes:
-        """Encode the header and data into a byte sequence.
+        """Serializes the envelope into a byte representation.
+
+        The resulting byte string is a concatenation of the message header
+        and the message data. The header contains the flags and the length
+        of the data.
 
         Returns:
-            bytes: The encoded byte sequence consisting of the header and data.
-
+            The serialized envelope as a bytes object.
         """
         return self.encode_header(self.flags.value, self.data) + self.data
 
     def encode_header(self, flags: int, data: bytes) -> bytes:
-        """Encode the header for a protocol message.
+        """Encodes the header for a message envelope.
+
+        This method packs the given flags and the length of the data into a
+        binary structure according to the format defined in `self._format`.
 
         Args:
-            flags (int): The flags to include in the header.
-            data (bytes): The data to be sent, used to determine the length.
+            flags: An integer representing the message flags.
+            data: The byte string payload of the message. The length of this
+                data will be encoded in the header.
 
         Returns:
-            bytes: The encoded header as a byte string.
-
+            The encoded header as a byte string.
         """
         return struct.pack(self._format, flags, len(data))
 
     @staticmethod
     def decode_header(data: bytes) -> tuple[EnvelopeFlags, int] | None:
-        """Decode the header from the given byte data.
+        """Decodes an envelope header from a byte string.
+
+        This function reads the first 5 bytes of the provided data to extract
+        the envelope flags and the length of the main data payload.
 
         Args:
-            data (bytes): The byte data containing the header to decode.
+            data: The byte string containing the envelope header.
 
         Returns:
-            tuple[EnvelopeFlags, int] | None: A tuple containing the decoded EnvelopeFlags and data length if the data is valid,
-                                              otherwise None if the data length is less than 5 bytes.
+            A tuple containing the `EnvelopeFlags` and the data length as an
+            integer if the header is successfully decoded. Returns `None` if
 
+            the input data is too short to contain a valid header (i.e., less
+            than 5 bytes).
         """
         if len(data) < 5:
             return None
@@ -93,15 +114,20 @@ class Envelope:
 
     @staticmethod
     def decode(data: bytes) -> "tuple[Envelope | None, int]":
-        """Decode the given byte data into an Envelope object and its length.
+        """Decodes a byte stream into an Envelope object.
+
+        This method reads the envelope header to determine the payload size,
+        then attempts to construct an Envelope object from the payload.
 
         Args:
-            data (bytes): The byte data to decode.
+            data: The raw byte data to be decoded.
 
         Returns:
-            tuple[Envelope | None, int]: A tuple containing the decoded Envelope object (or None if decoding fails)
-            and the length of the data. If the data is insufficient to decode, returns (None, data_len).
-
+            A tuple containing the decoded Envelope and the payload length.
+            - If decoding is successful, returns `(Envelope, payload_length)`.
+            - If the data is insufficient to contain the full payload as
+              indicated by the header, returns `(None, expected_payload_length)`.
+            - If the header is invalid or cannot be decoded, returns `(None, 0)`.
         """
         header = Envelope.decode_header(data)
         if header is None:
@@ -114,38 +140,33 @@ class Envelope:
         return Envelope(data[5 : 5 + data_len], flags), data_len
 
     def is_set(self, flag: EnvelopeFlags) -> bool:
-        """Check if a specific flag is set in the envelope.
+        """Checks if a specific flag is set in the envelope's flags.
 
         Args:
-            flag (EnvelopeFlags): The flag to check.
+            flag: The flag to check for.
 
         Returns:
-            bool: True if the flag is set, False otherwise.
-
+            True if the flag is set, False otherwise.
         """
         return flag in self.flags
 
 
 class EnvelopeWriter:
-    """EnvelopeWriter is responsible for marshaling messages, optionally compressing them, and writing them into envelopes for transmission.
+    """Manages the process of marshaling, compressing, and framing messages into envelopes.
+
+    This class is responsible for taking application-level messages, encoding them into
+    bytes using a specified codec, and then optionally compressing them. The resulting
+    data is wrapped in an Envelope object, which includes flags and the payload,
+    ready for transmission. It also enforces size limits on outgoing messages.
 
     Attributes:
-        codec (Codec | None): The codec used for encoding and decoding messages.
-        send_max_bytes (int): The maximum number of bytes allowed per message.
-        compression (Compression | None): The compression method to use, or None for no compression.
-
-    Methods:
-        __init__(codec, compression, compress_min_bytes, send_max_bytes):
-            Initializes the EnvelopeWriter with the specified codec, compression, and size constraints.
-
-        async _marshal(messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
-            Asynchronously marshals and optionally compresses messages from an async iterable, yielding encoded envelope bytes.
-            Raises ConnectError if marshaling fails or message size exceeds the allowed limit.
-
-        write_envelope(data: bytes, flags: EnvelopeFlags) -> Envelope:
-            Writes an envelope, optionally compressing its data if conditions are met, and updates envelope flags accordingly.
-            Raises ConnectError if the (compressed) message size exceeds the allowed maximum.
-
+        codec (Codec | None): The codec used for marshaling messages.
+        compress_min_bytes (int): The minimum size in bytes a message must be
+            before compression is applied.
+        send_max_bytes (int): The maximum allowed size in bytes for a message
+            payload after any compression.
+        compression (Compression | None): The compression algorithm to use. If None,
+            compression is disabled.
     """
 
     codec: Codec | None
@@ -156,14 +177,13 @@ class EnvelopeWriter:
     def __init__(
         self, codec: Codec | None, compression: Compression | None, compress_min_bytes: int, send_max_bytes: int
     ) -> None:
-        """Initialize the ProtocolConnect instance.
+        """Initializes the Envelope.
 
         Args:
-            codec (Codec): The codec to be used for encoding and decoding.
-            compression (Compression | None): The compression method to be used, or None if no compression is to be applied.
-            compress_min_bytes (int): The minimum number of bytes before compression is applied.
-            send_max_bytes (int): The maximum number of bytes that can be sent in a single message.
-
+            codec: The codec to use for encoding messages.
+            compression: The compression algorithm to use.
+            compress_min_bytes: The minimum number of bytes a message must be to be compressed.
+            send_max_bytes: The maximum number of bytes for a message to be sent.
         """
         self.codec = codec
         self.compress_min_bytes = compress_min_bytes
@@ -171,17 +191,21 @@ class EnvelopeWriter:
         self.compression = compression
 
     async def marshal(self, messages: AsyncIterable[Any]) -> AsyncIterator[bytes]:
-        """Asynchronously marshals and compresses messages from an asynchronous iterator.
+        """Marshals an asynchronous stream of messages into Connect envelopes.
+
+        This asynchronous generator takes an iterable of messages, marshals each one
+        using the configured codec, wraps it in a Connect envelope, and yields
+        the encoded envelope as bytes.
 
         Args:
-            messages (AsyncIterable[Any]): An asynchronous iterable of messages to be marshaled.
+            messages: An asynchronous iterable of messages to be marshaled.
 
         Yields:
-            AsyncIterator[bytes]: An asynchronous iterator of marshaled and optionally compressed messages in bytes.
+            The next marshaled and enveloped message as bytes.
 
         Raises:
-            ConnectError: If there is an error during marshaling or if the message size exceeds the allowed limit.
-
+            ConnectError: If the codec is not set or if an error occurs
+                during message marshaling.
         """
         if self.codec is None:
             raise ConnectError("codec is not set", Code.INTERNAL)
@@ -196,23 +220,28 @@ class EnvelopeWriter:
             yield env.encode()
 
     def write_envelope(self, data: bytes, flags: EnvelopeFlags) -> Envelope:
-        """Write an envelope containing the provided data, applying compression if required.
+        """Creates an Envelope from the given data, handling compression.
+
+        This method takes raw byte data and prepares it for sending. It will
+        attempt to compress the data if a compression algorithm is configured,
+        the data is larger than `compress_min_bytes`, and the `compressed`
+        flag is not already set.
+
+        If the data is compressed, the `EnvelopeFlags.compressed` flag is added.
+        The method also validates the final data size against the `send_max_bytes`
+        limit, raising an error if it's exceeded.
 
         Args:
-            data (bytes): The message payload to be written into the envelope.
-            flags (EnvelopeFlags): Flags indicating envelope properties, such as compression.
+            data (bytes): The raw message data to be enveloped.
+            flags (EnvelopeFlags): The initial flags for the envelope.
 
         Returns:
-            Envelope: An envelope object containing the (optionally compressed) data and updated flags.
+            Envelope: An envelope containing the potentially compressed data and
+                updated flags.
 
         Raises:
-            ConnectError: If the (compressed or uncompressed) data size exceeds the configured send_max_bytes limit.
-
-        Notes:
-            - Compression is applied only if the flags do not already indicate compression,
-              compression is enabled, and the data size exceeds the minimum threshold.
-            - The flags are updated to include the compressed flag if compression is performed.
-
+            ConnectError: If the size of the data (either raw or compressed)
+                exceeds the configured `send_max_bytes` limit.
         """
         if EnvelopeFlags.compressed in flags or self.compression is None or len(data) < self.compress_min_bytes:
             if self.send_max_bytes > 0 and len(data) > self.send_max_bytes:
@@ -238,14 +267,22 @@ class EnvelopeWriter:
 
 
 class EnvelopeReader:
-    """A class to handle the unmarshaling of streaming data.
+    """Reads and decodes enveloped messages from an asynchronous byte stream.
+
+    This class is responsible for processing the Connect protocol's envelope format.
+    It reads data from a stream, parses envelopes (which consist of a flag byte,
+    a 4-byte length prefix, and the message data), handles decompression, and
+    uses a specified codec to unmarshal the message data into Python objects.
 
     Attributes:
-        codec (Codec): The codec used for unmarshaling data.
-        compression (Compression | None): The compression method used, if any.
-        stream (AsyncIterable[bytes] | None): The asynchronous byte stream to read from.
-        buffer (bytes): The buffer to store incoming data chunks.
-
+        codec (Codec | None): The codec used for unmarshaling message data.
+        read_max_bytes (int): The maximum permitted size in bytes for a single message.
+        compression (Compression | None): The algorithm used for decompressing message data.
+        stream (AsyncIterable[bytes] | None): The source asynchronous byte stream.
+        buffer (bytes): An internal buffer for accumulating data from the stream.
+        bytes_read (int): A counter for the total number of bytes read.
+        last (Envelope | None): Stores the final envelope, which typically contains
+            end-of-stream metadata.
     """
 
     codec: Codec | None
@@ -263,14 +300,13 @@ class EnvelopeReader:
         stream: AsyncIterable[bytes] | None = None,
         compression: Compression | None = None,
     ) -> None:
-        """Initialize the protocol connection.
+        """Initializes the EnvelopeReader.
 
         Args:
-            codec (Codec): The codec to use for encoding and decoding data.
-            read_max_bytes (int): The maximum number of bytes to read from the stream.
-            stream (AsyncIterable[bytes] | None, optional): The asynchronous byte stream to read from. Defaults to None.
-            compression (Compression | None, optional): The compression method to use. Defaults to None.
-
+            codec: The codec to use for decoding messages.
+            read_max_bytes: The maximum number of bytes to read from the stream.
+            stream: The asynchronous stream of bytes to read from.
+            compression: The compression algorithm to use for decompression.
         """
         self.codec = codec
         self.read_max_bytes = read_max_bytes
@@ -281,18 +317,27 @@ class EnvelopeReader:
         self.last = None
 
     async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
-        """Asynchronously unmarshals messages from the stream.
+        """Unmarshals a stream of enveloped messages according to the Connect protocol.
+
+        This asynchronous generator reads byte chunks from the underlying stream,
+        buffering them until a complete message envelope can be decoded. It handles
+        message framing, decompression, and unmarshaling of the payload.
 
         Args:
-            message (Any): The message type to unmarshal.
+            message (Any): The target message type (e.g., a protobuf message class)
+                into which the payload will be unmarshaled.
 
         Yields:
-            Any: The unmarshaled message object.
+            tuple[Any, bool]: An async iterator yielding tuples where the first element
+                is the unmarshaled message object and the second is a boolean flag.
+                The flag is `True` if this is the final message (i.e., an end-of-stream
+                envelope), otherwise `False`.
 
         Raises:
-            ConnectError: If the stream is not set, if there is an error in the
-                          unmarshaling process, or if there is a protocol error.
-
+            ConnectError: If the stream or codec is not configured, if a message
+                size exceeds the configured `read_max_bytes`, if a compressed
+                message is received without a configured decompressor, or if any
+                other protocol, decompression, or unmarshaling error occurs.
         """
         if self.stream is None:
             raise ConnectError("stream is not set", Code.INTERNAL)
@@ -351,16 +396,11 @@ class EnvelopeReader:
                 raise ConnectError(message, Code.INVALID_ARGUMENT)
 
     async def aclose(self) -> None:
-        """Asynchronously closes the stream if it has an `aclose` method.
+        """Asynchronously closes the underlying stream.
 
-        This method checks if the `self.stream` object has an asynchronous
-        `aclose` method. If the method exists, it is invoked to close the stream.
-
-        The bytes_read counter is not reset when closing the stream.
-
-        Returns:
-            None
-
+        This method checks for an `aclose` callable on the stream
+        and awaits it if found, ensuring proper resource cleanup in an
+        asynchronous environment.
         """
         aclose = get_acallable_attribute(self.stream, "aclose")
         if aclose:

@@ -1,4 +1,4 @@
-"""Module defining the protocol handling classes and functions."""
+"""Defines the abstract interfaces and helpers for RPC protocol implementations."""
 
 import abc
 from http import HTTPMethod
@@ -37,16 +37,20 @@ HEADER_DATE = "Date"
 
 
 class ProtocolHandlerParams(BaseModel):
-    """ProtocolHandlerParams is a data model that holds parameters for handling protocol operations.
+    """Parameters for configuring a protocol handler.
+
+    This class encapsulates all the configuration options needed to set up
+    a protocol handler for Connect RPC communication.
 
     Attributes:
-        spec (Spec): The specification details for the protocol.
-        codecs (ReadOnlyCodecs): The codecs used for encoding and decoding data.
-        compressions (list[Compression]): A list of compression methods to be used.
-        compress_min_bytes (int): The minimum number of bytes required to trigger compression.
-        read_max_bytes (int): The maximum number of bytes that can be read at once.
-        send_max_bytes (int): The maximum number of bytes that can be sent at once.
-
+        spec: The service specification defining available methods and types.
+        codecs: Read-only collection of codecs for message serialization/deserialization.
+        compressions: List of supported compression algorithms.
+        compress_min_bytes: Minimum message size in bytes before compression is applied.
+        read_max_bytes: Maximum number of bytes that can be read in a single operation.
+        send_max_bytes: Maximum number of bytes that can be sent in a single operation.
+        require_connect_protocol_header: Whether to require Connect protocol headers.
+        idempotency_level: The level of idempotency support for operations.
     """
 
     model_config = ConfigDict(
@@ -54,94 +58,165 @@ class ProtocolHandlerParams(BaseModel):
     )
 
     spec: Spec
+    """The service specification defining available methods and types."""
     codecs: ReadOnlyCodecs
+    """Read-only collection of codecs for message serialization/deserialization."""
     compressions: list[Compression]
+    """List of supported compression algorithms."""
     compress_min_bytes: int
+    """Minimum message size in bytes before compression is applied."""
     read_max_bytes: int
+    """Maximum number of bytes that can be read in a single operation."""
     send_max_bytes: int
+    """Maximum number of bytes that can be sent in a single operation."""
     require_connect_protocol_header: bool
+    """Whether to require Connect protocol headers."""
     idempotency_level: IdempotencyLevel
+    """The level of idempotency support for operations."""
 
 
 class ProtocolClientParams(BaseModel):
-    """ProtocolClientParams is a data model for configuring protocol client parameters."""
+    """Parameters for configuring a protocol client.
+
+    This class defines the configuration parameters needed to create and operate
+    a protocol client for network communication.
+
+    Attributes:
+        pool (AsyncConnectionPool): The connection pool for managing async connections.
+        codec (Codec): The codec used for encoding/decoding messages.
+        url (URL): The target URL for the protocol client.
+        compression_name (str | None): The name of the compression algorithm to use.
+            Defaults to None if no compression is specified.
+        compressions (list[Compression]): List of available compression algorithms.
+        compress_min_bytes (int): Minimum number of bytes required before applying compression.
+        read_max_bytes (int): Maximum number of bytes that can be read in a single operation.
+        send_max_bytes (int): Maximum number of bytes that can be sent in a single operation.
+        enable_get (bool): Whether GET requests are enabled for this client.
+    """
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
     )
 
     pool: AsyncConnectionPool
+    """The connection pool for managing async connections."""
     codec: Codec
+    """The codec used for encoding/decoding messages."""
     url: URL
+    """The target URL for the protocol client."""
     compression_name: str | None = Field(default=None)
+    """The name of the compression algorithm to use. Defaults to None if no compression is specified."""
     compressions: list[Compression]
+    """List of available compression algorithms."""
     compress_min_bytes: int
+    """Minimum number of bytes required before applying compression."""
     read_max_bytes: int
+    """Maximum number of bytes that can be read in a single operation."""
     send_max_bytes: int
+    """Maximum number of bytes that can be sent in a single operation."""
     enable_get: bool
+    """Whether GET requests are enabled for this client."""
 
 
 class ProtocolClient(abc.ABC):
-    """Abstract base class for defining a protocol client."""
+    """Abstract base class for protocol clients that handle communication with remote services.
+
+    This class defines the interface for protocol clients that manage connections,
+    handle request headers, and provide peer information for different streaming protocols.
+
+    The ProtocolClient serves as a foundation for implementing specific protocol
+    handlers (such as HTTP/1.1, HTTP/2, or gRPC) while maintaining a consistent
+    interface for client operations.
+    """
 
     @property
     @abc.abstractmethod
     def peer(self) -> Peer:
-        """Retern the peer for the client."""
+        """Get the peer information for this connection.
+
+        Returns:
+            Peer: The peer object containing information about the connected peer.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def write_request_headers(self, stream_type: StreamType, headers: Headers) -> None:
-        """Write the request headers."""
+        """Write request headers to the stream.
+
+        Args:
+            stream_type (StreamType): The type of stream being used for the request.
+            headers (Headers): The headers to be written to the request stream.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def conn(self, spec: Spec, headers: Headers) -> StreamingClientConn:
-        """Return the connection for the client."""
+        """Establish a connection to a streaming service.
+
+        Args:
+            spec (Spec): The specification object containing connection details and configuration.
+            headers (Headers): HTTP headers to be included with the connection request.
+
+        Returns:
+            StreamingClientConn: A streaming client connection object for communicating with the service.
+        """
         raise NotImplementedError()
 
 
 class ProtocolHandler(abc.ABC):
-    """Abstract base class for handling different protocols."""
+    """Abstract base class for defining protocol handlers.
+
+    This class provides a standardized interface for different communication
+    protocols, such as gRPC, Connect, and gRPC-Web. By subclassing
+    `ProtocolHandler`, developers can integrate custom or standard protocols
+    into the server framework.
+
+    Subclasses must implement the abstract methods defined in this class to
+    specify the supported HTTP methods, content types, and to provide the
+    core logic for handling connections and processing requests.
+    """
 
     @property
     @abc.abstractmethod
     def methods(self) -> list[HTTPMethod]:
-        """Retrieve a list of HTTP methods.
+        """Gets the HTTP methods that this protocol supports.
+
+        This is an abstract method that must be implemented by subclasses.
 
         Returns:
-            list[HTTPMethod]: A list of HTTP methods.
-
+            A list of the supported HTTP methods.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def content_types(self) -> list[str]:
-        """Handle content types.
+        """Gets the list of supported content types.
 
-        This method currently does nothing and is intended to be implemented
-        in the future to handle different content types as needed.
+        This is an abstract method that must be implemented by subclasses. It should
+        return a list of MIME types that the protocol implementation can handle.
 
         Returns:
-            None
+            list[str]: A list of supported content type strings (e.g., "application/json").
 
+        Raises:
+            NotImplementedError: If the method is not overridden by a subclass.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def can_handle_payload(self, request: Request, content_type: str) -> bool:
-        """Determine if the payload of the given request can be handled based on the content type.
+        """Checks if the protocol can handle the request payload.
+
+        This method determines whether the current protocol implementation is capable
+        of processing the payload of a given request based on its content type.
+        Subclasses must implement this method.
 
         Args:
-            request (Request): The request object containing the payload.
-            content_type (str): The content type of the payload.
+            request (Request): The incoming request object.
+            content_type (str): The content type of the request's payload.
 
         Returns:
-            bool: True if the payload can be handled, False otherwise.
-
-        Raises:
-            NotImplementedError: This method should be implemented by subclasses.
-
+            bool: True if the payload can be handled by this protocol, False otherwise.
         """
         raise NotImplementedError()
 
@@ -153,65 +228,82 @@ class ProtocolHandler(abc.ABC):
         response_trailers: Headers,
         writer: ServerResponseWriter,
     ) -> StreamingHandlerConn | None:
-        """Handle a connection request.
+        """Initializes a streaming connection handler.
+
+        This method is called by the server to begin handling a streaming RPC.
+        It sets up the necessary context and returns a handler object that will
+        process the incoming and outgoing messages for the stream.
 
         Args:
-            request (Request): The incoming request object.
-            response_headers (Headers): The headers to be sent in the response.
-            response_trailers (Headers): The trailers to be sent in the response.
-            writer (ServerResponseWriter): The writer used to send the response.
-            is_streaming (bool, optional): Whether this is a streaming connection. Defaults to False.
+            request: The incoming request details.
+            response_headers: A mutable headers object to which response headers should be written.
+            response_trailers: A mutable headers object to which response trailers should be written.
+            writer: The writer for sending response messages and trailers.
 
         Returns:
-            StreamingHandlerConn | None: The connection handler or None if not implemented.
-
-        Raises:
-            NotImplementedError: If the method is not implemented.
-
+            An instance of a `StreamingHandlerConn` to handle the stream, or `None` to
+            terminate the connection.
         """
         raise NotImplementedError()
 
 
 class Protocol(abc.ABC):
-    """Abstract base class for defining a protocol.
+    """Defines the abstract interface for a communication protocol.
 
-    This class serves as a blueprint for creating protocol handlers and clients.
-    Subclasses must implement the following abstract methods.
+    This abstract base class (ABC) establishes a contract for different
+    communication protocols. It ensures that any protocol implementation
+    provides a consistent way to create both a server-side handler and a
+    client.
 
+    Subclasses are required to implement the `handler` and `client` methods
+    to provide the specific logic for their respective protocol.
     """
 
     @abc.abstractmethod
     def handler(self, params: ProtocolHandlerParams) -> ProtocolHandler:
-        """Handle the protocol with the given parameters.
+        """Gets the appropriate protocol handler for the given parameters.
+
+        This method is intended to be overridden by subclasses to return a specific
+        handler instance based on the provided parameters.
 
         Args:
-            params (ProtocolHandlerParams): The parameters required to handle the protocol.
+            params: The parameters used to determine which handler to return.
 
         Returns:
-            ProtocolHandler: An instance of ProtocolHandler based on the provided parameters.
-
+            An instance of a class that implements the ProtocolHandler protocol.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def client(self, params: ProtocolClientParams) -> ProtocolClient:
-        """Implement client functionality.
+        """Creates and returns a client instance for this protocol.
 
-        This method currently does nothing and is intended to be implemented
-        in the future with the necessary client-side logic.
+        This is an abstract method that must be implemented by subclasses. It should
+        take the necessary parameters and return a fully configured client object
+        capable of communicating using the defined protocol.
+
+        Args:
+            params: The parameters required to initialize the client.
+
+        Returns:
+            An instance of the protocol client.
         """
         raise NotImplementedError()
 
 
 def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HTTPMethod, list[ProtocolHandler]]:
-    """Map protocol handlers to their respective HTTP methods.
+    """Groups protocol handlers by the HTTP methods they support.
+
+    This function takes a flat list of protocol handlers and transforms it into a
+    dictionary where keys are HTTP methods and values are lists of handlers
+    that support that method.
 
     Args:
-        handlers (list[ProtocolHandler]): A list of protocol handlers.
+        handlers: A list of ProtocolHandler instances to be mapped.
 
     Returns:
-        dict[HTTPMethod, list[ProtocolHandler]]: A dictionary where the keys are HTTP methods and the values are lists of protocol handlers that support those methods.
-
+        A dictionary mapping each HTTPMethod to a list of ProtocolHandlers
+        that support it.
     """
     method_handlers: dict[HTTPMethod, list[ProtocolHandler]] = {}
     for handler in handlers:
@@ -224,21 +316,24 @@ def mapped_method_handlers(handlers: list[ProtocolHandler]) -> dict[HTTPMethod, 
 def negotiate_compression(
     available: list[Compression], sent: str | None, accept: str | None
 ) -> tuple[Compression | None, Compression | None, ConnectError | None]:
-    """Negotiate the compression method to be used based on the available options.
+    """Negotiates the compression algorithms for the request and response.
 
-    The compression method sent by the client, and the compression methods accepted
-    by the server.
+    This function determines which compression algorithm to use for decompressing
+    the request body and compressing the response body based on the client's
+    headers and the server's available options.
 
     Args:
-        available (list[Compression]): A list of available compression methods.
-        sent (str | None): The compression method sent by the client, or None if not specified.
-        accept (str | None): A comma-separated string of compression methods accepted by the server, or None if not specified.
-        header_name_accept_encoding (str): The name of the header used to specify the accepted compression methods.
+        available (list[Compression]): A list of compression algorithms supported by the server.
+        sent (str | None): The value of the `connect-content-encoding` header from the request,
+            indicating the compression used for the request body.
+        accept (str | None): The value of the `connect-accept-encoding` header from the request,
+            indicating the compression algorithms the client accepts for the response.
 
     Returns:
-        tuple[Compression | None, Compression | None]: A tuple containing the selected compression method for the request
-        and the response. If no suitable compression method is found, None is returned for that position in the tuple.
-
+        tuple[Compression | None, Compression | None, ConnectError | None]: A tuple containing:
+            - The compression algorithm for the request body (or None).
+            - The compression algorithm for the response body (or None).
+            - A ConnectError if the client sent an unsupported compression, otherwise None.
     """
     request = None
     response = None
@@ -271,37 +366,61 @@ def negotiate_compression(
 
 
 def sorted_allow_method_value(handlers: list[ProtocolHandler]) -> str:
-    """Sort the allowed methods for a list of protocol handlers.
+    """Generates a sorted, comma-separated string of method values from handlers.
+
+    This function aggregates all unique HTTP methods from a list of protocol
+    handlers, sorts them alphabetically, and returns them as a single
+    comma-separated string. This is typically used to generate the value for
+    the `Allow` HTTP header.
 
     Args:
-        handlers (list[ProtocolHandler]): A list of protocol handlers.
+        handlers: A list of ProtocolHandler instances from which to extract
+            HTTP methods.
 
     Returns:
-        str: A comma-separated string of the allowed methods.
-
+        A string containing the sorted, unique HTTP method values,
+        joined by ", ". For example: "GET, POST, PUT".
     """
     methods = {method for handler in handlers for method in handler.methods}
     return ", ".join(sorted(method.value for method in methods))
 
 
 def sorted_accept_post_value(handlers: list[ProtocolHandler]) -> str:
-    """Sort the allowed methods for a list of protocol handlers.
+    """Generates a sorted, comma-separated string of content types.
+
+    This function takes a list of protocol handlers, collects all unique
+    content types they support, sorts them alphabetically, and formats them
+    into a single string suitable for an `Accept-Post` header.
 
     Args:
-        handlers (list[ProtocolHandler]): A list of protocol handlers.
+        handlers: A list of `ProtocolHandler` instances.
 
     Returns:
-        str: A comma-separated string of the allowed methods.
-
+        A string containing the sorted, comma-separated list of
+        supported content types.
     """
     content_types = {content_type for handler in handlers for content_type in handler.content_types()}
     return ", ".join(sorted(content_type for content_type in content_types))
 
 
 def code_from_http_status(status: int) -> Code:
-    """Determine the gRPC-web error code for the given HTTP status code.
+    """Converts an HTTP status code to a gRPC `Code`.
 
-    See https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md.
+    This function implements the mapping from HTTP status codes to gRPC status codes
+    as specified by the gRPC-HTTP2 mapping. It handles common error codes like 400,
+    401, 403, 404, 429, and 5xx.
+
+    Note that a 200 OK status is mapped to `Code.UNKNOWN` because a successful
+    gRPC response over HTTP is expected to include a `grpc-status` header to
+    indicate the true status.
+
+    See: https://github.com/grpc/grpc/blob/master/doc/http-grpc-status-mapping.md.
+
+    Args:
+        status (int): The HTTP status code.
+
+    Returns:
+        Code: The corresponding gRPC status code.
     """
     match status:
         case 400:  # Bad Request
@@ -325,18 +444,17 @@ def code_from_http_status(status: int) -> Code:
 
 
 def exclude_protocol_headers(headers: Headers) -> Headers:
-    """Exclude protocol-specific headers from the given Headers object.
+    """Filters out protocol-specific headers from a Headers object.
 
-    This function filters out headers that are either standard HTTP headers
-    or specific to the Connect protocol, and returns a new Headers object
-    containing only the non-protocol headers.
+    This function iterates through a given set of headers and creates a new
+    Headers object that excludes common HTTP, Connect, and gRPC protocol
+    headers. The resulting object contains only application-specific headers.
 
     Args:
-        headers (Headers): The original Headers object containing all headers.
+        headers (Headers): The input headers to be filtered.
 
     Returns:
-        Headers: A new Headers object containing only the non-protocol headers.
-
+        Headers: A new Headers object containing only non-protocol headers.
     """
     non_protocol_headers = Headers(encoding=headers.encoding)
     for key, value in headers.items():

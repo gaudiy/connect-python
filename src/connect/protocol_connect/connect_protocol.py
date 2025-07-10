@@ -21,17 +21,30 @@ from connect.protocol_connect.constants import (
 
 
 class ProtocolConnect(Protocol):
-    """ProtocolConnect is a class that implements the Protocol interface for handling connection protocols."""
+    """ProtocolConnect is a protocol handler for the Connect protocol, responsible for creating handler and client instances based on provided parameters.
+
+    Methods:
+        handler(params: ProtocolHandlerParams) -> ConnectHandler:
+            Handles the creation of a ConnectHandler instance, configuring supported HTTP methods and accepted content types
+            based on the stream type and idempotency level specified in the parameters.
+
+        client(params: ProtocolClientParams) -> ProtocolClient:
+            Creates and returns a ConnectClient instance initialized with the provided parameters.
+    """
 
     def handler(self, params: ProtocolHandlerParams) -> ConnectHandler:
-        """Handle the creation of a ConnectHandler based on the provided ProtocolHandlerParams.
+        """Creates and returns a ConnectHandler instance configured with appropriate HTTP methods and accepted content types based on the provided ProtocolHandlerParams.
 
         Args:
-            params (ProtocolHandlerParams): The parameters required to create the ConnectHandler.
+            params (ProtocolHandlerParams): The parameters specifying the protocol handler configuration, including stream type, idempotency level, and codecs.
 
         Returns:
-            ConnectHandler: An instance of ConnectHandler configured with the appropriate methods and content types.
+            ConnectHandler: An instance of ConnectHandler configured with the determined HTTP methods and accepted content types.
 
+        Behavior:
+            - Allows POST requests by default.
+            - Adds GET as an allowed method if the stream type is Unary and the idempotency level is NO_SIDE_EFFECTS.
+            - Constructs a list of accepted content types based on the stream type and available codec names.
         """
         methods = [HTTPMethod.POST]
 
@@ -49,13 +62,12 @@ class ProtocolConnect(Protocol):
         return ConnectHandler(params, methods=methods, accept=content_types)
 
     def client(self, params: ProtocolClientParams) -> ProtocolClient:
-        """Create and returns a ConnectClient instance.
+        """Creates and returns a new instance of `ConnectClient` using the provided parameters.
 
         Args:
-            params (ProtocolClientParams): The parameters required to initialize the client.
+            params (ProtocolClientParams): The parameters required to initialize the protocol client.
 
         Returns:
-            ProtocolClient: An instance of ConnectClient.
-
+            ProtocolClient: An instance of `ConnectClient` initialized with the given parameters.
         """
         return ConnectClient(params)

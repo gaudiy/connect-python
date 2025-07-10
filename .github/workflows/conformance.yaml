@@ -59,6 +59,7 @@ jobs:
 
   client:
     runs-on: ubuntu-2404-4-cores
+    timeout-minutes: 30
 
     steps:
       # https://github.com/actions/checkout
@@ -93,7 +94,10 @@ jobs:
         run: |
           go install -v connectrpc.com/conformance/cmd/connectconformance@latest
 
-      - name: Run the connectconformance for client
+      - name: Run the connectconformance for client (10 times)
         run: |
-          connectconformance --trace --conf ./client_config.yaml --mode client --known-flaky @./client_known_flaky.yaml -- uv run python client_runner.py
+          for i in {1..10}; do
+            echo "Running conformance test iteration $i"
+            connectconformance --trace --conf ./client_config.yaml --mode client --known-flaky @./client_known_flaky.yaml -- uv run python client_runner.py
+          done
 

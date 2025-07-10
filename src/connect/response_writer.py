@@ -1,4 +1,4 @@
-"""Module containing the ServerResponseWriter class."""
+"""Single-use asynchronous response writer for server communication with thread-safe queue mechanism."""
 
 import asyncio
 
@@ -6,30 +6,49 @@ from connect.response import Response
 
 
 class ServerResponseWriter:
-    """A writer class for handling server responses asynchronously using an asyncio.Queue.
+    """A single-use asynchronous response writer for server communication.
+
+    This class provides a thread-safe mechanism for writing and receiving responses
+    using an internal asyncio queue with a maximum size of 1. The writer is designed
+    for single-use scenarios where only one response can be written and received
+    before the writer becomes closed.
 
     Attributes:
-        queue (asyncio.Queue[Response]): The queue used to store a single response.
-        is_closed (bool): Indicates whether the writer has been closed.
+        queue (asyncio.Queue[Response]): Internal queue for storing responses with maxsize=1.
+        is_closed (bool): Flag indicating whether the writer has been closed.
 
+    Note:
+        The response writer automatically closes after receiving a response,
+        making it unsuitable for multiple read/write operations.
     """
 
     queue: asyncio.Queue[Response]
     is_closed: bool = False
 
     def __init__(self) -> None:
-        """Initialize the instance with an asyncio queue of maximum size 1."""
+        """Initialize the ResponseWriter with an async queue.
+
+        Creates an asyncio Queue with a maximum size of 1 to handle response writing
+        in an asynchronous manner. The queue acts as a buffer for managing responses
+        that need to be written.
+        """
         self.queue = asyncio.Queue(maxsize=1)
 
     async def write(self, response: Response) -> None:
-        """Asynchronously writes a response to the internal queue.
+        """Write a response to the queue for processing.
+
+        This method adds a response to the internal queue for asynchronous processing.
+        The response writer must not be closed when calling this method.
 
         Args:
-            response (Response): The response object to be written.
+            response (Response): The response object to be written to the queue.
 
         Raises:
-            RuntimeError: If the response writer is already closed.
+            RuntimeError: If the response writer has been closed and cannot accept
+                         new responses.
 
+        Returns:
+            None: This method does not return a value.
         """
         if self.is_closed:
             raise RuntimeError("Cannot write to a closed response writer.")
@@ -37,17 +56,22 @@ class ServerResponseWriter:
         await self.queue.put(response)
 
     async def receive(self) -> Response:
-        """Asynchronously retrieves a response from the internal queue.
+        """Asynchronously receive a response from the response writer's queue.
 
-        Raises:
-            RuntimeError: If the response writer is already closed.
+        This method retrieves the next response from the internal queue and marks
+        the response writer as closed after receiving the response.
 
         Returns:
-            Response: The next response item from the queue.
+            Response: The response object retrieved from the queue.
 
-        Side Effects:
-            Marks the response writer as closed after receiving a response.
+        Raises:
+            RuntimeError: If the response writer is already closed when attempting
+                         to receive a response.
 
+        Note:
+            This method can only be called once per response writer instance.
+            After calling this method, the response writer will be marked as closed
+            and subsequent calls will raise a RuntimeError.
         """
         if self.is_closed:
             raise RuntimeError("Cannot receive from a closed response writer.")

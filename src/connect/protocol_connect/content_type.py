@@ -1,4 +1,4 @@
-"""Utilities for handling Connect protocol content types."""
+"""Helpers for Connect protocol content type handling."""
 
 from http import HTTPStatus
 
@@ -18,15 +18,22 @@ from connect.protocol_connect.constants import (
 
 
 def connect_codec_from_content_type(stream_type: StreamType, content_type: str) -> str:
-    """Extract the codec from the content type based on the stream type.
+    """Extracts the codec name from a given content type string based on the stream type.
 
     Args:
-        stream_type (StreamType): The type of stream (Unary or Streaming).
-        content_type (str): The content type string from which to extract the codec.
+        stream_type (StreamType): The type of the stream (e.g., Unary or Streaming).
+        content_type (str): The full content type string, which includes a prefix and the codec name.
 
     Returns:
-        str: The extracted codec from the content type.
+        str: The codec name extracted from the content type.
 
+    Raises:
+        IndexError: If the content_type string is shorter than the expected prefix length.
+
+    Note:
+        The function assumes that the content_type string starts with either
+        CONNECT_UNARY_CONTENT_TYPE_PREFIX or CONNECT_STREAMING_CONTENT_TYPE_PREFIX,
+        depending on the stream_type.
     """
     if stream_type == StreamType.Unary:
         return content_type[len(CONNECT_UNARY_CONTENT_TYPE_PREFIX) :]
@@ -35,15 +42,18 @@ def connect_codec_from_content_type(stream_type: StreamType, content_type: str) 
 
 
 def connect_content_type_from_codec_name(stream_type: StreamType, codec_name: str) -> str:
-    """Generate the content type string for a given stream type and codec name.
+    """Generates a Connect protocol content type string based on the stream type and codec name.
 
     Args:
-        stream_type (StreamType): The type of the stream (e.g., Unary or Streaming).
-        codec_name (str): The name of the codec.
+        stream_type (StreamType): The type of stream (e.g., Unary or Streaming).
+        codec_name (str): The name of the codec (e.g., "proto", "json").
 
     Returns:
-        str: The content type string constructed from the stream type and codec name.
+        str: The content type string for the Connect protocol, combining the appropriate prefix and codec name.
 
+    Example:
+        connect_content_type_from_codec_name(StreamType.Unary, "proto")
+        # Returns: "application/connect+proto"
     """
     if stream_type == StreamType.Unary:
         return CONNECT_UNARY_CONTENT_TYPE_PREFIX + codec_name
@@ -56,17 +66,24 @@ def connect_validate_unary_response_content_type(
     status_code: int,
     response_content_type: str,
 ) -> ConnectError | None:
-    """Validate the content type of a unary response based on the HTTP status code and method.
+    """Validates the content type of a unary response in the Connect protocol.
 
     Args:
-        request_codec_name (str): The name of the codec used for the request.
-        http_method (HTTPMethod): The HTTP method used for the request.
+        request_codec_name (str): The codec name used in the request (e.g., "json", "json; charset=utf-8").
         status_code (int): The HTTP status code of the response.
         response_content_type (str): The content type of the response.
 
-    Raises:
-        ConnectError: If the status code is not OK and the response content type is not valid.
+    Returns:
+        ConnectError | None: Returns a ConnectError if the response content type is invalid or does not match
+        the expected codec, otherwise returns None.
 
+    Raises:
+        ConnectError: If the response content type is invalid or does not match the expected format.
+
+    Behavior:
+        - For non-OK HTTP status codes, ensures the response is JSON-encoded.
+        - For OK responses, checks that the content type starts with the expected prefix and matches the request codec.
+        - Allows for compatibility between "json" and "json; charset=utf-8" codecs.
     """
     if status_code != HTTPStatus.OK:
         # Error response must be JSON-encoded.

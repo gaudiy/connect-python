@@ -1,7 +1,7 @@
 # Copyright 2024 Gaudiy, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Error represents an error in the Connect protocol."""
+"""Defines Connect protocol errors and related utilities."""
 
 import google.protobuf.any_pb2 as any_pb2
 import google.protobuf.symbol_database as symbol_database
@@ -14,7 +14,25 @@ DEFAULT_ANY_RESOLVER_PREFIX = "type.googleapis.com/"
 
 
 def type_url_to_message(type_url: str) -> Message:
-    """Return a message instance corresponding to a given type URL."""
+    """Converts a Protobuf `Any` type URL into an empty message instance.
+
+    This function takes a type URL, as found in the `type_url` field of a
+    `google.protobuf.any_pb2.Any` message, and returns an empty instance of the
+    corresponding Protobuf message class. It uses the default symbol database
+    to look up the message type.
+
+    Args:
+        type_url: The type URL string to resolve. It must start with
+            'type.googleapis.com/'.
+
+    Returns:
+        An empty instance of the resolved Protobuf message.
+
+    Raises:
+        ValueError: If the `type_url` does not have the expected prefix.
+        KeyError: If the message type for the given `type_url` cannot be
+            found in the symbol database.
+    """
     if not type_url.startswith(DEFAULT_ANY_RESOLVER_PREFIX):
         raise ValueError(f"Type URL has to start with a prefix {DEFAULT_ANY_RESOLVER_PREFIX}: {type_url}")
 
@@ -31,13 +49,20 @@ def type_url_to_message(type_url: str) -> Message:
 
 
 class ErrorDetail:
-    """ErrorDetail class represents the details of an error.
+    """Represents a detailed error message from a Connect RPC.
+
+    Connect errors can include a list of details, which are Protobuf messages
+    that provide more context about the error. These details are serialized as
+    `google.protobuf.any_pb2.Any` messages. This class provides a wrapper
+    around an `Any` message, allowing for lazy unpacking of the specific,
+    underlying error message.
 
     Attributes:
-        pb_any (any_pb2.Any): A protobuf Any type containing the error details.
-        pb_inner (Message): A protobuf Message containing the inner error details.
-        wire_json (str | None): A JSON string representation of the error, if available.
-
+        pb_any (any_pb2.Any): The raw `google.protobuf.any_pb2.Any` message.
+        pb_inner (Message | None): The unpacked, specific Protobuf error message.
+            This is lazily populated when `get_inner` is called for the first time.
+        wire_json (str | None): The raw JSON representation of the error detail,
+            as received over the wire.
     """
 
     pb_any: any_pb2.Any
@@ -45,13 +70,33 @@ class ErrorDetail:
     wire_json: str | None = None
 
     def __init__(self, pb_any: any_pb2.Any, pb_inner: Message | None = None, wire_json: str | None = None) -> None:
-        """Initialize an ErrorDetail."""
+        """Initializes a new ConnectErrorDetail.
+
+        Args:
+            pb_any (any_pb2.Any): The Protobuf Any message containing the error detail.
+            pb_inner (Message | None): The specific, deserialized Protobuf message from the detail.
+            wire_json (str | None): The raw JSON representation of the detail from the wire.
+        """
         self.pb_any = pb_any
         self.pb_inner = pb_inner
         self.wire_json = wire_json
 
     def get_inner(self) -> Message:
-        """Get the inner error message."""
+        """Unpacks and returns the inner protobuf message from the error detail.
+
+        This method deserializes the `google.protobuf.Any` message contained
+        within the error detail into its specific message type. The result is
+        cached, so subsequent calls to this method will not re-unpack the
+        message.
+
+        Returns:
+            The unpacked protobuf message.
+
+        Raises:
+            ValueError: If the type URL in the `Any` field does not match the
+                type of the packed message, indicating a data corruption or
+                mismatch.
+        """
         if self.pb_inner:
             return self.pb_inner
 
@@ -65,21 +110,39 @@ class ErrorDetail:
         return msg
 
 
-# Helper function to create error messages with code prefix
 def create_message(message: str, code: Code) -> str:
-    """Create an error message with a code prefix."""
+    """Creates a formatted error message from a code and a detail message.
+
+    If the `message` is empty, this function returns the string representation
+    of the `code`. Otherwise, it returns a string formatted as
+    "<code>: <message>".
+
+    Args:
+        message: The specific error message.
+        code: The error code enum instance.
+
+    Returns:
+        The formatted error message string.
+    """
     return code.string() if message == "" else f"{code.string()}: {message}"
 
 
 class ConnectError(Exception):
-    """Exception raised for errors that occur within the Connect system.
+    """Represents an error in the Connect protocol.
+
+    Connect errors are sent by servers when a request fails. They have a code,
+    a message, and optional binary details. This exception is raised by clients
+    when they receive an error from a server. It may also be raised by the
+    framework to indicate a client-side problem (e.g., a network error).
 
     Attributes:
-        raw_message (str): The original error message.
-        code (Code): The error code, default is Code.UNKNOWN.
-        metadata (MutableMapping[str, str]): Additional metadata related to the error.
-        details (list[ErrorDetail]): Detailed information about the error.
-
+        raw_message (str): The original, unformatted error message from the server or client.
+        code (Code): The Connect error code.
+        metadata (Headers): Any metadata (headers) associated with the error.
+        details (list[ErrorDetail]): A list of structured, typed error details.
+        wire_error (bool): True if the error was raised due to a protocol-level issue
+                           (e.g., malformed response, network error), rather than an
+                           error returned by the application logic.
     """
 
     raw_message: str
@@ -96,7 +159,17 @@ class ConnectError(Exception):
         details: list[ErrorDetail] | None = None,
         wire_error: bool = False,
     ) -> None:
-        """Initialize a Error."""
+        """Initializes a new ConnectError.
+
+        Args:
+            message (str): The error message.
+            code (Code): The Connect error code. Defaults to Code.UNKNOWN.
+            metadata (Headers | None): Any metadata to attach to the error. Defaults to None.
+            details (list[ErrorDetail] | None): A list of protobuf Any messages to attach as error details.
+            Defaults to None.
+            wire_error (bool): Whether this error was created from a serialized error on the wire.
+            Defaults to False.
+        """
         super().__init__(create_message(message, code))
         self.raw_message = message
         self.code = code

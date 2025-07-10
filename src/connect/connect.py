@@ -1,4 +1,4 @@
-"""Defines the streaming handler connection interfaces and related utilities."""
+"""Core components and abstractions for the Connect protocol."""
 
 import abc
 import asyncio
@@ -18,7 +18,21 @@ from connect.utils import aiterate, get_acallable_attribute, get_callable_attrib
 
 
 class StreamType(Enum):
-    """Enum for the type of stream."""
+    """Enumeration of the different types of RPC streams.
+
+    This enum categorizes the communication patterns between a client and a server
+    for a specific RPC method, mirroring the concepts found in frameworks like gRPC.
+
+    Attributes:
+        Unary: A simple RPC where the client sends a single request and receives a
+               single response.
+        ClientStream: An RPC where the client sends a stream of messages and the
+                      server sends back a single response.
+        ServerStream: An RPC where the client sends a single request and receives a
+                      stream of messages in response.
+        BiDiStream: An RPC where both the client and the server send a stream of
+                    messages to each other.
+    """
 
     Unary = "Unary"
     ClientStream = "ClientStream"
@@ -27,7 +41,14 @@ class StreamType(Enum):
 
 
 class Spec(BaseModel):
-    """Spec class."""
+    """Defines the specification for a remote procedure call.
+
+    Args:
+        procedure: The fully qualified name of the procedure to be called.
+        descriptor: The descriptor for the procedure, which may contain schema or other metadata.
+        stream_type: The streaming behavior of the procedure.
+        idempotency_level: The idempotency level, which determines how the procedure handles retries.
+    """
 
     procedure: str
     descriptor: Any
@@ -36,14 +57,25 @@ class Spec(BaseModel):
 
 
 class Address(BaseModel):
-    """Address class."""
+    """Represents a network address, consisting of a host and a port.
+
+    Attributes:
+        host (str): The hostname or IP address.
+        port (int): The port number.
+    """
 
     host: str
     port: int
 
 
 class Peer(BaseModel):
-    """Peer class."""
+    """Represents a peer in the network.
+
+    Attributes:
+        address: The network address of the peer.
+        protocol: The communication protocol used by the peer (e.g., 'http', 'ws').
+        query: A mapping of query parameters for the peer connection.
+    """
 
     address: Address | None
     protocol: str
@@ -51,22 +83,18 @@ class Peer(BaseModel):
 
 
 class RequestCommon:
-    """A common base class for handling request-related functionality.
+    """Represents the common context for a Connect RPC request or response.
 
-    This class encapsulates the common properties and behaviors shared across
-    different types of requests, including specification details, peer information,
-    headers, and HTTP method configuration.
+    This class encapsulates information that is shared between requests and responses
+    in the Connect protocol, such as the RPC specification, peer details, HTTP
+    headers, and the HTTP method used.
 
     Attributes:
-        _spec (Spec): The specification for the request containing procedure details,
-                      descriptor, stream type, and idempotency level.
-        _peer (Peer): The peer information including address, protocol, and query parameters.
-        _headers (Headers): The request headers as a collection of key-value pairs.
-        _method (str): The HTTP method used for the request (defaults to POST).
-
-    The class provides property accessors for all attributes with appropriate getters
-    and setters where modification is allowed. Default values are provided for all
-    parameters during initialization to ensure the object is always in a valid state.
+        spec (Spec): The RPC specification, including procedure name, stream type,
+            and idempotency level.
+        peer (Peer): Information about the network peer, such as address and protocol.
+        headers (Headers): The HTTP headers associated with the request or response.
+        method (str): The HTTP method used for the request (e.g., 'POST').
     """
 
     _spec: Spec
@@ -81,19 +109,17 @@ class RequestCommon:
         headers: Headers | None = None,
         method: str | None = None,
     ) -> None:
-        """Initialize a Connect request/response context.
+        """Initializes the RPC context.
 
         Args:
-            spec: The RPC specification containing procedure name, descriptor, stream type,
-                and idempotency level. If None, creates a default Spec with empty procedure,
-                no descriptor, unary stream type, and idempotent level.
-            peer: The peer information including address, protocol, and query parameters.
-                If None, creates a default Peer with no address, empty protocol, and empty query.
-            headers: HTTP headers for the request/response. If None, creates an empty Headers object.
-            method: HTTP method to use for the request. If None, defaults to POST.
-
-        Returns:
-            None
+            spec (Spec | None, optional): The specification for the RPC.
+                If None, a default Spec is created. Defaults to None.
+            peer (Peer | None, optional): Information about the network peer.
+                If None, a default Peer is created. Defaults to None.
+            headers (Headers | None, optional): The request headers.
+                If None, an empty Headers object is created. Defaults to None.
+            method (str | None, optional): The HTTP method of the request.
+                Defaults to POST.
         """
         self._spec = (
             spec
@@ -111,46 +137,87 @@ class RequestCommon:
 
     @property
     def spec(self) -> Spec:
-        """Return the request specification."""
+        """Gets the service specification.
+
+        Returns:
+            Spec: The service specification object.
+        """
         return self._spec
 
     @spec.setter
     def spec(self, value: Spec) -> None:
-        """Set the request specification."""
+        """Sets the specification for the Connect instance.
+
+        Args:
+            value: The specification object.
+        """
         self._spec = value
 
     @property
     def peer(self) -> Peer:
-        """Return the request peer."""
+        """Gets the peer object for this connection.
+
+        Returns:
+            Peer: The peer object.
+        """
         return self._peer
 
     @peer.setter
     def peer(self, value: Peer) -> None:
-        """Set the request peer."""
+        """Sets the peer for the connection.
+
+        Args:
+            value: The Peer instance to set.
+        """
         self._peer = value
 
     @property
     def headers(self) -> Headers:
-        """Return the request headers."""
+        """Gets the headers for the message.
+
+        Returns:
+            The headers for the message.
+        """
         return self._headers
 
     @property
     def method(self) -> str:
-        """Return the request method."""
+        """Gets the method name.
+
+        Returns:
+            str: The name of the method.
+        """
         return self._method
 
     @method.setter
     def method(self, value: str) -> None:
-        """Set the request method."""
+        """Sets the HTTP method for the request.
+
+        Args:
+            value: The HTTP method (e.g., "GET", "POST").
+        """
         self._method = value
 
 
 class StreamRequest[T](RequestCommon):
-    """StreamRequest class represents a request that can handle streaming messages.
+    """Represents a streaming request, containing an asynchronous iterable of messages.
 
-    This class provides a unified interface for handling both single and multiple
-    messages in streaming requests. It automatically determines the appropriate
-    method based on the stream type and usage context.
+    This class is used for RPCs where the client sends a stream of messages,
+    such as client streaming or bidirectional streaming calls. It provides
+    access to the messages as an async iterable and helper methods to consume them.
+
+    Type Parameters:
+        T: The type of the messages in the stream.
+
+        content: The content to be processed, which can be a single item of type T
+            or an async iterable of items.
+
+    Attributes:
+        messages (AsyncIterable[T]): The request messages as an async iterable.
+        spec (Spec | None): The specification for the RPC.
+        peer (Peer | None): Information about the remote peer.
+        headers (Headers | None): The request headers.
+        method (str | None): The HTTP method used for the request.
     """
 
     _messages: AsyncIterable[T]
@@ -163,52 +230,66 @@ class StreamRequest[T](RequestCommon):
         headers: Headers | None = None,
         method: str | None = None,
     ) -> None:
-        """Initialize a new instance.
+        """Initializes a new request.
 
         Args:
-            content: The content to be processed, either a single item of type T or an async iterable of items.
-            spec: Optional specification object defining the behavior or configuration.
-            peer: Optional peer object representing the connection endpoint.
-            headers: Optional headers dictionary for metadata or configuration.
-            method: Optional string specifying the method or operation type.
-
-        Returns:
-            None
+            content: The main content of the request. Can be a single message
+            or an asynchronous iterable of messages.
+            spec: The specification for the request. Defaults to None.
+            peer: The peer that initiated the request. Defaults to None.
+            headers: The headers associated with the request. Defaults to None.
+            method: The method name for the request. Defaults to None.
         """
         super().__init__(spec, peer, headers, method)
         self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
 
     @property
     def messages(self) -> AsyncIterable[T]:
-        """Return the request messages as an async iterable.
+        """An asynchronous iterator over received messages.
 
-        Use this when you expect multiple messages (client streaming, bidi streaming).
+        This allows you to iterate through messages from the server as they arrive
+        using an ``async for`` loop.
 
-        Example:
-            async for message in request.messages:
-                process(message)
+        Yields:
+            The next available message from the connection.
         """
         return self._messages
 
     async def single(self) -> T:
-        """Return a single message from the request.
+        """Asynchronously waits for and returns the single expected message.
 
-        Use this when you expect exactly one message (server-side handlers for client streaming).
-        Raises ConnectError if there are zero or multiple messages.
+        This method is used when exactly one message is expected from the
+        underlying asynchronous message source.
 
-        Example:
-            message = await request.single()
-            process(message)
+        Returns:
+            T: The one and only message received.
+
+        Raises:
+            ValueError: If the number of messages received is not equal to one
+                (i.e., zero or more than one).
         """
         return await ensure_single(self._messages)
 
 
 class UnaryRequest[T](RequestCommon):
-    """A unary request wrapper that extends RequestCommon functionality.
+    """Represents a unary (non-streaming) request.
 
-    This class encapsulates a single message/content of type T along with common request
-    metadata such as specifications, peer information, headers, and HTTP method.
+    This class encapsulates a single request message along with its associated
+    metadata, such as headers and peer information. It is used for interactions
+    where a single request message is sent and a single response is expected.
+
+    Type Parameters:
+        T: The type of the request message/content.
+
+    Attributes:
+        message (T): The request message or payload.
+        spec (Spec | None): Specification object defining behavior or configuration.
+        peer (Peer | None): Peer object representing the remote endpoint.
+        headers (Headers | None): Metadata associated with the request.
+        method (str | None): The RPC method being called.
     """
+
+    _message: T
 
     def __init__(
         self,
@@ -218,34 +299,37 @@ class UnaryRequest[T](RequestCommon):
         headers: Headers | None = None,
         method: str | None = None,
     ) -> None:
-        """Initialize a new instance with content and optional parameters.
+        """Initializes the request object.
 
         Args:
-            content (T): The main content/message to be stored in this instance.
-            spec (Spec | None, optional): Specification object defining behavior or configuration. Defaults to None.
-            peer (Peer | None, optional): Peer object representing the remote endpoint or connection. Defaults to None.
-            headers (Headers | None, optional): HTTP headers or metadata associated with the request/response. Defaults to None.
-            method (str | None, optional): HTTP method or operation type (e.g., 'GET', 'POST'). Defaults to None.
-
-        Returns:
-            None
+            content (T): The content of the message.
+            spec (Spec | None, optional): The request specification. Defaults to None.
+            peer (Peer | None, optional): Information about the peer. Defaults to None.
+            headers (Headers | None, optional): The request headers. Defaults to None.
+            method (str | None, optional): The request method. Defaults to None.
         """
         super().__init__(spec, peer, headers, method)
         self._message = content
 
     @property
     def message(self) -> T:
-        """Return the request message."""
+        """Get the underlying message.
+
+        Returns:
+            The message object.
+        """
         return self._message
 
 
 class ResponseCommon:
-    """ResponseCommon is a class that encapsulates common response attributes such as headers and trailers.
+    """A base class representing common properties for all Connect response types.
+
+    This class encapsulates the headers and trailers that are common to both
+    unary and streaming responses.
 
     Attributes:
-        _headers (Headers): The headers of the response.
-        _trailers (Headers): The trailers of the response.
-
+        headers (Headers): The response headers.
+        trailers (Headers): The response trailers.
     """
 
     _headers: Headers
@@ -256,23 +340,53 @@ class ResponseCommon:
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
-        """Initialize the response with a message."""
+        """Initializes the instance.
+
+        Args:
+            headers: Optional initial headers.
+            trailers: Optional initial trailers.
+        """
         self._headers = headers if headers is not None else Headers()
         self._trailers = trailers if trailers is not None else Headers()
 
     @property
     def headers(self) -> Headers:
-        """Return the response headers."""
+        """Returns the headers for the request.
+
+        Returns:
+            Headers: The headers for the request.
+        """
         return self._headers
 
     @property
     def trailers(self) -> Headers:
-        """Return the response trailers."""
+        """Returns the trailers of the response.
+
+        Trailers are headers sent after the message body. They are only available
+        after the entire response body has been read.
+
+        Returns:
+            Headers: The trailers. An empty Headers object if no trailers were sent.
+        """
         return self._trailers
 
 
 class UnaryResponse[T](ResponseCommon):
-    """Response class for handling responses."""
+    """Represents a unary response from a Connect RPC.
+
+    This class encapsulates a single response message, along with its
+    associated headers and trailers.
+
+    Args:
+        content (T): The deserialized response message.
+        headers (Headers | None): The response headers.
+        trailers (Headers | None): The response trailers.
+
+    Attributes:
+        message (T): The deserialized response message.
+        headers (Headers): The response headers.
+        trailers (Headers): The response trailers.
+    """
 
     _message: T
 
@@ -282,22 +396,44 @@ class UnaryResponse[T](ResponseCommon):
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
-        """Initialize the response with a message."""
+        """Initializes the message object.
+
+        Args:
+            content: The message content.
+            headers: Optional initial headers.
+            trailers: Optional initial trailers.
+        """
         super().__init__(headers, trailers)
         self._message = content
 
     @property
     def message(self) -> T:
-        """Return the response message."""
+        """Returns the message associated with the response.
+
+        Returns:
+            The message of type T.
+        """
         return self._message
 
 
 class StreamResponse[T](ResponseCommon):
-    """Response class for handling streaming responses.
+    """Represents a streaming response from a Connect RPC.
 
-    This class provides a unified interface for handling both single and multiple
-    messages from streaming responses. It automatically determines the appropriate
-    method based on the stream type and usage context.
+    This class encapsulates the response headers, trailers, and the asynchronous
+    stream of response messages. It is used for server-streaming and
+    bidirectional-streaming RPCs where the server sends multiple messages over time.
+
+    The primary way to interact with a `StreamResponse` is to iterate over its
+    `messages` property to consume the stream of incoming data. For RPCs that are
+    expected to return exactly one message in the stream (like client-streaming),
+    the `single()` method can be used for convenience.
+
+    Type Parameters:
+        T: The type of the messages in the response stream.
+
+    Attributes:
+        headers (Headers | None): The response headers.
+        trailers (Headers | None): The response trailers.
     """
 
     _messages: AsyncIterable[T]
@@ -308,37 +444,39 @@ class StreamResponse[T](ResponseCommon):
         headers: Headers | None = None,
         trailers: Headers | None = None,
     ) -> None:
-        """Initialize the response with content.
+        """Initializes the request.
 
         Args:
-            content: Either a single message or an async iterable of messages
-            headers: Optional response headers
-            trailers: Optional response trailers
+            content: The content of the request. Can be a single message or an async iterable of messages.
+            headers: The headers of the request.
+            trailers: The trailers of the request.
         """
         super().__init__(headers, trailers)
         self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
 
     @property
     def messages(self) -> AsyncIterable[T]:
-        """Return the response messages as an async iterable.
+        """An asynchronous iterator over the messages received from the server.
 
-        Use this when you expect multiple messages (server streaming, bidi streaming).
+        This method provides a way to consume messages from the server as they
+        arrive. It is intended to be used with an `async for` loop.
 
-        Example:
-            async for message in response.messages:
-                print(message)
+        Yields:
+            T: The next message received from the server.
         """
         return self._messages
 
     async def single(self) -> T:
-        """Return a single message from the response.
+        """Asynchronously gets the single message from the stream.
 
-        Use this when you expect exactly one message (client streaming results).
-        Raises ConnectError if there are zero or multiple messages.
+        This method consumes the underlying asynchronous message stream and
+        ensures that it contains exactly one message.
 
-        Example:
-            message = await response.single()
-            print(message)
+        Returns:
+            The single message from the stream.
+
+        Raises:
+            ValueError: If the stream is empty or contains more than one message.
         """
         return await ensure_single(self._messages)
 
@@ -350,24 +488,21 @@ class StreamResponse[T](ResponseCommon):
 
 
 async def ensure_single[T](iterable: AsyncIterable[T], aclose: Callable[[], Awaitable[None]] | None = None) -> T:
-    """Asynchronously ensures that the given async iterable yields exactly one item.
+    """Ensures an async iterable yields exactly one item and returns it.
 
-    Iterates over the provided async iterable (after validating its content stream)
-    and returns the single item if present. Raises a ConnectError if the iterable
-    is empty or contains more than one item. Optionally closes the iterable by calling
-    the provided aclose function after processing.
+    This is a helper function for handling unary responses in a streaming context.
+    It consumes the iterable to verify its cardinality.
 
     Args:
-        iterable (AsyncIterable[T]): An asynchronous iterable expected to yield exactly one item.
-        aclose (Callable[[], Awaitable[None]] | None, optional): A callable that asynchronously
-            closes the stream when invoked. If provided, will be called in a finally block.
+        iterable: The asynchronous iterable to consume.
+        aclose: An optional awaitable callable to be executed for cleanup
+            in a finally block.
 
     Returns:
-        T: The single item yielded by the iterable.
+        The single item from the iterable.
 
     Raises:
-        ConnectError: If the iterable yields no items or more than one item.
-
+        ConnectError: If the iterable contains zero or more than one item.
     """
     try:
         iterator = iterable.__aiter__()
@@ -386,245 +521,492 @@ async def ensure_single[T](iterable: AsyncIterable[T], aclose: Callable[[], Awai
 
 
 class StreamingHandlerConn(abc.ABC):
-    """Abstract base class for a streaming handler connection.
+    """Abstract base class for handling streaming connections.
 
-    This class defines the interface for handling streaming connections, including
-    methods for specifying the connection, handling peer communication, receiving
-    and sending messages, and managing request and response headers and trailers.
+    This class defines the interface for a streaming handler, which is responsible
+    for managing the lifecycle of a streaming request and response. It includes
+    methods for sending and receiving data streams, accessing request and response
+    metadata (headers and trailers), and handling errors.
 
+    Concrete implementations must provide logic for all abstract methods and
+    properties defined in this class to facilitate a specific communication
+    protocol or transport layer.
     """
 
     @abc.abstractmethod
     def parse_timeout(self) -> float | None:
-        """Parse the timeout value."""
+        """Abstract method to parse the timeout from the configuration.
+
+        Subclasses must implement this method to extract the timeout value
+        from their specific configuration source.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
+
+        Returns:
+            The request timeout in seconds as a float, or None if no timeout
+            is configured.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def spec(self) -> Spec:
-        """Return the specification details.
+        """Returns the specification of the connector.
+
+        This is an abstract method that must be implemented by subclasses.
+        It should return a `Spec` object that defines the connector's
+        metadata, capabilities, and configuration schema.
 
         Returns:
-            Spec: The specification details.
-
+            Spec: An object containing the connector's specification.
         """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def peer(self) -> Peer:
-        """Establish a connection to a peer in the network.
+        """Gets the peer of the connection.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Raises:
+            NotImplementedError: This method is not implemented.
 
         Returns:
-            Any: The result of the connection attempt. The exact type and structure
-            of the return value will depend on the implementation details.
-
+            Peer: An object representing the connected peer.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Receives a message and returns an asynchronous content stream.
+        """Asynchronously receive messages.
+
+        This method is intended to be implemented by subclasses to handle the
+        reception of a stream of messages. It should be an asynchronous generator
+        that yields messages as they are received.
 
         Args:
-            message (Any): The message to be processed.
+            message: The initial message or subscription request that triggers
+                the stream of incoming messages.
 
-        Returns:
-            AsyncContentStream[Any]: An asynchronous stream of content resulting from processing the message.
+        Yields:
+            Messages of any type received from the source.
 
         Raises:
-            NotImplementedError: This method should be implemented by subclasses.
-
+            NotImplementedError: This base method is not implemented and must
+                be overridden in a subclass.
         """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def request_headers(self) -> Headers:
-        """Generate and return the request headers.
+        """Abstract method to get request headers.
+
+        Subclasses must implement this method to provide the necessary headers
+        for making API requests. This typically includes headers for
+        authentication, content type, etc.
+
+        Raises:
+            NotImplementedError: If the method is not overridden in a subclass.
 
         Returns:
-            Headers: The request headers.
-
+            Headers: A dictionary-like object representing the HTTP headers.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     async def send(self, messages: AsyncIterable[Any]) -> None:
-        """Send a stream of messages asynchronously.
+        """Asynchronously sends a stream of messages.
+
+        This method takes an asynchronous iterable of messages and sends them
+        over the connection.
 
         Args:
-            messages (AsyncIterable[Any]): The messages to be sent.
-                                         For unary operations, this should be an iterable with a single item.
+            messages: An asynchronous iterable yielding messages to be sent.
 
         Raises:
-            NotImplementedError: This method should be implemented by subclasses.
-
+            NotImplementedError: This method is not implemented.
         """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def response_headers(self) -> Headers:
-        """Retrieve the response headers.
+        """Gets the response headers.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Raises:
+            NotImplementedError: If the method is not implemented by a subclass.
 
         Returns:
-            Headers: The response headers.
-
+            Headers: A dictionary-like object containing the response headers.
         """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def response_trailers(self) -> Headers:
-        """Handle response trailers.
+        """Returns the response trailers.
 
-        This method is intended to be overridden in subclasses to provide
-        specific functionality for processing response trailers.
+        This method is called after the response body has been fully read.
+        It provides access to any trailing headers sent by the server.
+
+        Raises:
+            NotImplementedError: This method is not implemented in the base class
+                and must be overridden in a subclass.
 
         Returns:
-            Headers: The response trailers.
-
+            Headers: A Headers object containing the trailing headers of the response.
         """
         raise NotImplementedError()
 
     @abc.abstractmethod
     async def send_error(self, error: ConnectError) -> None:
-        """Send an error message.
+        """Sends a ConnectError to the client.
 
-        This method should be implemented to handle the process of sending an error message
-        when a ConnectError occurs.
+        This is an abstract method that must be implemented by a subclass.
+        It is responsible for serializing the error and sending it over the
+        transport layer.
 
         Args:
-            error (ConnectError): The error that needs to be sent.
+            error: The ConnectError instance to send.
 
         Raises:
-            NotImplementedError: This method is not yet implemented.
-
+            NotImplementedError: This method must be overridden by a subclass.
         """
         raise NotImplementedError()
 
 
 class UnaryClientConn(abc.ABC):
-    """Abstract base class for a unary client connection."""
+    """Abstract base class defining the interface for a unary client connection.
+
+    This class outlines the contract for managing a single request-response
+    interaction with a server. Implementations of this class are responsible for
+    handling the specifics of the communication protocol.
+
+    Attributes:
+        spec (Spec): The specification details for the RPC call.
+        peer (Peer): Information about the remote peer (server).
+        request_headers (Headers): The headers for the outgoing request.
+        response_headers (Headers): The headers from the server's response.
+        response_trailers (Headers): The trailers from the server's response.
+    """
 
     @property
     @abc.abstractmethod
     def spec(self) -> Spec:
-        """Return the specification details."""
+        """Returns the service specification.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Returns:
+            Spec: The specification for the service.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def peer(self) -> Peer:
-        """Return the peer information."""
+        """Returns the peer of the connection.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Returns:
+            Peer: The `Peer` instance representing the other side of the connection.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def receive(self, message: Any) -> AsyncIterator[Any]:
-        """Receives a message and processes it."""
+        """Receives a stream of messages in response to an initial message.
+
+        This method is an asynchronous generator that sends an initial message
+        and then yields incoming messages as they are received.
+
+        Args:
+            message: The initial message to send to initiate the stream.
+
+        Yields:
+            An asynchronous iterator that provides messages as they are received.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def request_headers(self) -> Headers:
-        """Return the request headers."""
+        """Get the headers for an API request.
+
+        This is an abstract method that must be implemented by subclasses.
+        It is responsible for constructing and returning the headers required
+        for making requests, which may include authentication tokens.
+
+        Raises:
+            NotImplementedError: This method must be overridden in a subclass.
+
+        Returns:
+            Headers: A dictionary-like object containing the request headers.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     async def send(self, message: Any, timeout: float | None, abort_event: asyncio.Event | None) -> bytes:
-        """Send a message."""
+        """Sends a message and waits for a response.
+
+        This is an abstract method that must be implemented by a subclass.
+
+        Args:
+            message: The message payload to send.
+            timeout: The maximum time in seconds to wait for a response.
+                If None, the call will wait indefinitely.
+            abort_event: An optional asyncio event that can be set to
+                prematurely abort the send operation.
+
+        Returns:
+            The raw response received as bytes.
+
+        Raises:
+            NotImplementedError: This is an abstract method.
+            asyncio.TimeoutError: If the timeout is reached before a response is received.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def response_headers(self) -> Headers:
-        """Return the response headers."""
+        """Get the response headers.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Returns:
+            An object representing the response headers.
+
+        Raises:
+            NotImplementedError: This method is not implemented in the base class.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def response_trailers(self) -> Headers:
-        """Return response trailers."""
+        """Returns the response trailers.
+
+        This method is called after the response body has been fully read.
+        It will not be called if the server does not send trailers.
+
+        Raises:
+            NotImplementedError: This method is not implemented.
+
+        Returns:
+            Headers: The response trailers.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def on_request_send(self, fn: Callable[..., Any]) -> None:
-        """Handle the request send event."""
+        """Registers a callback function to be executed before a request is sent.
+
+        This method is intended to be used as a decorator. The decorated function
+        will be called with the request details, allowing for inspection or
+        modification of the request just before it is dispatched.
+
+        Args:
+            fn: The callback function to execute when a request is about to be sent.
+                The arguments passed to this function will depend on the specific
+                implementation.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented and must be
+                overridden in a subclass.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     async def aclose(self) -> None:
-        """Asynchronously close the connection."""
+        """Asynchronously close the connection.
+
+        Raises:
+            NotImplementedError: This method is not yet implemented.
+        """
         raise NotImplementedError()
 
 
 class StreamingClientConn(abc.ABC):
-    """Abstract base class for a streaming client connection."""
+    """Abstract base class defining the interface for a streaming client connection.
+
+    This class outlines the contract that all concrete streaming client connection
+    implementations must adhere to. It provides a standardized way to handle
+    bidirectional streaming communication, including sending and receiving data streams,
+    accessing headers and trailers, and managing the connection lifecycle.
+
+    Attributes:
+        spec (Spec): The specification details for the connection.
+        peer (Peer): Information about the connected peer.
+        request_headers (Headers): The headers for the outgoing request.
+        response_headers (Headers): The headers from the incoming response.
+        response_trailers (Headers): The trailers from the incoming response.
+    """
 
     @property
     @abc.abstractmethod
     def spec(self) -> Spec:
-        """Return the specification details."""
+        """Returns the component specification.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Returns:
+            Spec: The component specification object.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def peer(self) -> Peer:
-        """Return the peer information."""
+        """Gets the peer for this connection.
+
+        A peer represents the remote endpoint of the connection.
+
+        Returns:
+            Peer: An object representing the connected peer.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
-        """Receives a message and processes it."""
+        """Asynchronously receives a stream of messages.
+
+        This method sends an initial message and then listens for a stream of
+        responses. It is an async generator that yields messages as they arrive.
+
+        Args:
+            message (Any): The initial message to send to start the stream.
+            abort_event (asyncio.Event | None): An optional event that can be set
+            to signal the termination of the receive operation.
+
+        Yields:
+            Any: Messages received from the stream.
+
+        Raises:
+            NotImplementedError: This method must be implemented by a subclass.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def request_headers(self) -> Headers:
-        """Return the request headers."""
+        """Abstract method to get the request headers.
+
+        This method should be implemented by subclasses to provide the
+        necessary headers for making requests.
+
+        Raises:
+            NotImplementedError: This is an abstract method that must be
+                implemented by a subclass.
+
+        Returns:
+            Headers: A dictionary-like object containing the HTTP headers.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     async def send(
         self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
     ) -> None:
-        """Send a stream of messages."""
+        """Asynchronously sends a stream of messages.
+
+        This is an abstract method that must be implemented by a subclass. It is
+        designed to handle sending an asynchronous stream of messages, with support
+        for timeouts and external cancellation.
+
+        Args:
+            messages: An asynchronous iterable of messages to send.
+            timeout: The maximum time in seconds to wait for the send operation
+                to complete. If None, there is no timeout.
+            abort_event: An asyncio.Event that, if set, will signal the
+                operation to abort.
+
+        Raises:
+            NotImplementedError: This method must be implemented by a subclass.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def response_headers(self) -> Headers:
-        """Return the response headers."""
+        """Gets the HTTP response headers.
+
+        This is an abstract method that must be implemented by subclasses.
+
+        Returns:
+            Headers: An object containing the response headers.
+        """
         raise NotImplementedError()
 
     @property
     @abc.abstractmethod
     def response_trailers(self) -> Headers:
-        """Return response trailers."""
+        """Get the response trailers.
+
+        This should only be called after the response body has been fully read.
+        Not all responses will have trailers.
+
+        Returns:
+            Headers: A collection of the response trailer headers.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     def on_request_send(self, fn: Callable[..., Any]) -> None:
-        """Handle the request send event."""
+        """Registers a callback function to be executed before a request is sent.
+
+        This method is intended to be used as a decorator. The decorated function
+        will be called with the request object as its argument before the request
+        is sent. This allows for last-minute modifications, logging, or other
+        pre-request processing.
+
+        Example:
+            @client.on_request_send
+            def add_custom_header(request):
+                request.headers['X-Custom-Header'] = 'my-value'
+
+        Args:
+            fn (Callable[..., Any]): The callback function to be executed. It will
+                receive the request object as its argument.
+
+        Raises:
+            NotImplementedError: This method is not implemented and should be
+                overridden in a subclass.
+        """
         raise NotImplementedError()
 
     @abc.abstractmethod
     async def aclose(self) -> None:
-        """Asynchronously close the connection."""
+        """Asynchronously close the connection and release all resources.
+
+        This method is a coroutine.
+        """
         raise NotImplementedError()
 
 
 async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> UnaryRequest[T]:
-    """Receives a unary request from the given connection and returns a UnaryRequest object.
+    """Receives a single message from a streaming connection to form a unary request.
+
+    This function reads from the provided connection's stream, ensuring that exactly
+    one message is present. It then packages this message along with metadata from the
+    connection (e.g., headers, peer, HTTP method) into a UnaryRequest object.
 
     Args:
-        conn (StreamingHandlerConn): The connection from which to receive the unary request.
-        t (type[T]): The type of the message to be received.
+        conn (StreamingHandlerConn): The streaming connection to receive from.
+        t (type[T]): The type to which the incoming message should be deserialized.
 
     Returns:
-        UnaryRequest[T]: A UnaryRequest object containing the received message.
+        UnaryRequest[T]: An object representing the complete unary request, including
+            the deserialized message and connection metadata.
 
+    Raises:
+        Exception: If the stream does not contain exactly one message.
     """
     stream = conn.receive(t)
     message = await ensure_single(stream)
@@ -644,16 +1026,25 @@ async def receive_unary_request[T](conn: StreamingHandlerConn, t: type[T]) -> Un
 
 
 async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> StreamRequest[T]:
-    """Receive a stream request and returns a StreamRequest object.
+    """Constructs a StreamRequest from an incoming streaming connection.
+
+    This function adapts the raw message stream from a StreamingHandlerConn into a
+    standardized StreamRequest object. It intelligently handles different stream types:
+    - For Server Streams, it awaits and wraps a single incoming message into an
+        async iterator.
+    - For Client and Bidirectional Streams, it uses the incoming async iterator
+        of messages directly.
+
+    Generic Parameters:
+            T: The data type of the message(s) in the stream.
 
     Args:
-        conn (StreamingHandlerConn): The connection handler for the streaming request.
-        t (type[T]): The type of the messages expected in the stream.
+            conn: The active streaming connection handler from which to receive data.
+            t: The expected type of the incoming message(s) for deserialization.
 
     Returns:
-        StreamRequest[T]: An object containing the stream messages, connection specifications,
-                          peer information, request headers, and HTTP method.
-
+            A StreamRequest object containing the message content as an async
+            iterator, along with connection metadata like headers and peer info.
     """
     if conn.spec.stream_type == StreamType.ServerStream:
         message = await ensure_single(conn.receive(t))
@@ -678,24 +1069,26 @@ async def receive_stream_request[T](conn: StreamingHandlerConn, t: type[T]) -> S
 async def receive_unary_response[T](
     conn: StreamingClientConn, t: type[T], abort_event: asyncio.Event | None
 ) -> UnaryResponse[T]:
-    """Receives a unary response message from a streaming client connection.
+    """Receives a single message from a streaming connection for a unary-style RPC.
 
-    This asynchronous function waits for a unary message of the specified type from the given
-    streaming client connection. It also handles optional abortion via an asyncio event.
-    The response, along with any headers and trailers from the connection, is wrapped in a
-    UnaryResponse object and returned.
+    This helper function waits for a single message from the given streaming
+    connection, ensuring the stream closes after one message is received. It's
+    intended for use with unary RPCs that are transported over a streaming protocol.
 
     Args:
-        conn (StreamingClientConn): The streaming client connection to receive the message from.
-        t (type[T]): The expected type of the message to be received.
-        abort_event (asyncio.Event | None): Optional event to signal abortion of the receive operation.
+        conn (StreamingClientConn): The streaming client connection to receive from.
+        t (type[T]): The expected type of the response message for deserialization.
+        abort_event (asyncio.Event | None): An optional event to signal cancellation
+            of the receive operation.
 
     Returns:
-        UnaryResponse[T]: The received message and associated response metadata.
+        UnaryResponse[T]: A response object containing the single deserialized
+            message, along with the response headers and trailers from the
+            connection.
 
     Raises:
-        Any exceptions raised by `receive_unary_message` or connection errors.
-
+        Exception: If the stream is closed before a message is received, or if
+            more than one message is received.
     """
     message = await ensure_single(conn.receive(t, abort_event), conn.aclose)
 
@@ -705,26 +1098,22 @@ async def receive_unary_response[T](
 async def receive_stream_response[T](
     conn: StreamingClientConn, t: type[T], spec: Spec, abort_event: asyncio.Event | None
 ) -> StreamResponse[T]:
-    """Handle receiving a stream response from a streaming client connection.
+    """Receives a streaming response from the server.
+
+    This function adapts the behavior based on the stream type defined in the
+    specification. For client streams, it awaits a single response message. For
+    server or bidirectional streams, it returns an async iterator for the
+    incoming messages.
 
     Args:
-        conn (StreamingClientConn): The streaming client connection used to receive the stream.
-        t (type[T]): The type of the messages expected in the stream.
-        spec (Spec): The specification of the stream, including its type.
-        abort_event (asyncio.Event | None): An optional event to signal abortion of the stream.
+        conn (StreamingClientConn): The streaming client connection.
+        t (type[T]): The expected type of the response message(s).
+        spec (Spec): The RPC method's specification.
+        abort_event (asyncio.Event | None): An event to signal abortion of the receive operation.
 
     Returns:
-        StreamResponse[T]: A response object containing the received stream, response headers,
-        and response trailers.
-
-    Raises:
-        Any exceptions raised during the reception of the stream or processing of the messages.
-
-    Notes:
-        - If the stream type is `StreamType.ClientStream`, it expects exactly one message
-          and wraps it in a single-message stream.
-        - For other stream types, it directly returns the received stream.
-
+        StreamResponse[T]: A stream response object containing the data stream,
+            headers, and trailers.
     """
     if spec.stream_type == StreamType.ClientStream:
         single_message = await ensure_single(conn.receive(t, abort_event))

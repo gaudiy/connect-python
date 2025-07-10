@@ -12,7 +12,7 @@ from connect.error import ConnectError
 from connect.handler_context import HandlerContext
 from connect.handler_interceptor import HandlerInterceptor, StreamFunc
 from connect.headers import Headers
-from connect.options import ConnectOptions
+from connect.options import HandlerOptions
 from tests.conftest import AsyncClient
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import (
@@ -381,7 +381,7 @@ async def test_server_streaming_interceptor() -> None:
             return _wrapped
 
     async with AsyncClient(
-        PingService(), ConnectOptions(interceptors=[FileInterceptor1(), FileInterceptor2()])
+        PingService(), HandlerOptions(interceptors=[FileInterceptor1(), FileInterceptor2()])
     ) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingServerStream",
@@ -517,7 +517,7 @@ async def test_client_streaming_interceptor() -> None:
             return _wrapped
 
     async with AsyncClient(
-        PingService(), ConnectOptions(interceptors=[FileInterceptor1(), FileInterceptor2()])
+        PingService(), HandlerOptions(interceptors=[FileInterceptor1(), FileInterceptor2()])
     ) as client:
         response = await client.post(
             path="/tests.testdata.ping.v1.PingService/PingClientStream",

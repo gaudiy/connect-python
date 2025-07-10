@@ -1,4 +1,4 @@
-"""Defines interceptors and request/response classes for unary and streaming RPC calls."""
+"""Defines handler-side interceptors for the Connect RPC framework."""
 
 import inspect
 from collections.abc import Awaitable, Callable
@@ -12,24 +12,44 @@ StreamFunc = Callable[[StreamRequest[Any], HandlerContext], Awaitable[StreamResp
 
 
 class HandlerInterceptor:
-    """Abstract base class for interceptors that can wrap unary functions."""
+    """A handler-side interceptor for wrapping and modifying RPC handlers.
+
+    Interceptors are a powerful mechanism for observing and modifying RPCs without
+    changing the core application logic. They can be used for tasks like logging,
+    authentication, metrics collection, or adding custom headers.
+
+    A HandlerInterceptor instance is configured with wrapper functions that are
+    applied to the RPC handlers. The Connect framework will call these wrappers
+    before invoking the actual handler.
+
+    Attributes:
+        wrap_unary (Callable[[UnaryFunc], UnaryFunc] | None): A callable that
+            takes a unary RPC handler and returns a new, wrapped handler. The
+            framework calls this function to build the handler chain.
+        wrap_stream (Callable[[StreamFunc], StreamFunc] | None): A callable that
+            takes a streaming RPC handler and returns a new, wrapped handler. The
+            framework calls this function to build the handler chain.
+    """
 
     wrap_unary: Callable[[UnaryFunc], UnaryFunc] | None = None
     wrap_stream: Callable[[StreamFunc], StreamFunc] | None = None
 
 
 def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
-    """Determine if the given function is a unary function.
+    """Type guard to determine if a handler function is a unary function.
 
-    A unary function is defined as a callable that takes a single parameter
-    whose type annotation has an origin of `UnaryRequest`.
+    This function inspects the signature of the provided callable (`next`) to
+    determine if it matches the expected signature of a `UnaryFunc`. A function
+    is considered a unary function if it is callable, accepts exactly two
+    parameters, and the type annotation of its first parameter is `UnaryRequest`.
 
     Args:
-        next (UnaryFunc | StreamFunc): The function to be checked.
+        next: The handler function to be checked, which can be either a
+              `UnaryFunc` or a `StreamFunc`.
 
     Returns:
-        TypeGuard[UnaryFunc]: True if the function is a unary function, False otherwise.
-
+        True if the function signature corresponds to a `UnaryFunc`,
+        False otherwise.
     """
     signature = inspect.signature(next)
     parameters = list(signature.parameters.values())
@@ -41,17 +61,16 @@ def is_unary_func(next: UnaryFunc | StreamFunc) -> TypeGuard[UnaryFunc]:
 
 
 def is_stream_func(next: UnaryFunc | StreamFunc) -> TypeGuard[StreamFunc]:
-    """Determine if the given function is a StreamFunc.
+    """Type guard to determine if a handler function is a StreamFunc.
 
-    This function checks if the provided function `next` is callable, has exactly one parameter,
-    and if the annotation of that parameter has an origin of `StreamRequest`.
+    A function is considered a StreamFunc if it is a callable that accepts
+    two arguments, and the first argument is annotated as a StreamRequest.
 
     Args:
-        next (UnaryFunc | StreamFunc): The function to be checked.
+        next: The function to inspect.
 
     Returns:
-        TypeGuard[StreamFunc]: True if `next` is a StreamFunc, False otherwise.
-
+        True if the function signature matches StreamFunc, False otherwise.
     """
     signature = inspect.signature(next)
     parameters = list(signature.parameters.values())
@@ -73,20 +92,24 @@ def apply_interceptors(next: StreamFunc, interceptors: list[HandlerInterceptor] 
 def apply_interceptors(
     next: UnaryFunc | StreamFunc, interceptors: list[HandlerInterceptor] | None
 ) -> UnaryFunc | StreamFunc:
-    """Apply a list of interceptors to a given function.
+    """Applies a list of interceptors to a handler function.
+
+    This function takes a handler function (either unary or streaming) and wraps it
+    with the provided interceptors. The interceptors are applied in the order they
+    appear in the list, meaning the first interceptor in the list will be the
+    outermost wrapper and the last to execute before the actual handler.
 
     Args:
-        next (UnaryFunc | StreamFunc): The function to which interceptors will be applied.
-                                    It can be either a unary function or a stream function.
-        interceptors (list[Interceptor] | None): A list of interceptors to apply. If None, the original function is returned.
+        next: The handler function (either UnaryFunc or StreamFunc) to be wrapped.
+        interceptors: An optional list of HandlerInterceptor instances. If None,
+            the original handler function is returned unmodified.
 
     Returns:
-        UnaryFunc | StreamFunc: The function wrapped with the provided interceptors.
+        The wrapped handler function, which is of the same type as the input `next`
+        function.
 
     Raises:
-        ValueError: If an interceptor does not implement the required wrap method for the function type,
-                or if the provided function type is invalid.
-
+        ValueError: If the `next` function is not a valid UnaryFunc or StreamFunc.
     """
     if interceptors is None:
         return next

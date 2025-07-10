@@ -1,4 +1,4 @@
-"""Constants used in the Connect protocol implementation for Python."""
+"""Constants for Connect protocol headers, content types, and user agent."""
 
 import sys
 

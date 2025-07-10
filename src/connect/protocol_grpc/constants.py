@@ -1,4 +1,4 @@
-"""Constants for gRPC protocol implementation in connect-python."""
+"""Constants and settings for gRPC protocol support in connect-python."""
 
 import re
 import sys

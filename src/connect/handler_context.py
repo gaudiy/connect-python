@@ -1,33 +1,36 @@
-"""Provides the HandlerContext class for managing operation timeouts and tracking remaining time."""
+"""Manages the context for a handler, particularly for handling timeouts."""
 
 import time
 
 
 class HandlerContext:
-    """HandlerContext manages an optional timeout for operations, allowing tracking of the remaining time until a deadline.
+    """Manages the context for a handler, particularly for handling timeouts.
+
+    This class allows setting a deadline upon initialization and provides a method
+    to check the remaining time until that deadline.
 
     Attributes:
-        _deadline (float | None): The UNIX timestamp representing the deadline, or None if no timeout is set.
-
+        _deadline (float | None): The timestamp for the deadline, or None if no timeout is set.
     """
 
     _deadline: float | None
 
     def __init__(self, timeout: float | None) -> None:
-        """Initialize HandlerContext with an optional timeout.
+        """Initializes a new handler context.
 
         Args:
-            timeout (float | None): The timeout duration in seconds, or None for no timeout.
-
+            timeout: The timeout in seconds. If None, no deadline is set.
         """
         self._deadline = time.time() + timeout if timeout else None
 
     def timeout_remaining(self) -> float | None:
-        """Return the remaining time in seconds until the deadline, or None if no deadline is set.
+        """Calculates the remaining time in seconds until the handler's deadline.
+
+        If the request has no deadline, this method returns None. Otherwise, it
+        returns the difference between the deadline and the current time.
 
         Returns:
-            float | None: The number of seconds remaining until the deadline, or None if no deadline is set.
-
+            float | None: The remaining time in seconds, or None if no deadline is set.
         """
         if self._deadline is None:
             return None

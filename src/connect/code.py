@@ -27,7 +27,6 @@ class Code(enum.IntEnum):
       UNAVAILABLE (int): The service is currently unavailable.
       DATA_LOSS (int): Unrecoverable data loss or corruption.
       UNAUTHENTICATED (int): The request does not have valid authentication credentials for the operation.
-
     """
 
     CANCELED = 1
@@ -90,7 +89,6 @@ class Code(enum.IntEnum):
             - "data_loss"
             - "unauthenticated"
             - "code_{self}": For any other value not explicitly matched.
-
         """
         match self:
             case Code.CANCELED:

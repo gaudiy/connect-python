@@ -1,4 +1,4 @@
-"""Middleware for handling HTTP requests."""
+"""Provides ASGI middleware for routing requests to Connect protocol handlers."""
 
 from collections.abc import Awaitable, Callable
 
@@ -13,44 +13,48 @@ HandleFunc = Callable[[Request], Awaitable[Response]]
 
 
 class ConnectMiddleware:
-    """Middleware for handling ASGI applications with unary handlers.
+    """ASGI middleware for routing requests to Connect-style handlers.
+
+    This middleware intercepts incoming HTTP requests and attempts to match them
+    against a list of registered `Handler` instances based on the request path.
+    If a matching handler is found for the request's route, it processes the
+    request and sends a response. If no handler matches the route, the request
+    is forwarded to the next ASGI application in the stack.
+
+    This allows for integrating Connect-protocol services within a standard
+    ASGI application framework, such as Starlette or FastAPI.
 
     Attributes:
-        app (ASGIApp): The ASGI application to wrap.
-        handlers (list[Handler]): A list of unary handlers to process requests.
-
+        app (ASGIApp): The next ASGI application in the middleware stack.
+        handlers (list[Handler]): A list of Connect handlers to which requests
+            can be routed.
     """
 
     app: ASGIApp
     handlers: list[Handler]
 
     def __init__(self, app: ASGIApp, handlers: list[Handler]) -> None:
-        """Initialize the middleware with the given ASGI application and handlers.
+        """Initializes the middleware.
 
         Args:
-            app (ASGIApp): The ASGI application instance.
-            handlers (list[Handler]): A list of unary handlers to process requests.
-
+            app: The ASGI application.
+            handlers: A list of handlers to be used by the middleware.
         """
         self.app = app
         self.handlers = handlers
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        """Asynchronous callable method to handle incoming ASGI requests.
+        """The ASGI application entry point.
 
-        This method intercepts HTTP requests, determines the appropriate handler
-        based on the route path, and delegates the request to the handler if found.
-        If no handler is found, the request is passed to the next application in the
-        middleware stack.
+        This method is called for each request. It checks if the request is an HTTP
+        request and if the path matches any of the registered handlers. If a match
+        is found, the request is handled by the corresponding handler. Otherwise,
+        the request is passed on to the next ASGI application in the stack.
 
         Args:
-            scope (Scope): The ASGI scope dictionary containing request information.
-            receive (Receive): The ASGI receive callable to receive messages.
-            send (Send): The ASGI send callable to send messages.
-
-        Returns:
-            None
-
+            scope (Scope): The ASGI connection scope.
+            receive (Receive): The ASGI receive channel.
+            send (Send): The ASGI send channel.
         """
         if scope["type"] == "http":
             route_path = get_route_path(scope)

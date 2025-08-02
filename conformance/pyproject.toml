@@ -7,13 +7,13 @@ authors = [{ name = "tsubakiky", email = "salovers1205@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
   "anyio>=4.8.0",
-  "connect-python",
+  "connect-py",
   "cryptography>=44.0.2",
   "hypercorn",
 ]
 
 [tool.uv.sources]
-connect-python = { path = "../" }
+connect-py = { path = "../" }
 hypercorn = { git = "https://github.com/tsubakiky/hypercorn" }
 
 [dependency-groups]

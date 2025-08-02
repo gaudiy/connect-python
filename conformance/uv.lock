@@ -61,7 +61,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "anyio" },
-    { name = "connect-python" },
+    { name = "connect-py" },
     { name = "cryptography" },
     { name = "hypercorn" },
 ]
@@ -76,7 +76,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anyio", specifier = ">=4.8.0" },
-    { name = "connect-python", directory = "../" },
+    { name = "connect-py", directory = "../" },
     { name = "cryptography", specifier = ">=44.0.2" },
     { name = "hypercorn", git = "https://github.com/tsubakiky/hypercorn" },
 ]
@@ -89,7 +89,7 @@ dev = [
 ]
 
 [[package]]
-name = "connect-python"
+name = "connect-py"
 source = { directory = "../" }
 dependencies = [
     { name = "anyio" },

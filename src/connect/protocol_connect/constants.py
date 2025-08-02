@@ -41,4 +41,4 @@ CONNECT_UNARY_CONNECT_QUERY_PARAMETER = "connect"
 CONNECT_UNARY_CONNECT_QUERY_VALUE = "v" + CONNECT_PROTOCOL_VERSION
 
 _python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-DEFAULT_CONNECT_USER_AGENT = f"connect-python/{__version__} (Python/{_python_version})"
+DEFAULT_CONNECT_USER_AGENT = f"connect-py/{__version__} (Python/{_python_version})"

@@ -38,7 +38,7 @@ HEADER_X_USER_AGENT = "X-User-Agent"
 
 GRPC_ALLOWED_METHODS = [HTTPMethod.POST]
 _python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-DEFAULT_GRPC_USER_AGENT = f"connect-python/{__version__} (Python/{_python_version})"
+DEFAULT_GRPC_USER_AGENT = f"connect-py/{__version__} (Python/{_python_version})"
 
 RE_TIMEOUT = re.compile(r"^(\d{1,8})([HMSmun])$")
 

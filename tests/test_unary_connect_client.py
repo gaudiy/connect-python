@@ -23,15 +23,15 @@ from typing import Any
 
 import pytest
 
-from connect.call_options import CallOptions
-from connect.client import Client
-from connect.client_interceptor import ClientInterceptor, UnaryFunc
-from connect.code import Code
-from connect.connect import StreamType, UnaryRequest, UnaryResponse
-from connect.connection_pool import AsyncConnectionPool
-from connect.error import ConnectError
-from connect.idempotency_level import IdempotencyLevel
-from connect.options import ClientOptions
+from gconnect.call_options import CallOptions
+from gconnect.client import Client
+from gconnect.client_interceptor import ClientInterceptor, UnaryFunc
+from gconnect.code import Code
+from gconnect.connect import StreamType, UnaryRequest, UnaryResponse
+from gconnect.connection_pool import AsyncConnectionPool
+from gconnect.error import ConnectError
+from gconnect.idempotency_level import IdempotencyLevel
+from gconnect.options import ClientOptions
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures

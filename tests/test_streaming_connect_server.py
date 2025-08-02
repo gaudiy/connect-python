@@ -21,14 +21,14 @@ from typing import Any
 
 import pytest
 
-from connect.code import Code
-from connect.connect import StreamRequest, StreamResponse, StreamType
-from connect.envelope import Envelope, EnvelopeFlags
-from connect.error import ConnectError
-from connect.handler_context import HandlerContext
-from connect.handler_interceptor import HandlerInterceptor, StreamFunc
-from connect.headers import Headers
-from connect.options import HandlerOptions
+from gconnect.code import Code
+from gconnect.connect import StreamRequest, StreamResponse, StreamType
+from gconnect.envelope import Envelope, EnvelopeFlags
+from gconnect.error import ConnectError
+from gconnect.handler_context import HandlerContext
+from gconnect.handler_interceptor import HandlerInterceptor, StreamFunc
+from gconnect.headers import Headers
+from gconnect.options import HandlerOptions
 from tests.conftest import AsyncClient
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import (

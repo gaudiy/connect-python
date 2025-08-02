@@ -7,7 +7,7 @@
 import abc
 from enum import Enum
 
-from connect import (
+from gconnect import (
     Client,
     ClientOptions,
     Handler,
@@ -19,8 +19,8 @@ from connect import (
     UnaryRequest,
     UnaryResponse,
 )
-from connect.connection_pool import AsyncConnectionPool
-from connect.handler import BidiStreamHandler, ClientStreamHandler, ServerStreamHandler, UnaryHandler
+from gconnect.connection_pool import AsyncConnectionPool
+from gconnect.handler import BidiStreamHandler, ClientStreamHandler, ServerStreamHandler, UnaryHandler
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import eliza_pb2

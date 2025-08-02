@@ -26,12 +26,12 @@ import traceback
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from connect.call_options import CallOptions
-from connect.connect import StreamRequest, UnaryRequest
-from connect.connection_pool import AsyncConnectionPool
-from connect.error import ConnectError
-from connect.headers import Headers
-from connect.options import ClientOptions
+from gconnect.call_options import CallOptions
+from gconnect.connect import StreamRequest, UnaryRequest
+from gconnect.connection_pool import AsyncConnectionPool
+from gconnect.error import ConnectError
+from gconnect.headers import Headers
+from gconnect.options import ClientOptions
 from google.protobuf import any_pb2
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 

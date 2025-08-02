@@ -24,15 +24,15 @@ from typing import Any
 
 import pytest
 
-from connect.call_options import CallOptions
-from connect.client import Client
-from connect.client_interceptor import ClientInterceptor, StreamFunc
-from connect.code import Code
-from connect.connect import StreamRequest, StreamResponse, StreamType
-from connect.connection_pool import AsyncConnectionPool
-from connect.envelope import Envelope, EnvelopeFlags
-from connect.error import ConnectError
-from connect.options import ClientOptions
+from gconnect.call_options import CallOptions
+from gconnect.client import Client
+from gconnect.client_interceptor import ClientInterceptor, StreamFunc
+from gconnect.code import Code
+from gconnect.connect import StreamRequest, StreamResponse, StreamType
+from gconnect.connection_pool import AsyncConnectionPool
+from gconnect.envelope import Envelope, EnvelopeFlags
+from gconnect.error import ConnectError
+from gconnect.options import ClientOptions
 from tests.conftest import ASGIRequest, Receive, Scope, Send, ServerConfig
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceProcedures

@@ -5,10 +5,10 @@ from enum import Enum
 
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
-from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
-from connect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
-from connect.handler_context import HandlerContext
-from connect.options import HandlerOptions
+from gconnect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from gconnect.handler import ClientStreamHandler, Handler, ServerStreamHandler, UnaryHandler
+from gconnect.handler_context import HandlerContext
+from gconnect.options import HandlerOptions
 from tests.testdata.ping.v1 import ping_pb2
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 

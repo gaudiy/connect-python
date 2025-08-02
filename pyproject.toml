@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "connectpy"
+name = "gconnect"
 description = "The Python implementation of Connect: Protobuf RPC that works."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -26,10 +26,10 @@ dependencies = [
 httpcore = { git = "https://github.com/tsubakiky/httpcore" }
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/connect"]
+packages = ["src/gconnect"]
 
 [tool.hatch.version]
-path = "src/connect/version.py"
+path = "src/gconnect/version.py"
 
 [dependency-groups]
 dev = [

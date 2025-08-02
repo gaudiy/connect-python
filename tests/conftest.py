@@ -34,9 +34,9 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from yarl import URL
 
-from connect.envelope import Envelope, EnvelopeFlags
-from connect.middleware import ConnectMiddleware
-from connect.options import HandlerOptions
+from gconnect.envelope import Envelope, EnvelopeFlags
+from gconnect.middleware import ConnectMiddleware
+from gconnect.options import HandlerOptions
 from tests.testdata.ping.v1.ping_pb2 import PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import (
     PingService_service_descriptor,

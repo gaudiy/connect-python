@@ -38,7 +38,7 @@ name = "connect-py-examples"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "connectpy" },
+    { name = "gconnect" },
     { name = "hypercorn" },
 ]
 
@@ -51,7 +51,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "connectpy", directory = "../" },
+    { name = "gconnect", directory = "../" },
     { name = "hypercorn", git = "https://github.com/tsubakiky/hypercorn" },
 ]
 
@@ -63,7 +63,7 @@ dev = [
 ]
 
 [[package]]
-name = "connectpy"
+name = "gconnect"
 source = { directory = "../" }
 dependencies = [
     { name = "anyio" },

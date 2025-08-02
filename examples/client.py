@@ -20,8 +20,8 @@ import argparse
 import asyncio
 from collections.abc import AsyncGenerator
 
-from connect.connect import StreamRequest, UnaryRequest
-from connect.connection_pool import AsyncConnectionPool
+from gconnect.connect import StreamRequest, UnaryRequest
+from gconnect.connection_pool import AsyncConnectionPool
 
 from proto.connectrpc.eliza.v1.eliza_pb2 import IntroduceRequest, ReflectRequest, SayRequest
 from proto.connectrpc.eliza.v1.v1connect.eliza_connect_pb2 import ElizaServiceClient

@@ -97,7 +97,7 @@ wheels = [
 ]
 
 [[package]]
-name = "connectpy"
+name = "gconnect"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },

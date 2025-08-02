@@ -14,7 +14,7 @@ Connect is a simple, reliable, and interoperable RPC framework that combines the
 ## Installation
 
 ```bash
-pip install connectpy
+pip install gconnect
 ```
 
 **⚠️ Dependency Notice**: For gRPC/gRPC-Web support, this package uses forked libraries:
@@ -70,9 +70,9 @@ protoc --plugin=$(go env GOPATH)/bin/protoc-gen-connect-python -I . --connect-py
 ### 3. Implement your service
 
 ```python
-from connect.connect import UnaryRequest, UnaryResponse
-from connect.handler_context import HandlerContext
-from connect.middleware import ConnectMiddleware
+from gconnect.connect import UnaryRequest, UnaryResponse
+from gconnect.handler_context import HandlerContext
+from gconnect.middleware import ConnectMiddleware
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 
@@ -118,8 +118,8 @@ if __name__ == "__main__":
 ### 5. Use the client
 
 ```python
-from connect.client import UnaryRequest
-from connect.connection_pool import AsyncConnectionPool
+from gconnect.client import UnaryRequest
+from gconnect.connection_pool import AsyncConnectionPool
 from ping_pb2 import PingRequest
 from ping_connect_pb2 import PingServiceClient
 
@@ -266,7 +266,7 @@ This project includes a Protocol Buffer plugin (`protoc-gen-connect-python`) wri
 
 ## Contributing
 
-We warmly welcome and greatly value contributions to the connectpy. However, before diving in, we kindly request that you take a moment to review our Contribution Guidelines.
+We warmly welcome and greatly value contributions to the gconnect. However, before diving in, we kindly request that you take a moment to review our Contribution Guidelines.
 
 Additionally, please carefully read the Contributor License Agreement (CLA) before submitting your contribution to Gaudiy. By submitting your contribution, you are considered to have accepted and agreed to be bound by the terms and conditions outlined in the CLA, regardless of circumstances.
 

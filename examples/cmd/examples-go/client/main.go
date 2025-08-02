@@ -16,7 +16,6 @@ import (
 	"golang.org/x/net/http2"
 )
 
-
 type rpc int
 
 const (
@@ -89,7 +88,7 @@ func runClient() error {
 		req := connect.NewRequest(&elizav1.SayRequest{
 			Sentence: "Hi",
 		})
-		req.Header().Set("Some-Header", "hello from connect")
+		req.Header().Set("Some-Header", "hello from gconnect")
 		res, err := client.Say(ctx, req)
 		if err != nil {
 			return err

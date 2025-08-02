@@ -21,12 +21,12 @@ import logging
 import typing
 
 import google.protobuf.any_pb2 as any_pb2
-from connect.code import Code
-from connect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
-from connect.error import ConnectError, ErrorDetail
-from connect.handler_context import HandlerContext
-from connect.headers import Headers
-from connect.middleware import ConnectMiddleware
+from gconnect.code import Code
+from gconnect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from gconnect.error import ConnectError, ErrorDetail
+from gconnect.handler_context import HandlerContext
+from gconnect.headers import Headers
+from gconnect.middleware import ConnectMiddleware
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 

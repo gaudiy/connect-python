@@ -7,7 +7,7 @@
 import abc
 from enum import Enum
 
-from connect import (
+from gconnect import (
     Client,
     ClientOptions,
     HandlerOptions,
@@ -17,10 +17,10 @@ from connect import (
     StreamRequest,
     StreamResponse,
 )
-from connect import UnaryRequest as ConnectUnaryRequest
-from connect import UnaryResponse as ConnectUnaryResponse
-from connect.connection_pool import AsyncConnectionPool
-from connect.handler import BidiStreamHandler, ClientStreamHandler, ServerStreamHandler, UnaryHandler
+from gconnect import UnaryRequest as ConnectUnaryRequest
+from gconnect import UnaryResponse as ConnectUnaryResponse
+from gconnect.connection_pool import AsyncConnectionPool
+from gconnect.handler import BidiStreamHandler, ClientStreamHandler, ServerStreamHandler, UnaryHandler
 from google.protobuf.descriptor import MethodDescriptor, ServiceDescriptor
 
 from .. import service_pb2

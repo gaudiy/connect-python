@@ -14,7 +14,7 @@ Connect is a simple, reliable, and interoperable RPC framework that combines the
 ## Installation
 
 ```bash
-pip install connect-py
+pip install connectpy
 ```
 
 **⚠️ Dependency Notice**: For gRPC/gRPC-Web support, this package uses forked libraries:
@@ -266,7 +266,7 @@ This project includes a Protocol Buffer plugin (`protoc-gen-connect-python`) wri
 
 ## Contributing
 
-We warmly welcome and greatly value contributions to the connect-py. However, before diving in, we kindly request that you take a moment to review our Contribution Guidelines.
+We warmly welcome and greatly value contributions to the connectpy. However, before diving in, we kindly request that you take a moment to review our Contribution Guidelines.
 
 Additionally, please carefully read the Contributor License Agreement (CLA) before submitting your contribution to Gaudiy. By submitting your contribution, you are considered to have accepted and agreed to be bound by the terms and conditions outlined in the CLA, regardless of circumstances.
 

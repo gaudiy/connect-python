@@ -300,9 +300,11 @@ class Client[T_Request, T_Response]:
 
             conn.on_request_send(on_request_send)
 
-            await conn.send(request.messages, call_options.timeout, call_options.abort_event)
+            await conn.send(request.messages, call_options.timeout, call_options.abort_event, request.matadata)
 
-            response = await receive_stream_response(conn, output, request.spec, call_options.abort_event)
+            response = await receive_stream_response(
+                conn, output, request.spec, call_options.abort_event, request.matadata
+            )
             return response
 
         stream_func = apply_interceptors(_stream_func, options.interceptors)

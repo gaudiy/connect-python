@@ -117,6 +117,7 @@ class RequestCommon:
     _peer: Peer
     _headers: Headers
     _method: str
+    matadata: dict[str, Any] | None = None
 
     def __init__(
         self,
@@ -124,6 +125,7 @@ class RequestCommon:
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        matadata: dict[str, Any] | None = None,
     ) -> None:
         """Initializes the RPC context.
 
@@ -150,6 +152,7 @@ class RequestCommon:
         self._peer = peer if peer else Peer(address=None, protocol="", query={})
         self._headers = headers if headers is not None else Headers()
         self._method = method if method else HTTPMethod.POST.value
+        self.matadata = matadata if matadata is not None else {}
 
     @property
     def spec(self) -> Spec:
@@ -245,6 +248,7 @@ class StreamRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Initializes a new request.
 
@@ -256,7 +260,13 @@ class StreamRequest[T](RequestCommon):
             headers: The headers associated with the request. Defaults to None.
             method: The method name for the request. Defaults to None.
         """
-        super().__init__(spec, peer, headers, method)
+        super().__init__(
+            spec,
+            peer,
+            headers,
+            method,
+            metadata,
+        )
         self._messages = content if isinstance(content, AsyncIterable) else aiterate([content])
 
     @property
@@ -314,6 +324,7 @@ class UnaryRequest[T](RequestCommon):
         peer: Peer | None = None,
         headers: Headers | None = None,
         method: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Initializes the request object.
 
@@ -324,7 +335,7 @@ class UnaryRequest[T](RequestCommon):
             headers (Headers | None, optional): The request headers. Defaults to None.
             method (str | None, optional): The request method. Defaults to None.
         """
-        super().__init__(spec, peer, headers, method)
+        super().__init__(spec, peer, headers, method, metadata)
         self._message = content
 
     @property
@@ -890,7 +901,9 @@ class StreamingClientConn(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def receive(self, message: Any, abort_event: asyncio.Event | None) -> AsyncIterator[Any]:
+    def receive(
+        self, message: Any, abort_event: asyncio.Event | None, metadata: dict[str, Any] | None = None
+    ) -> AsyncIterator[Any]:
         """Asynchronously receives a stream of messages.
 
         This method sends an initial message and then listens for a stream of
@@ -928,7 +941,11 @@ class StreamingClientConn(abc.ABC):
 
     @abc.abstractmethod
     async def send(
-        self, messages: AsyncIterable[Any], timeout: float | None, abort_event: asyncio.Event | None
+        self,
+        messages: AsyncIterable[Any],
+        timeout: float | None,
+        abort_event: asyncio.Event | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """Asynchronously sends a stream of messages.
 
@@ -1112,7 +1129,11 @@ async def receive_unary_response[T](
 
 
 async def receive_stream_response[T](
-    conn: StreamingClientConn, t: type[T], spec: Spec, abort_event: asyncio.Event | None
+    conn: StreamingClientConn,
+    t: type[T],
+    spec: Spec,
+    abort_event: asyncio.Event | None,
+    metadata: dict[str, Any] | None = None,
 ) -> StreamResponse[T]:
     """Receives a streaming response from the server.
 
@@ -1132,12 +1153,14 @@ async def receive_stream_response[T](
             headers, and trailers.
     """
     if spec.stream_type == StreamType.ClientStream:
-        single_message = await ensure_single(conn.receive(t, abort_event))
+        single_message = await ensure_single(conn.receive(t, abort_event, metadata))
 
         return StreamResponse(
             AsyncDataStream[T](aiterate([single_message]), conn.aclose), conn.response_headers, conn.response_trailers
         )
     else:
         return StreamResponse(
-            AsyncDataStream[T](conn.receive(t, abort_event), conn.aclose), conn.response_headers, conn.response_trailers
+            AsyncDataStream[T](conn.receive(t, abort_event, metadata), conn.aclose),
+            conn.response_headers,
+            conn.response_trailers,
         )

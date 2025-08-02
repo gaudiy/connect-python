@@ -76,7 +76,7 @@ class GRPCUnmarshaler(EnvelopeReader):
         self.web = web
         self._web_trailers = None
 
-    async def unmarshal(self, message: Any) -> AsyncIterator[tuple[Any, bool]]:
+    async def unmarshal(self, message: Any, metadata: dict[str, Any] | None = None) -> AsyncIterator[tuple[Any, bool]]:
         """Asynchronously unmarshals a message and yields objects along with an end flag.
 
         Iterates over the result of the superclass's `unmarshal` method, processing each object and its corresponding end flag.
@@ -92,6 +92,7 @@ class GRPCUnmarshaler(EnvelopeReader):
         Raises:
             ConnectError: If the envelope is empty or has invalid flags.
         """
+        test_name = metadata.get("test_name", "unknown") if metadata else "unknown"
         async for obj, end in super().unmarshal(message):
             if end:
                 env = self.last
@@ -120,6 +121,9 @@ class GRPCUnmarshaler(EnvelopeReader):
                     else:
                         trailers[name] = value
 
+                import sys
+
+                print(f"[{test_name}] Received trailers", file=sys.stderr)
                 self._web_trailers = trailers
 
             yield obj, end

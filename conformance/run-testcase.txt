@@ -1,0 +1,1 @@
+Errors/HTTPVersion:1/Protocol:PROTOCOL_GRPC_WEB/Codec:CODEC_PROTO/Compression:COMPRESSION_GZIP/TLS:false/(grpc server impl)/bidi-stream/half-duplex/error-with-no-responses

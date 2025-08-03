@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: connect-python
+spec:
+  template:
+    spec:
+      containers:
+        - name: connect-python
+          image: asia-northeast1-docker.pkg.dev/gaudiy-containers/connect/connect-python

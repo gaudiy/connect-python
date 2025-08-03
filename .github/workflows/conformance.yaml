@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   server:
-    runs-on: ubuntu-2404-4-cores
+    runs-on: ubuntu-latest
 
     steps:
       # https://github.com/actions/checkout
@@ -58,7 +58,7 @@ jobs:
           connectconformance --trace --vv --conf ./server_config.yaml --mode server --known-flaky @./server_known_flaky.yaml -- uv run python server_runner.py
 
   client:
-    runs-on: ubuntu-2404-4-cores
+    runs-on: ubuntu-latest
 
     steps:
       # https://github.com/actions/checkout

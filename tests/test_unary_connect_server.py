@@ -23,10 +23,10 @@ import zlib
 
 import pytest
 
-from gconnect.connect import UnaryRequest, UnaryResponse
-from gconnect.handler_context import HandlerContext
-from gconnect.idempotency_level import IdempotencyLevel
-from gconnect.options import HandlerOptions
+from connectrpc.connect import UnaryRequest, UnaryResponse
+from connectrpc.handler_context import HandlerContext
+from connectrpc.idempotency_level import IdempotencyLevel
+from connectrpc.options import HandlerOptions
 from tests.conftest import AsyncClient
 from tests.testdata.ping.v1.ping_pb2 import PingRequest, PingResponse
 from tests.testdata.ping.v1.v1connect.ping_connect import PingServiceHandler

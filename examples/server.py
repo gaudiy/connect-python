@@ -21,9 +21,9 @@ from collections.abc import AsyncIterator
 
 import hypercorn
 import hypercorn.asyncio
-from gconnect.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
-from gconnect.handler_context import HandlerContext
-from gconnect.middleware import ConnectMiddleware
+from connectrpc.connect import StreamRequest, StreamResponse, UnaryRequest, UnaryResponse
+from connectrpc.handler_context import HandlerContext
+from connectrpc.middleware import ConnectMiddleware
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 

@@ -88,7 +88,7 @@ func runClient() error {
 		req := connect.NewRequest(&elizav1.SayRequest{
 			Sentence: "Hi",
 		})
-		req.Header().Set("Some-Header", "hello from gconnect")
+		req.Header().Set("Some-Header", "hello from connectrpc")
 		res, err := client.Say(ctx, req)
 		if err != nil {
 			return err

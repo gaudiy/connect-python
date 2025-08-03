@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-2404-4-cores
+    runs-on: ubuntu-latest
 
     steps:
       # https://github.com/actions/checkout
@@ -42,7 +42,7 @@ jobs:
           uv run ruff format --check src
 
   test:
-    runs-on: ubuntu-2404-4-cores
+    runs-on: ubuntu-latest
 
     steps:
       # https://github.com/actions/checkout

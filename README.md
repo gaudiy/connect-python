@@ -270,7 +270,7 @@ We warmly welcome and greatly value contributions to the connectrpc. However, be
 
 Additionally, please carefully read the Contributor License Agreement (CLA) before submitting your contribution to Gaudiy. By submitting your contribution, you are considered to have accepted and agreed to be bound by the terms and conditions outlined in the CLA, regardless of circumstances.
 
-https://site.gaudiy.com/contributor-license-agreement
+https://gaudiy.com/policies/cotributor-license-agreement
 
 ## License
 

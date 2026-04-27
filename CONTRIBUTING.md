@@ -1,6 +1,6 @@
 # Contributing to Connect Python
 
-Thank you for contributing to connect-python! Please read the [Contributor License Agreement (CLA)](https://site.gaudiy.com/contributor-license-agreement) before submitting any contributions.
+Thank you for contributing to connect-python! Please read the [Contributor License Agreement (CLA)](https://gaudiy.com/policies/cotributor-license-agreement) before submitting any contributions.
 
 ## Development Setup
 

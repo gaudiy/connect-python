@@ -1,6 +1,6 @@
 module github.com/gaudiy/connect-python/examples
 
-go 1.24
+go 1.25.0
 
 require (
 	connectrpc.com/connect v1.18.1
@@ -8,8 +8,8 @@ require (
 	connectrpc.com/grpcreflect v1.3.0
 	github.com/rs/cors v1.11.1
 	github.com/spf13/pflag v1.0.6
-	golang.org/x/net v0.39.0
+	golang.org/x/net v0.55.0
 	google.golang.org/protobuf v1.36.6
 )
 
-require golang.org/x/text v0.24.0 // indirect
+require golang.org/x/text v0.37.0 // indirect
